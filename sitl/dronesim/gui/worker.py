@@ -48,6 +48,7 @@ def worker_main(conn, scenario_dict, speed):
     conn.send(('ready', info))
     paused = False
     done_sent = False
+    stopped = False
     wall_last = REAL_PERF()
     tel_last = 0.0
     topics_last = 0.0
@@ -56,8 +57,14 @@ def worker_main(conn, scenario_dict, speed):
             while conn.poll():
                 msg = conn.recv()
                 kind = msg[0]
-                if kind == 'stop':
+                if kind == 'quit':
                     raise SystemExit
+                if kind == 'stop':
+                    # stop flying, but keep the run so Save (and the topic echo) still work
+                    stopped = True
+                    if not done_sent:
+                        done_sent = True
+                        conn.send(('done', sim.result()))
                 if kind == 'pause':
                     paused = True
                 elif kind == 'resume':
@@ -78,7 +85,7 @@ def worker_main(conn, scenario_dict, speed):
                     sim.save(msg[1])
                     conn.send(('saved', msg[1]))
             now = REAL_PERF()
-            running = not paused and not sim.done()
+            running = not paused and not stopped and not sim.done()
             if running:
                 if speed is None:
                     sim.step(0.05)
@@ -98,7 +105,7 @@ def worker_main(conn, scenario_dict, speed):
                 snap = sim.snapshot()
                 snap['est'] = sim.estimates_in_course()
                 snap['paused'] = paused
-                snap['done'] = sim.done()
+                snap['done'] = sim.done() or stopped
                 batch = logs[:]
                 logs.clear()
                 conn.send(('tel', snap, batch))

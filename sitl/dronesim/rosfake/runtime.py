@@ -563,7 +563,7 @@ class SimRuntime:
         node = getattr(self.tls, 'executing_node', None)
         if node is not None:
             # A callback sleeping blocks its executor: delay that node's work.
-            node.sim_busy_ns += int(round(seconds * NS))
+            node._sim_busy_ns += int(round(seconds * NS))
             return
         REAL_SLEEP(seconds)
 

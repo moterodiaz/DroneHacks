@@ -29,9 +29,33 @@ class PilotScript:
         self.done = set()
         self.overrides = {}          # channel -> value, set by the GUI / faults
         self.log = []
+        self._rearm_at = None        # the return: when to re-arm after the pad disarm
+
+    def rearm_for_return(self, t):
+        """The return (rule 7.10): the kit cannot arm, so the safety pilot re-arms on the pad --
+        the arm switch off and on again (PX4 arms on its edge) on Altitude, throttle low -- then
+        switches to Position: a new arming, so the kit makes a new Offboard attempt."""
+        self._rearm_at = t
 
     def update(self, t):
         rc = self.rc
+        if self.enabled and self._rearm_at is not None and t >= self._rearm_at:
+            step = 'rearm' if 'rearm' not in self.done else ('rearm-on' if 'rearm-on' not in self.done else
+                                                              ('rearm-pos' if 'rearm-pos' not in self.done else None))
+            if step == 'rearm':
+                self.done.add('rearm')
+                rc.arm_switch = False
+                rc.mode_slot = SLOT['altitude']
+                rc.throttle = -1.0
+                self.log.append((t, 'pilot: arm switch OFF for the return'))
+            elif step == 'rearm-on' and t >= self._rearm_at + 0.5:
+                self.done.add('rearm-on')
+                rc.arm_switch = True
+                self.log.append((t, 'pilot: arm switch ON for the return (mode Altitude, throttle low)'))
+            elif step == 'rearm-pos' and t >= self._rearm_at + 0.5 + self.position_after_s:
+                self.done.add('rearm-pos')
+                rc.mode_slot = SLOT['position']
+                self.log.append((t, 'pilot: mode switch -> Position for the return (hands off)'))
         if self.enabled:
             if 'arm' not in self.done and t >= self.arm_at_s:
                 self.done.add('arm')

@@ -123,6 +123,15 @@ class MS200Device:
     def write(self, data):
         pass        # motor-speed commands are accepted and ignored
 
+    def set_enabled(self, on, now_s):
+        """Switch the sensor's output. While it is off it still keeps time, so switching it back
+        on resumes with fresh frames instead of replaying every frame of the outage."""
+        on = bool(on)
+        if on and not self.cfg['enabled'] and self.next_frame_t is not None:
+            self.next_frame_t = now_s + self.frame_period
+            self.buf.clear()
+        self.cfg['enabled'] = on
+
     def _burst_after(self, t):
         b = self.cfg['usb_burst_s']
         return (math.floor(t / b) + 1) * b

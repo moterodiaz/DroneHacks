@@ -70,7 +70,7 @@ class ArchiveOnceTest(unittest.TestCase):
 
     def test_an_interrupted_extraction_is_replaced_not_reused(self):
         with tempfile.TemporaryDirectory() as root:
-            dest = os.path.join(root, self.sha[:12])
+            dest = catalog.tree_dir(root, self.sha, self.pkgs)
             os.makedirs(os.path.join(dest, 'sitl'))
             with open(os.path.join(dest, 'sitl', 'half-written.py'), 'w', encoding='utf-8') as fh:
                 fh.write('# interrupted\n')
@@ -78,6 +78,42 @@ class ArchiveOnceTest(unittest.TestCase):
             self.assertTrue(os.path.isfile(os.path.join(dest, '.complete')))
             self.assertFalse(os.path.exists(os.path.join(dest, 'sitl', 'half-written.py')))
             self.assertEqual(os.listdir(root), [os.path.basename(dest)])
+
+
+    def test_two_package_selections_of_one_commit_get_their_own_trees(self):
+        # manual_full and manual_square share a commit but archive different directories
+        with tempfile.TemporaryDirectory() as root:
+            a = catalog._archive_once(REPO_ROOT, self.sha, ['sitl/course'], root)
+            b = catalog._archive_once(REPO_ROOT, self.sha, ['sitl/tests'], root)
+            self.assertNotEqual(a, b)
+            self.assertTrue(os.path.isdir(os.path.join(a, 'sitl', 'course')))
+            self.assertTrue(os.path.isfile(os.path.join(b, 'sitl', 'tests', 'test_cache.py')))
+            self.assertFalse(os.path.exists(os.path.join(a, 'sitl', 'tests')))
+
+    def test_a_published_tree_is_never_moved_aside(self):
+        with tempfile.TemporaryDirectory() as root:
+            dest = catalog._archive_once(REPO_ROOT, self.sha, self.pkgs, root)
+            sentinel = os.path.join(dest, 'in-use')
+            open(sentinel, 'w').close()
+            self.assertEqual(catalog._archive_once(REPO_ROOT, self.sha, self.pkgs, root), dest)
+            self.assertTrue(os.path.isfile(sentinel))
+
+    def test_without_the_tar_filter_unsafe_members_are_refused(self):
+        import io
+        import tarfile
+        for name, kind in (('../outside.txt', tarfile.REGTYPE), ('/abs.txt', tarfile.REGTYPE),
+                           ('link', tarfile.SYMTYPE)):
+            buf = io.BytesIO()
+            with tarfile.open(fileobj=buf, mode='w') as tf:
+                info = tarfile.TarInfo(name)
+                info.type = kind
+                if kind == tarfile.SYMTYPE:
+                    info.linkname = '../../etc/passwd'
+                tf.addfile(info, io.BytesIO(b'') if kind == tarfile.REGTYPE else None)
+            buf.seek(0)
+            with tempfile.TemporaryDirectory() as dest, tarfile.open(fileobj=buf) as tf:
+                with self.assertRaises(catalog.VersionError, msg=name):
+                    catalog._extract(tf, dest, use_filter=False)
 
 
 class SpeedCapTest(unittest.TestCase):

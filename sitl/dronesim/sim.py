@@ -69,6 +69,9 @@ class Scenario:
     pilot_arm_at_s: float = 15.0
     pilot_position_after_s: float = 2.0
     pilot_script: bool = True
+    # the optional return (a version whose options enable it): the pilot re-arms this long after
+    # the outbound pad disarm; None: the pilot never does
+    pilot_rearm_for_return_s: float = 3.0
     faults: list = field(default_factory=list)
     env: dict = field(default_factory=dict)
     agent_start_s: float = 1.5
@@ -204,6 +207,15 @@ class Simulation:
         self.history = TruthHistory()
         self.vo = CuVslamModel(rt, self.physics, self.course, rng, sc.vo,
                                camera_flu=self.airframe.camera_xyz_flu)
+        # EKF2 drops a vision sample older than its delay buffer (EKF2_DELAY_MAX) once EKF2_EV_DELAY
+        # is taken off its capture time: past that latency PX4 has no position at all
+        window = (self.params.f('EKF2_DELAY_MAX') - self.params.f('EKF2_EV_DELAY')) / 1000.0 + 0.05
+        lat = self.vo.cfg['latency_mean_s']
+        if lat + 2.0 * self.vo.cfg['latency_std_s'] > window:
+            self.run_notes.append(
+                f'WARNING cuVSLAM latency {lat:.3f} s is past EKF2\'s delay window ({window:.3f} s = '
+                f'EKF2_DELAY_MAX - EKF2_EV_DELAY + 50 ms): PX4 drops vision samples as too old'
+                + (' -- every one, so it has no position' if lat > window else ''))
         self.oak = OakSide(rt, self.physics, rng, camera_pose=(self.airframe.camera_xyz_flu[0],
                                                                self.airframe.camera_xyz_flu[1],
                                                                self.airframe.camera_xyz_flu[2], 0.0, 0.0, 0.0))
@@ -215,6 +227,12 @@ class Simulation:
         self.pilot = PilotScript(self.px4.rc, arm_at_s=sc.pilot_arm_at_s, position_after_s=sc.pilot_position_after_s,
                                  enabled=sc.pilot_script)
         self.referee = Referee(self.course, os.path.join(SITL_ROOT, 'course', 'course_v3_rules.json'), self.airframe)
+        # a version's options can enable the optional return (its follower's return_flight)
+        self.return_enabled = any(bool(v.get('return_flight')) for v in (self.version_params or {}).values())
+        self._rearm_scheduled = False
+        if self.return_enabled:
+            self.run_notes.append('optional return enabled: the scripted pilot re-arms '
+                                  f'{self.sc.pilot_rearm_for_return_s} s after the pad disarm')
         # workspace: kit underlay + team overlay, built like colcon.  One fresh directory per
         # simulation (the pid alone is reused by Windows and by GUI runs), removed when the run
         # closes; trees left by crashed runs are removed once they are a few hours old.
@@ -315,8 +333,7 @@ class Simulation:
         if n % 10 == 0:
             self.pilot.update(t)
         px4.step_fast(t, dt)
-        if self.wind != (0.0, 0.0) or t < self._ext_force_until:
-            self._apply_external(t)
+        self.physics.ext_force_world = self._external_force(t)
         self.physics.step(dt, px4.motor_cmds, px4.commander.armed)
         s = self.physics.state
         self.history.add(t, s.pos, s.q)
@@ -331,9 +348,10 @@ class Simulation:
         if n % 25 == 0:
             self.trajectory.append(self._sample(t))
 
-    def _apply_external(self, t):
+    def _external_force(self, t):
+        """Wind and pushes as a force on the airframe (N, NED). The physics adds it to the force
+        sum, so the motion it causes is in the IMU's specific force, as on a real drone."""
         s = self.physics.state
-        m = self.airframe.mass_kg
         fx, fy, fz = 0.0, 0.0, 0.0
         if self.wind != (0.0, 0.0):
             # wind as a drag force on the relative air velocity (course east/north -> NED)
@@ -344,7 +362,7 @@ class Simulation:
             fx += self._ext_force[0]
             fy += self._ext_force[1]
             fz += self._ext_force[2]
-        s.vel = (s.vel[0] + fx / m * self.DT, s.vel[1] + fy / m * self.DT, s.vel[2] + fz / m * self.DT)
+        return (fx, fy, fz)
 
     def _referee(self, t):
         s = self.physics.state
@@ -362,7 +380,14 @@ class Simulation:
             self.referee.add_violation(cm.acro_violation[0], 'Acro mode requested (AGENTS.md section 3.6)')
         if self.referee.ended and self.finished_at is None:
             self.finished_at = t
-        if self.referee.t_finish and self.finished_at is None:
+        if self.referee.t_finish and self.return_enabled:
+            # the run goes on for the return (rule 7.10: the run ends when the return ends)
+            if not self._rearm_scheduled and self.sc.pilot_rearm_for_return_s is not None:
+                self._rearm_scheduled = True
+                self.pilot.rearm_for_return(self.referee.t_finish + float(self.sc.pilot_rearm_for_return_s))
+            if self.referee.return_over and self.finished_at is None:
+                self.finished_at = t
+        elif self.referee.t_finish and self.finished_at is None:
             self.finished_at = t
 
     def _sample(self, t):
@@ -396,7 +421,7 @@ class Simulation:
             self.vo.cfg['force_lost'] = False
         elif what == 'lidar':
             if self.lidar is not None:
-                self.lidar.cfg['enabled'] = bool(cmd.get('value', True))
+                self.lidar.set_enabled(cmd.get('value', True), t)
         elif what == 'push':
             fx, fy, fz = cmd.get('force_n', (3.0, 0.0, 0.0))
             self._ext_force = course_to_ned_vec((fx, fy, fz))
@@ -466,7 +491,8 @@ class Simulation:
                     'hover_thrust': px4.hover_thrust(), 'thrust': -px4.att_sp_thrust,
                     'ekf': {'xy_valid': lp.get('xy_valid'), 'z_valid': lp.get('z_valid'), 'eph': lp.get('eph'),
                             'x': lp.get('x'), 'y': lp.get('y'), 'z': lp.get('z'), 'heading': lp.get('heading'),
-                            'ev': px4.ekf.ev_active, 'ev_status': px4.ev_status, 'rng_ref': px4.ekf.rng_is_ref,
+                            'ev': px4.ekf.ev_active, 'ev_status': px4.ev_status, 'ev_counts': dict(px4.ev_counts),
+                            'rng_ref': px4.ekf.rng_is_ref,
                             'dist_bottom': lp.get('dist_bottom'), 'dead_reckoning': lp.get('dead_reckoning')},
                     'setpoint': ({'pos': traj['position'], 'vel': traj['velocity'], 'yaw': traj['yaw'],
                                   'age': round(px4.t - traj['t'], 2)} if traj else None),
@@ -535,9 +561,14 @@ class Simulation:
             return repr(st.last_msg)
 
     def result(self):
+        err = sorted(self.vo.errors)
+        vision = {'fusion': dict(self.px4.ev_counts),
+                  'cuvslam_error_median_m': round(err[len(err) // 2], 3) if err else None,
+                  'cuvslam_error_max_m': round(err[-1], 3) if err else None,
+                  'cuvslam_losses': self.vo.lost_events}
         return {
             'version': self.version['id'], 'label': self.version['label'], 'provenance': self.provenance,
-            'notes': list(self.run_notes), 'scenario': self.sc.to_dict(), 'param_profile': self.params.profile,
+            'notes': list(self.run_notes), 'vision': vision, 'scenario': self.sc.to_dict(), 'param_profile': self.params.profile,
             'sim_time_s': round(self.t, 2), 'referee': self.referee.summary(),
             'events': [(round(a, 2), b) for a, b in self.referee.events],
             'install_config': [{'file': f, 'node': n, 'values': v} for f, n, v in self.config_written],

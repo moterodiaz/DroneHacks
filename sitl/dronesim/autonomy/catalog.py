@@ -11,6 +11,7 @@ A version is loaded from ``sitl/versions.yaml`` (see that file's header).  Sourc
 from __future__ import annotations
 
 import copy
+import hashlib
 import io
 import os
 import shutil
@@ -88,21 +89,32 @@ def materialize(repo_root, version, cache_root):
     raise VersionError(f"version {version.get('id')}: no source")
 
 
-def _archive_once(repo_root, sha, pkgs, src_root):
-    """Extract ``git archive <sha> -- <pkgs>`` to ``<src_root>/<sha12>`` exactly once.
+def tree_dir(src_root, sha, pkgs):
+    """Where ``_archive_once`` puts the tree of *pkgs* at *sha*."""
+    key = hashlib.sha1('\n'.join(sorted(pkgs)).encode('utf-8')).hexdigest()[:8]
+    return os.path.join(src_root, f'{sha[:12]}-{key}')
 
-    Several simulator processes may ask for the same commit at the same moment.  Each
-    extracts into its own temporary directory and renames it into place; the first
-    rename wins, and the losers delete their copy.  Nobody ever reads a half-written tree.
-    A directory without its ``.complete`` marker (an older, interrupted extraction) is
-    moved aside the same way, never written into.
+
+def _archive_once(repo_root, sha, pkgs, src_root):
+    """Extract ``git archive <sha> -- <pkgs>`` to ``<src_root>/<sha12>-<packages hash>`` exactly once.
+
+    The key includes the package selection: two versions on one commit may archive different
+    package directories (``manual_full`` and ``manual_square``), and must not share a tree.
+
+    Several simulator processes may ask for the same tree at the same moment.  Each extracts
+    into its own temporary directory, writes the ``.complete`` marker into it and renames it into
+    place; the first rename wins, and the losers delete their copy.  So a published tree has its
+    marker from the moment it exists, and nobody ever reads a half-written one.  A directory
+    without the marker can only be an older, interrupted extraction: it is moved aside, never
+    written into.  The marker is checked again just before that, so a tree another process
+    published since the first check is used, never removed.
     """
     os.makedirs(src_root, exist_ok=True)
-    dest = os.path.join(src_root, sha[:12])
+    dest = tree_dir(src_root, sha, pkgs)
     marker = os.path.join(dest, '.complete')
     if os.path.isfile(marker):
         return dest
-    if os.path.isdir(dest):
+    if os.path.isdir(dest) and not os.path.isfile(marker):
         stale = tempfile.mkdtemp(dir=src_root, prefix=f'{sha[:12]}.stale-')
         try:
             os.replace(dest, os.path.join(stale, 'tree'))
@@ -115,10 +127,7 @@ def _archive_once(repo_root, sha, pkgs, src_root):
     try:
         data = _git(repo_root, 'archive', '--format=tar', sha, '--', *pkgs, binary=True)
         with tarfile.open(fileobj=io.BytesIO(data)) as tf:
-            try:
-                tf.extractall(tmp, filter='data')
-            except TypeError:              # Python < 3.12
-                tf.extractall(tmp)
+            _extract(tf, tmp)
         with open(os.path.join(tmp, '.complete'), 'w', encoding='utf-8') as fh:
             fh.write(sha + '\n')
         try:
@@ -130,6 +139,33 @@ def _archive_once(repo_root, sha, pkgs, src_root):
         if os.path.isdir(tmp):
             shutil.rmtree(tmp, ignore_errors=True)
     return dest
+
+
+def _extract(tf, dest, use_filter=None):
+    """Extract a tar safely: the ``data`` filter where Python has it (3.12, 3.11.4+, 3.10.12+),
+    else a check of every member first -- no absolute or ``..`` paths, no device files, and no
+    link that points outside ``dest``."""
+    if use_filter is None:
+        use_filter = hasattr(tarfile, 'data_filter')
+    if use_filter:
+        tf.extractall(dest, filter='data')
+        return
+    root = os.path.realpath(dest)
+
+    def inside(p):
+        p = os.path.realpath(p)
+        return p == root or p.startswith(root + os.sep)
+    for m in tf.getmembers():
+        target = os.path.join(dest, m.name)
+        if os.path.isabs(m.name) or not inside(target) or m.isdev():
+            raise VersionError(f'refusing archive member {m.name!r}')
+        if m.issym() or m.islnk():
+            link = m.linkname if os.path.isabs(m.linkname) else os.path.join(os.path.dirname(target), m.linkname)
+            if m.islnk():
+                link = os.path.join(dest, m.linkname)
+            if not inside(link):
+                raise VersionError(f'refusing archive link {m.name!r} -> {m.linkname!r}')
+    tf.extractall(dest)
 
 
 def kit_package_dirs(repo_root):

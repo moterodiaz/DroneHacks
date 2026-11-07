@@ -131,6 +131,26 @@ class RuntimeTests(unittest.TestCase):
         with self.assertRaises(InvalidQoSProfileException):
             QoSProfile()
 
+    def test_a_callback_that_sleeps_delays_its_node_instead_of_failing(self):
+        import time
+        rosfake.patch_globals()
+        ticks = []
+
+        def main():
+            rclpy.init()
+            node = rclpy.create_node('sleeper')
+
+            def cb():
+                ticks.append(time.monotonic())
+                time.sleep(0.5)                  # inside spin(): blocks this node's executor
+            node.create_timer(0.1, cb)
+            rclpy.spin(node)
+        proc = self.run_node(main)
+        self.rt.run_until(int(3e9))
+        self.assertGreaterEqual(len(ticks), 3, getattr(proc, 'exit_code', None))
+        gaps = [b - a for a, b in zip(ticks, ticks[1:])]
+        self.assertGreaterEqual(min(gaps), 0.49)
+
     def test_time_sleep_is_simulated(self):
         import time
         rosfake.patch_globals()

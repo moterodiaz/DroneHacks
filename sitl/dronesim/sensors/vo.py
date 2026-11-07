@@ -110,6 +110,7 @@ class CuVslamModel:
         self.feature_score = 0.0
         self.lost_events = 0
         self.last_odom = None              # (t_capture, x, y, z, yaw) for telemetry
+        self.errors = []                   # each published pose's horizontal error (m) at its capture
         self._tube = self._tube_geometry()
         self._ray_dirs_cam = self._make_rays()
         rt.after(self.cfg['start_delay_s'], self._frame)
@@ -338,6 +339,13 @@ class CuVslamModel:
         tf_odom.transform.rotation = od.pose.pose.orientation
         tfm = self.TFMessage(transforms=[tf_map, tf_odom])
         self.last_odom = (t_ns / 1e9, x, y, z, 2 * math.atan2(q[3], q[0]))
+        # the drift a consumer sees: this pose against the truth when it was captured (latency
+        # does not add to it; it only decides whether PX4 still uses the sample)
+        (ox, oy, _oz), heading = self.odom_frame()
+        tc = ned_to_course(s.pos)
+        ex = ox + math.cos(heading) * x - math.sin(heading) * y - tc[0]
+        ey = oy + math.sin(heading) * x + math.cos(heading) * y - tc[1]
+        self.errors.append(math.hypot(ex, ey))
         return od, ps, pc, tfm
 
     def _publish(self, msgs):

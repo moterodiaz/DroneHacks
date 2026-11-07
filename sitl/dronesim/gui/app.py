@@ -171,8 +171,8 @@ class App:
         field(7, 'Calibration error pos (m, 1-sigma)', 'calib_pos_error_m', 0.0)
         field(8, 'Calibration error yaw (deg)', 'calib_yaw_error_deg', 0.0)
         field(9, 'Tunnel lighting', 'tunnel_lighting', 'dark', choices=['dark', 'dim', 'lit'])
-        field(10, 'cuVSLAM drift x (1 = nominal)', 'vo_drift', 1.0)
-        field(11, 'cuVSLAM latency mean (s)', 'vo_latency', 0.062)
+        field(10, 'cuVSLAM drift x (1: a few cm; 3+: touches)', 'vo_drift', 1.0)
+        field(11, 'cuVSLAM latency mean (s; PX4 drops vision past ~0.18)', 'vo_latency', 0.062)
         field(12, 'EKF2_EV_DELAY override (ms, blank)', 'ev_delay', '')
         field(13, 'Other PX4 overrides (N=v, ...)', 'param_overrides', '')
         field(14, 'Wind east, north (m/s)', 'wind', '0, 0')
@@ -506,7 +506,8 @@ class App:
     # ------------------------------------------------------------------------------------------
     def start(self):
         if self.proc is not None:
-            return
+            self._send(('quit',))           # the last run, kept after Stop for Save
+            self._finish_proc()
         if self.map is None:
             messagebox.showinfo('SITL', 'The course is still loading (first start builds the STEP cache, ~40 s).')
             return
@@ -549,8 +550,12 @@ class App:
         self.pause_btn.configure(text='Resume' if self._paused else 'Pause')
 
     def stop(self):
+        """Stop flying. The worker keeps the run, so it can still be saved; Start or closing
+        the window ends it."""
         self._send(('stop',))
-        self._finish_proc()
+        self.pause_btn.configure(state='disabled')
+        self.stop_btn.configure(state='disabled')
+        self.start_btn.configure(state='normal')
 
     def save(self):
         d = filedialog.askdirectory(title='Save the run into a folder', initialdir=os.path.join(SITL_ROOT, 'runs'))
@@ -567,6 +572,7 @@ class App:
         self.start_btn.configure(state='normal')
         self.pause_btn.configure(state='disabled')
         self.stop_btn.configure(state='disabled')
+        self.save_btn.configure(state='disabled')     # the run went with the worker
 
     def _send(self, msg):
         if self.conn is not None:
@@ -587,7 +593,8 @@ class App:
             self._send(('echo', sel[0]))
 
     def _on_close(self):
-        self.stop()
+        self._send(('quit',))
+        self._finish_proc()
         self.root.destroy()
 
     # ------------------------------------------------------------------------------------------
@@ -685,7 +692,9 @@ class App:
         e = px4['ekf']
         v['ekf'].set(f"{'valid' if e['xy_valid'] else 'INVALID'}  eph {e['eph'] or 0:.2f} m"
                      + ('  dead-reckoning' if e['dead_reckoning'] else ''))
-        v['ev'].set(f"{'active' if e['ev'] else 'off'}  last: {e['ev_status']}")
+        counts = e.get('ev_counts') or {}
+        v['ev'].set(f"{'active' if e['ev'] else 'off'}  last: {e['ev_status']}  "
+                    + "  ".join(f"{k} {n}" for k, n in sorted(counts.items())))
         db = e['dist_bottom']
         v['height'].set(f"{'range' if e['rng_ref'] else 'baro'}  {db if db is None else round(db, 2)} m")
         vo = s['vo']
@@ -766,7 +775,16 @@ class App:
         lines = ['', '=' * 70, 'RESULT', f"  sim time {r['sim_time_s']} s", f"  checkpoint points {ref['checkpoint_points']}",
                  f"  finished {ref['finished']}   time {ref['time_s']}   penalised {ref['penalised_time_s']}",
                  f"  touches {ref['touches']}   net contacts {ref['net_contacts']}", f"  ended {ref['ended']}",
-                 f"  violations {ref['violations']}", '', '  ' + ref['note'], '', 'EVENTS']
+                 f"  violations {ref['violations']}"]
+        vis = r.get('vision') or {}
+        if vis:
+            lines.append(f"  cuVSLAM error vs truth: median {vis.get('cuvslam_error_median_m')} m, max "
+                         f"{vis.get('cuvslam_error_max_m')} m; tracking losses {vis.get('cuvslam_losses')}; "
+                         f"PX4 vision samples {vis.get('fusion')}")
+        ret = ref.get('return') or {}
+        if ret.get('state'):
+            lines.append(f"  return {ret['state']}: {ret.get('reason') or ''}  (run points x {ret['run_points_multiplier']})")
+        lines += ['', '  ' + ref['note'], '', 'EVENTS']
         lines += [f'  {t:8.2f}  {e}' for t, e in r['events']]
         lines += ['', 'PROCESSES'] + [f"  {p['name']:24s} alive={p['alive']} exit={p['exit_code']}" for p in r['processes']]
         self.info_text.insert('end', '\n'.join(lines))

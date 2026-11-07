@@ -147,6 +147,7 @@ class Referee:
         self.launch_centre = self.course.centre_xy(self.rules['start']['marking'])
         ret = self.rules.get('return', {})
         self.return_within = float(ret.get('within_m', 0.6096))
+        self.return_time_limit_s = float(ret.get('time_limit_s', self.time_limit_s))
         # run state
         self.t_start = None
         self.t_finish = None
@@ -162,7 +163,14 @@ class Referee:
         self.chain_broken = None
         self._was_armed = False
         self.violations = []
+        # the optional return (rule 7.10), after the pad disarm: None (no attempt yet) -> 'flying'
+        # -> 'success' | 'failed'. It never changes the outbound result: a failure loses only the bonus.
         self.return_state = None
+        self.return_reason = None
+        self.return_t = None            # when it ended
+        self.return_distance_m = None   # from the launch mark's centre, at the disarm
+        self.return_touches = []
+        self._return_lifted = False
         self.events = []
 
     # -- gates --------------------------------------------------------------------------------------
@@ -216,6 +224,10 @@ class Referee:
         """pos_c: drone centre in course frame; yaw_c: CCW from east; frame_low_z: lowest frame point."""
         if self.ended:
             return
+        if self.t_finish is not None:
+            # the outbound run is over (pad disarm); only the optional return can follow
+            self._update_return(t, pos_c, armed, landed, contacts, feet, tilt_deg, frame_low_z)
+            return
         if self._start_pos is None:
             self._start_pos = pos_c
         # clock start: leave the launch mark
@@ -243,6 +255,15 @@ class Referee:
                 self._last_touch_t[c.name] = t
             elif c.kind in ('floor', 'marking', 'pad') and self.t_start is not None and c.part != 'gear':
                 self._end(t, f'crash: {c.part} hit the {c.kind}')
+        # the landing gear touching a wall, the tunnel or a boulder is a touch too (rule 7.8); the
+        # same solid within 0.5 s of a body contact is the same touch
+        for f in feet:
+            if f.kind in ('wall', 'tunnel', 'tunnel_support', 'boulder') and f.name:
+                last = self._last_touch_t.get(f.name)
+                if last is None or t - last > 0.5:
+                    self.touches.append((t, f.name))
+                    self.events.append((t, f'touch: {f.name} (+5 s, landing gear)'))
+                self._last_touch_t[f.name] = t
         if self.t_start is not None and armed is False and self._was_armed and self.t_finish is None and                 not self._inside_pad((pos_c[0], pos_c[1]), yaw_c):
             self._end(t, 'disarmed outside the pad (the run is over)')
         if armed:
@@ -280,6 +301,53 @@ class Referee:
                         break
             self._advance_official(t)
         self._prev_c = c_xy
+
+    def _update_return(self, t, pos_c, armed, landed, contacts, feet, tilt_deg, frame_low_z):
+        """Rule 7.10: take off again by itself, cross into the start area, land and disarm within
+        2 ft of the launch mark, inside the same 3-minute limit. The run ends when the return ends.
+        Walls may be overflown on the return (rule 7.7's exception), so that is not tracked."""
+        if self.return_state in ('success', 'failed'):
+            return
+        if self.return_state is None:
+            if armed and frame_low_z > 0.04:
+                self.return_state = 'flying'
+                self._return_lifted = True
+                self.events.append((t, 'return: took off again from the pad'))
+            elif t - self.t_start > self.return_time_limit_s:
+                self.return_state, self.return_reason, self.return_t = None, 'not attempted', t
+            return
+        # flying
+        for c in list(contacts) + list(feet):
+            if c.kind in ('wall', 'tunnel', 'tunnel_support', 'boulder'):
+                last = self._last_touch_t.get(c.name)
+                if last is None or t - last > 0.5:
+                    self.return_touches.append((t, c.name))
+                    self.events.append((t, f'return: touch {c.name}'))
+                self._last_touch_t[c.name] = t
+                if c.speed_into > 2.0 or (c.part.startswith('prop') and c.speed_into > 1.2):
+                    return self._return_end(t, 'failed', f'crash into {c.name} at {c.speed_into:.1f} m/s')
+        if tilt_deg > 75:
+            return self._return_end(t, 'failed', f'crash: tipped over ({tilt_deg:.0f} deg)')
+        if not self.course.inside_net(pos_c, margin=0.05):
+            return self._return_end(t, 'failed', 'left the course')
+        if t - self.t_start > self.return_time_limit_s:
+            return self._return_end(t, 'failed', '3-minute limit reached during the return')
+        if armed is False:
+            d = math.hypot(pos_c[0] - self.launch_centre[0], pos_c[1] - self.launch_centre[1])
+            self.return_distance_m = d
+            if d <= self.return_within:
+                return self._return_end(t, 'success', f'disarmed {d:.2f} m from the launch mark')
+            return self._return_end(t, 'failed', f'disarmed {d:.2f} m from the launch mark '
+                                                  f'(allowed {self.return_within:.2f} m)')
+
+    def _return_end(self, t, state, reason):
+        self.return_state, self.return_reason, self.return_t = state, reason, t
+        self.events.append((t, f'return {state.upper()}: {reason}'))
+
+    @property
+    def return_over(self):
+        """Whether nothing more can happen on the return (succeeded, failed or never attempted)."""
+        return self.return_state in ('success', 'failed') or self.return_reason == 'not attempted'
 
     def _advance_official(self, t):
         cps = self.checkpoints
@@ -365,7 +433,9 @@ class Referee:
                          'centre_crossed_s': rel(cp['centre_t']), 'whole_drone_s': rel(cp['whole_t'])})
         finished = self.t_finish is not None
         window = any(cp['route'] == 'window' for cp in self.checkpoints)
-        bonus = 5 if finished and window and not any(cp['over_wall'] for cp in self.checkpoints) else 0
+        # DRONEHACKS.md: "5 for a finished window-route run". Rule 7.7 cuts an over-wall
+        # checkpoint's own points to 15 %; it does not touch this bonus.
+        bonus = 5 if finished and window else 0
         raw_time = None
         if self.t_start is not None:
             end_t = self.t_finish or (self.ended[0] if self.ended else None)
@@ -385,6 +455,15 @@ class Referee:
             'max_frame_low_z': round(self.max_frame_low, 3),
             'chain_broken': ({'t': round(self.chain_broken[0], 2), 'at': self.chain_broken[1]}
                              if self.chain_broken else None),
+            'return': {
+                'state': self.return_state or ('not attempted' if self.return_reason == 'not attempted' else None),
+                'success': self.return_state == 'success',
+                'reason': self.return_reason,
+                'time_s': round(self.return_t - self.t_start, 2) if self.return_t and self.t_start is not None else None,
+                'distance_from_launch_m': round(self.return_distance_m, 3) if self.return_distance_m is not None else None,
+                'touches': len(self.return_touches),
+                'run_points_multiplier': 1.25 if self.return_state == 'success' else 1.0,
+            },
             'note': 'run_points = C + 20*(t_best/t) + window_bonus for a finished run, C + 7*(t_best/t) '
-                    'otherwise; t_best is the fastest team, unknown here.',
+                    'otherwise, x 1.25 after a successful return; t_best is the fastest team, unknown here.',
         }

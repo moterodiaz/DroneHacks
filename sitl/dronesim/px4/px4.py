@@ -76,6 +76,7 @@ class PX4:
         self.acks = collections.deque()
         self.ev_queue = collections.deque()
         self.ev_status = ''
+        self.ev_counts = {}          # vision samples by outcome: fused, rejected, too_old, reset, ...
         # outputs
         self.lpos_out = None
         self.att_q = (1.0, 0.0, 0.0, 0.0)
@@ -202,6 +203,7 @@ class PX4:
             ev = self.ev_queue.popleft()
             self.ev_status = ekf.fuse_ev(t, ev['sample_t'], ev['pos'], ev['yaw'], ev['pos_var'], ev['yaw_var'],
                                          ev['reset_counter'], ev['quality'])
+            self.ev_counts[self.ev_status] = self.ev_counts.get(self.ev_status, 0) + 1
         lpos = ekf.local_position()
         # velocity derivative for the D term (MPC_VELD_LP)
         vel = (lpos['vx'], lpos['vy'], lpos['vz'])

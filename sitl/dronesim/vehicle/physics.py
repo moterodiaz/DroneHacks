@@ -114,6 +114,7 @@ class QuadPhysics:
         self.contact_model = contact_model
         self.battery = Battery(cfg)
         self.motor_enabled = True             # False after a kill / lockdown / disarm
+        self.ext_force_world = (0.0, 0.0, 0.0)  # N, NED: wind and pushes, set by the simulation each step
         self.last_contact = None
         n = len(cfg.rotors)
         self.state.motors = [0.0] * n
@@ -160,7 +161,8 @@ class QuadPhysics:
         f_body = add(f_body, drag_body)
         f_world = q_rotate(q, f_body)
         m = cfg.mass_kg
-        f_world = (f_world[0], f_world[1], f_world[2] + m * G)
+        f_world = (f_world[0] + self.ext_force_world[0], f_world[1] + self.ext_force_world[1],
+                   f_world[2] + m * G + self.ext_force_world[2])
         torque = (tx - cfg.rot_damping * s.omega[0], ty - cfg.rot_damping * s.omega[1],
                   tz - cfg.rot_damping * s.omega[2])
         if self.contact_model is not None:

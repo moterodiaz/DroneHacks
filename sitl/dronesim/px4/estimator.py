@@ -302,10 +302,17 @@ class Ekf2Model:
         self.hist = collections.deque((t, hx + d[0], hy + d[1], hyaw, hz) for (t, hx, hy, hyaw, hz) in self.hist)
 
     # -- height ---------------------------------------------------------------------------------
+    #: No usable range reading for this long: range fusion has timed out (EKF2's range-height
+    #: timeout) and the barometer, bias-corrected while the range was in use, becomes the reference.
+    RNG_TIMEOUT_S = 0.5
+
     def fuse_range(self, t, range_m, valid, tilt_cos, landed):
         p = self.p
         if not valid or tilt_cos < 0.7:
             self.rng_hagl = None
+            self.rng_good_since = None            # back in use only after EKF2_RNG_QLTY_T of good data
+            if self.rng_is_ref and t - self.rng_t > self.RNG_TIMEOUT_S:
+                self.rng_is_ref = False           # fuse_baro now corrects the height
             return
         if landed and range_m < p.f('EKF2_MIN_RNG'):
             range_m = p.f('EKF2_MIN_RNG')

@@ -36,8 +36,8 @@ start builds the course caches from the STEP file, which takes about 40 s once.
 | MS200K lidar | **Byte-exact serial stream** on a virtual `/dev/ms200`: 47-byte frames, CRC-8, and each point raycast at its own time. The team's own driver parses it | the team's `course/ms200.py` |
 | Airframe | 6-DOF rigid body. Rotor geometry comes from `CA_ROTOR*`; motors, drag, ground effect, battery and the landing gear are modelled, and props and body collide with the mesh | `config` defaults in `vehicle/physics.py` |
 | Course | **The STEP file**: 33 solids tessellated from the B-rep, with names, so walls, the window, the tube, domed boulders, nets and the pad are all real geometry | `dronehacks-course-v3.step` |
-| Safety pilot | The organizers' procedure, scripted: arm on Altitude, then Position 2 s later, then hands off. Every RC channel can also be operated from the GUI | kit README "How your drone is tested" |
-| Referee | Rulebook §4 against ground truth: whole-drone checkpoints in order, +5 s per touch, the over-wall rule, end of run, window bonus | `course/course_v3_rules.json` (team ground truth, blob `3675a35`) |
+| Safety pilot | The organizers' procedure, scripted: arm on Altitude, then Position 2 s later, then hands off. With the return enabled, it re-arms on the pad 3 s after the disarm the same way. Every RC channel can also be operated from the GUI | kit README "How your drone is tested" |
+| Referee | Rulebook §4 against ground truth: whole-drone checkpoints in order, +5 s per touch (the body, the props or the landing gear), the over-wall rule, end of run, window bonus, the optional return (rule 7.10) | `course/course_v3_rules.json` (team ground truth, blob `3675a35`) |
 
 ### One test session, as the simulation runs it
 
@@ -84,7 +84,11 @@ on), so `DRONEHACKS_*` variables do not arrive, just as on the drone.
       for low throttle and disarms far later (33 s at 0.2 m/s, against 3 s at 0.3);
     * seed and duration;
     * start pose and calibration error (what the operator "measured");
-    * tunnel lighting, cuVSLAM drift and latency;
+    * tunnel lighting;
+    * cuVSLAM drift, as a multiplier. At 1 the median error is 2–7 cm (worst 0.1–0.2 m),
+      depending on the seed; from 3 up it starts costing wall touches (finding 11);
+    * cuVSLAM latency. It changes little until about 0.18 s, then PX4 drops every vision sample
+      as too old (finding 11). The run notes warn when it is set that high;
     * `EKF2_EV_DELAY` and other PX4 overrides;
     * wind;
     * pilot timing.
@@ -98,6 +102,8 @@ on), so `DRONEHACKS_*` variables do not arrive, just as on the drone.
   * PX4 nav state, user-intended mode, failsafe, takeoff state, EKF2 validity and dead
     reckoning, vision fusion, height source, cuVSLAM tracking and feature score, setpoint age,
     battery, lidar.
+  * Vision fusion shows what EKF2 did with each cuVSLAM sample so far: fused, rejected by the
+    gate, too old, or a reset.
   * The referee's checkpoint table, showing both the centre crossing and the official
     whole-drone crossing.
   * **Safety pilot** controls: arm switch, mode switch Manual/Altitude/Position, throttle, take
@@ -110,7 +116,12 @@ on), so `DRONEHACKS_*` variables do not arrive, just as on the drone.
   * **PX4 messages**: the MAVLink console view.
   * **Run info**: provenance, the config written into the installed package, the values used,
     and the PX4 parameters with the file each came from.
-* **Save run** writes `result.json`, `log.txt` and `trajectory.csv`.
+* **The result** (when the run ends or you press Stop): the referee's score, the return's
+  outcome if one was flown, and cuVSLAM's error against the truth (median and maximum), its
+  tracking losses and PX4's vision-sample counts.
+* **Stop** ends the flight but keeps the run, so **Save run** still works. Save writes
+  `result.json`, `log.txt` and `trajectory.csv`. Start a new run, or close the window, to
+  discard it.
 
 ---
 
@@ -240,6 +251,29 @@ runtime.
     `EKF2_NOAID_TOUT`.
   * Rangefinder height in conditional mode, with the consistency gate and a baro fallback;
     `EKF2_MIN_RNG` on the ground. The local z origin is the floor.
+  * When the rangefinder has given no valid reading for 0.5 s (out of range above 4 m, or
+    blocked), the barometer becomes the height reference until range is good again.
+
+**Airframe and sensors.**
+
+* Wind drag and GUI gusts are forces on the body, so the IMU's specific force includes them, as
+  a real accelerometer's does.
+* After a lidar outage (the GUI fault) the MS200 resumes with fresh frames; nothing from the
+  outage is replayed.
+
+**Referee.**
+
+* A touch is any contact of the body, a prop or the landing gear with a wall, the tube, its
+  supports or a boulder. Contacts with one object within 0.5 s count as one touch.
+* The window bonus (5 points) is for any finished window-route run, even one with a checkpoint
+  taken over a wall.
+* **The optional return (rule 7.10).** After the outbound pad disarm, if the version's return
+  option is on, the scripted pilot re-arms on the pad. The arm switch goes off, then on 0.5 s
+  later (on Altitude, throttle low), and Position follows as at the start. The run ends when
+  the return does. It succeeds if the drone disarms within 2 ft (0.61 m) of the launch mark's
+  centre inside the same 3-minute limit; run points are then multiplied by 1.25. A crash,
+  leaving the course, the time limit or a disarm further away fails it, and that loses only the
+  bonus. Walls may be overflown on the way back.
 
 **cuVSLAM.**
 
@@ -333,6 +367,35 @@ Each of these comes from running the real code here. They are worth checking on 
    window's 1.22 m top edge.
 10. **Height references differ.** PX4's z is floor-referenced (rangefinder) while odom z is
    start-referenced, so pose setpoints fly about 7 cm lower than they read in odom.
+11. **cuVSLAM drift and latency barely matter, until latency crosses a cliff.**
+   Both looked like they did nothing because, at their defaults, they don't. The runs below are
+   traj, window route, lit tunnel, track speed 0.8 m/s, seeds 1–3. The error is each cuVSLAM
+   pose against the truth at its capture time.
+   * **Drift ×1** (default): no touches. Median error 2–7 cm, worst 0.12–0.19 m. Drift is a
+     random walk, mostly in heading, so one setting gives quite different runs: a different
+     random sequence at ×1 reached 0.34 m.
+   * **Drift ×3 and ×5**: 1–2 wall touches per run (the C2a chicane wall, the maze dividers),
+     worst error 0.33–0.45 m. All still finish.
+   * **Drift ×10**: seed 1 hit the tube and crashed. Seed 2 never left TAKEOFF: cuVSLAM's height
+     read 0.50 m while PX4 held 0.73 m on the rangefinder, and traj waits for the *odom* height
+     to reach its takeoff height.
+   * **Latency up to 0.14 s**: EKF2 still fuses almost every sample. At 0.14 s seeds 1 and 2
+     touched once or twice (the follower acts on an older pose); seed 3 did not.
+   * **0.16–0.17 s**: 19–53 % of samples arrive too old for EKF2; the runs still finish.
+   * **0.20 s and up**: every sample is too old. EKF2 never has a position, so Offboard never
+     starts and the drone stays on the ground. The cliff is `EKF2_DELAY_MAX` −
+     `EKF2_EV_DELAY` + 50 ms = 0.18 s on drone 1's parameters, so the real latency (62 ms) has
+     margin.
+
+   The result now shows cuVSLAM's error and tracking losses and EKF2's vision-sample counts, and
+   the run notes warn when the latency is past the cliff.
+12. **The optional return works in the sim.** `return_flight` with `return: on`, lit tunnel,
+   seed 1 (simulation times):
+   * The outbound run finished all five checkpoints, and PX4 disarmed on the pad at 103.0 s.
+   * The pilot re-armed at 106.5 s; the drone took off again at 110.9 s and flew back.
+   * It disarmed 0.005 m from the launch mark's centre at 136.1 s: 116.9 s after the clock
+     started, inside the 3 minutes. Run points x 1.25.
+   * With `return: off` the drone stays on the pad.
 
 ---
 
@@ -340,8 +403,8 @@ Each of these comes from running the real code here. They are worth checking on 
 
 ```
 cd sitl
-py -B -m unittest tests.test_rosfake tests.test_models tests.test_step_mesh tests.test_cache tests.test_catalog   # ~9 s
-py -B -m unittest tests.test_flight -v                                            # ~2 min: real flights
+py -B -m unittest tests.test_rosfake tests.test_models tests.test_step_mesh tests.test_cache tests.test_catalog tests.test_review_fixes   # ~10 s
+py -B -m unittest tests.test_flight -v                                            # ~5 min: real flights
 ```
 
 **What they cover.**
@@ -357,7 +420,7 @@ py -B -m unittest tests.test_flight -v                                          
   * timers and executors;
   * QoS incompatibility;
   * time-type rules;
-  * simulated `sleep`;
+  * simulated `sleep`, including a callback that sleeps;
   * launch coercion and errors.
 * `test_models`:
   * control allocation and PositionControl;
@@ -370,11 +433,20 @@ py -B -m unittest tests.test_flight -v                                          
   * workspace cleanup measures ages on the real clock (parallel runs used to delete each
     other's live build trees, because the simulated clock is a day ahead);
   * six parallel extractions of one commit, and an interrupted extraction being replaced;
+  * two package selections of one commit getting their own trees, and a published tree never
+    being moved aside;
+  * unsafe archive members (`..`, absolute paths, links) refused when Python's tar filter is
+    missing;
   * the speed cap overriding `MPC_XY_VEL_MAX`.
+* `test_review_fixes`: the barometer taking over after a range loss, an external force felt by
+  the IMU, the lidar resuming fresh after an outage, a landing-gear touch on a boulder, and the
+  window bonus with an over-wall checkpoint.
 * `test_flight`:
   * the organizer procedure on the kit example;
   * the traj stack flying to the tunnel exit;
-  * `vo_nolidar` landing on the pad, with PX4 disarming within 4 s of touchdown.
+  * traj landing on the pad by the window route, with PX4 disarming within 4 s of touchdown;
+  * the optional return succeeding (skipped without the local `localization/return-flight`);
+  * a stopped GUI run still saving its results.
 
 **The kit's own tests on this runtime** need pytest. Start a Python that has pytest; at its top
 call `dronesim.rosfake.activate()` and build the kit packages with
