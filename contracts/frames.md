@@ -22,12 +22,34 @@ team places and checks it.
 
 ## The transform (normative)
 
-Course point `(east, north)` → PX4 setpoint:
+Course point `(east, north)` → PX4 NED/FRD setpoint:
 
 1. Subtract the launch mark: `(east − (−2.515), north − 0.914)`.
-2. Rotate −90° so north becomes forward.
-3. `z = 0.8 m − body_resting_height`. `body_resting_height = HEIGHT_M = 0.73`
-   in the FlyX lab (tape-measured). Source: `measured`.
+2. Rotate −90° so north becomes forward. Output frame is PX4 NED/FRD (x
+   forward, y right, z down). Explicit axis map with signs:
+   `world north → PX4 +x (forward)`, `world east → PX4 +y (right)`.
+3. `body_resting_height = 0.07 m` (tape-measured, FlyX lab). Source:
+   `measured`. `z = 0.8 m − 0.07 m = 0.73 m (= HEIGHT_M)`. PX4 NED
+   z-positive is down, so the down setpoint is `−HEIGHT_M = −0.73 m`.
+
+**Worked example — landing pad `(−2.042, −0.792)`:**
+
+Step 1 — subtract launch mark `(−2.515, 0.914)`:
+
+    Δeast  = −2.042 − (−2.515) = +0.473 m
+    Δnorth = −0.792 − 0.914   = −1.706 m
+
+Step 2 — axis map (drone faces north; PX4 NED/FRD output):
+
+    forward (PX4 +x) = Δnorth = −1.706 m
+    right   (PX4 +y) = Δeast  = +0.473 m
+
+Step 3 — height (body_resting_height = 0.07 m; desired floor clearance = 0.8 m):
+
+    down    (PX4 +z) = −HEIGHT_M = −0.73 m
+
+PX4 NED/FRD setpoint: (−1.706, +0.473, −0.73) m.
+Verify via the bench carry test in the Acceptance check section below.
 
 Any code claiming to implement this transform must cite this section. A
 different rotation, a different sign, or a different height source is a
