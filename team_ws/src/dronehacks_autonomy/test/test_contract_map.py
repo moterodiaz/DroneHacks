@@ -9,12 +9,12 @@ import numpy as np
 import yaml
 from synthetic_courses import random_course
 
-from dronehacks_autonomy.contract_map import from_contract, load_contract_map
+from dronehacks_autonomy.contract_map import _open_window, _oval_width, from_contract, load_contract_map
 from dronehacks_autonomy.factory import prepare
 from dronehacks_autonomy.frames import model_odom_frame
 from dronehacks_autonomy.mission import MissionConfig
 from dronehacks_autonomy.planning.course_map import MapError
-from dronehacks_autonomy.planning.route import make_field, plan
+from dronehacks_autonomy.planning.route import PlannerConfig, make_field, plan
 
 PUBLISHED = yaml.safe_load(_paths.CONTRACT_MAP.read_text(encoding="utf-8"))
 
@@ -126,11 +126,40 @@ class ConversionTest(unittest.TestCase):
         a = np.array(t["params"]["axis_start"])
         b = np.array(t["params"]["axis_end"])
         u = (b - a) / np.linalg.norm(b - a)
-        side = np.array([-u[1], u[0]]) * t["params"]["width"] / 2.0
+        # At the oval's width over the drone's height at flight height, not its widest.
+        half, h, z = PlannerConfig().drone_half_height_m, t["params"]["height"], PUBLISHED["slice_height"]
+        width = min(_oval_width(t["params"]["width"], h, z - half), _oval_width(t["params"]["width"], h, z + half))
+        self.assertLess(width, t["params"]["width"])
+        side = np.array([-u[1], u[0]]) * width / 2.0
         field = make_field(cmap)
         for along in (0.1, 0.9):   # near each end of the tube, clear of the walls meeting its middle
             for sign in (1.0, -1.0):
                 self.assertLess(field.query(a + (b - a) * along + sign * side)[0][0], 0.01)
+
+    def test_a_tube_the_drone_cannot_fit_is_refused(self):
+        for height in (0.85, 0.5):       # the roof is under the drone's top, or under the flight height
+            doc = copy.deepcopy(PUBLISHED)
+            goal(doc, "tunnel")["params"]["height"] = height
+            with self.subTest(height=height), self.assertRaisesRegex(MapError, "does not fit"):
+                from_contract(doc)
+
+    def test_a_low_oval_narrows_the_walls_at_flight_height(self):
+        # Fits, but the drone is high in the oval, where it is far narrower than its widest.
+        self.assertAlmostEqual(_oval_width(1.4, 1.0, 0.5), 1.4)
+        self.assertAlmostEqual(_oval_width(1.4, 1.0, 0.9), 1.4 * 0.6)
+
+    def test_an_opening_as_wide_as_a_last_wall_leaves_no_wall(self):
+        wall = {"start": [0.0, 0.0], "end": [1.0, 0.0], "thickness": 0.1}
+        other = {"start": [0.0, 1.0], "end": [1.0, 1.0], "thickness": 0.1}
+        window = {"side": 1.0, "along": 0.5, "wu": (1.0, 0.0), "w0": (0.0, 0.0), "w1": (1.0, 0.0), "index": 1,
+                  "centre": (0.5, 0.0), "u": (0.0, 1.0), "sill": 0.3, "head": 1.2}
+        g = {"params": {"clearance_radius": 0.3}}
+        segments = [other, wall]
+        _open_window(g, window, segments, "test")
+        self.assertEqual(segments, [other])
+        segments = [wall, other]
+        _open_window(g, dict(window, index=0), segments, "test")
+        self.assertEqual(segments, [other])
 
     def test_published_route_is_forced_through_the_tunnel_and_reaches_the_pad(self):
         route = plan(from_contract(PUBLISHED))

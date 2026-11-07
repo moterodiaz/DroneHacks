@@ -197,6 +197,11 @@ class Mission:
         self._hold_cmd: Optional[Command] = None
         self._yaw_cmd = 0.0
 
+    @property
+    def started(self) -> bool:
+        """Offboard has begun, so the vehicle may be in the air and this mission owns its setpoints."""
+        return self._was_offboard
+
     # -- the tick ------------------------------------------------------------------
 
     def update(self, t: float, offboard_active: bool, pose: Optional[OdomPose],
@@ -225,6 +230,8 @@ class Mission:
         if self.state == HELD:
             return self._hold_cmd
         if not fresh:
+            if self.follower is not None:
+                self.follower.pause(t)
             if self.state in (LAND, LANDED):
                 return self._descend_without_pose(t, landed)
             self.reason = "no fresh pose: sending nothing, so the interface holds the last checked pose"

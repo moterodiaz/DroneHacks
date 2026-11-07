@@ -13,6 +13,8 @@ import numpy as np
 
 from dronehacks_autonomy.planning import parse_map
 from dronehacks_autonomy.planning.course_map import CourseMap, load_map
+from dronehacks_autonomy.planning.follower import Follower
+from dronehacks_autonomy.contract_map import load_contract_map
 from dronehacks_autonomy.factory import flight_checks, prepare
 from dronehacks_autonomy.frames import model_odom_frame
 from dronehacks_autonomy.mission import (FOLLOW, GROUNDED, HELD, HOLD, LAND, LANDED, STOPPED, TAKEOFF, WAIT,
@@ -224,6 +226,28 @@ class WholeFlightTest(unittest.TestCase):
         self.assertEqual(checks["wall_touches"], 0)
         self.assertEqual(checks["openings"], {"tunnel": True, "gate_b": True})
         self.assertTrue(checks["on_pad"])
+
+
+class TrackingGapTest(unittest.TestCase):
+    def test_a_gap_on_the_route_does_not_throw_the_reference_ahead(self):
+        cmap = load_contract_map(_paths.CONTRACT_MAP)
+        m = prepare(cmap, MissionConfig(rest_height_m=0.07),
+                    frame=model_odom_frame(cmap.launch.position, cmap.launch.heading)).mission
+        m._was_offboard = True
+        m.state = "FOLLOW"
+        m.follower = Follower(m.plan.trajectory, m.field, m.limits, m.follower_config)
+        x, y = m.start_odom
+        here = OdomPose(t=1.0, x=x, y=y, z=m.z_fly, yaw=0.0)
+        m.update(1.0, True, here, None, 0.0)
+        tau = m.follower._tau
+        self.assertIsNone(m.update(1.05, True, None, None, 0.0))
+        # Short enough that the jump stays on a clear straight: a longer one lands behind a wall,
+        # where the follower's wall check hides it.
+        m.update(2.0, True, None, None, 0.0)
+        cmd = m.update(2.05, True, dataclasses.replace(here, t=2.05), None, 0.0)
+        self.assertNotIn("no_safe_target", m.last_setpoint.flags)
+        self.assertLess(m.follower._tau - tau, 0.2)
+        self.assertEqual(cmd.kind, "pose")
 
 
 if __name__ == "__main__":

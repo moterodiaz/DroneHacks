@@ -179,7 +179,9 @@ class MissionNode(Node):
             state = json.loads(msg.data)
         except (TypeError, ValueError):
             return
-        self._offboard = bool(state.get("offboard_active", False))
+        if not isinstance(state, dict) or not isinstance(state.get("offboard_active"), bool):
+            return
+        self._offboard = state["offboard_active"]
         self._state_t = self._now_s()
 
     def _on_land(self, msg: Any) -> None:
@@ -196,7 +198,12 @@ class MissionNode(Node):
         now = self._now_s()
         fresh_state = self._state_t is not None and now - self._state_t <= self._state_timeout
         px4_yaw = self._px4_yaw if (self._px4_yaw_t is not None and now - self._px4_yaw_t <= 1.0) else None
-        cmd = self.mission.update(now, self._offboard and fresh_state, self._pose, self._landed, px4_yaw)
+        # Before Offboard, silence means no: nothing is offered on an unknown state. Once flying it
+        # means unknown, and the last state stands. Stopping would be unsafe: a descent's twist expires
+        # into the stored pose above, so the drone would climb back up
+        # (flight_interface._expire_stale_velocity).
+        offboard = self._offboard and (fresh_state or self.mission.started)
+        cmd = self.mission.update(now, offboard, self._pose, self._landed, px4_yaw)
         if cmd is not None:
             self._publish(cmd)
 

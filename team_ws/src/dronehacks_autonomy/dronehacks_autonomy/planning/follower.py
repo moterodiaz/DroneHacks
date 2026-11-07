@@ -116,6 +116,11 @@ class Follower:
         self._back = max(1, int(cfg.projection_back_m / ds))
         self._ahead = max(2, int(cfg.projection_ahead_m / ds))
 
+    def pause(self, now: float) -> None:
+        """Tracking is lost, so the drone is holding: this time must not count as flight. Without
+        this the next update advances the reference by the whole gap and commands a far pose."""
+        self._now = now
+
     def update(self, now: float, est_pos: Sequence[float], est_vel: Optional[Sequence[float]] = None) -> Setpoint:
         """``est_pos`` / ``est_vel``: the latest odometry, course frame. With a
         velocity, the position is moved forward by ``odom_latency_s``."""

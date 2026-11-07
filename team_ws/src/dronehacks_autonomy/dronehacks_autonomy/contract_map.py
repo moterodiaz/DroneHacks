@@ -7,11 +7,11 @@ walls and goals, and A* finds the way between them.
 What the conversion does, all of it derived from the file:
 
 * **tunnel** becomes a pass-through goal along ``axis_start -> axis_end``, plus
-  two thin side walls ``width / 2`` either side of the axis. The contract's
-  segments do not include the tube, so without them the planner would see an
-  open gap and could cut across it. ``width`` is the tube's widest; the small
-  narrowing of the oval at flight height is well inside the planner's margin
-  on an axis-centred pass.
+  two thin side walls either side of the axis. The contract's segments do not
+  include the tube, so without them the planner would see an open gap and could
+  cut across it. ``width`` is the tube's widest, so the walls go where the oval
+  really is over the drone's height at flight height, measured up from the
+  floor. A roof the drone cannot fit under is refused.
 * **window** is traversal-blocked unless ``use_window`` is set and the map
   carries a reviewed ``clearance_radius`` (contracts/course.md: never substitute
   a default). While blocked its wall stays solid, so the route takes whatever
@@ -32,6 +32,7 @@ from typing import Any, Dict, List, Mapping, Tuple
 import yaml
 
 from .planning.course_map import CourseMap, MapError, parse_map
+from .planning.route import PlannerConfig
 
 REQUIRED_GOALS = ("tunnel", "window", "pad", "launch")
 #: Tolerance for "this point is on that line", in metres. Generated maps round to
@@ -76,7 +77,7 @@ def from_contract(doc: Any, source: str = "<dict>", sha256: str = "", use_window
     for g in goals:
         name = g["name"]
         if name == "tunnel":
-            converted.append(_tunnel(g, segments, source))
+            converted.append(_tunnel(g, segments, doc.get("slice_height"), source))
         elif name == "window":
             if use_window:
                 converted.append(_open_window(g, window, segments, source))
@@ -153,7 +154,12 @@ def _off_axis(p: Tuple[float, float], a: Tuple[float, float], u: Tuple[float, fl
     return abs((p[0] - a[0]) * u[1] - (p[1] - a[1]) * u[0])
 
 
-def _tunnel(goal: Mapping, segments: List[dict], source: str) -> dict:
+def _oval_width(width: float, height: float, z: float) -> float:
+    """The width of an oval standing on the floor, ``z`` above the floor."""
+    return width * math.sqrt(max(0.0, 1.0 - ((z - height / 2.0) / (height / 2.0)) ** 2))
+
+
+def _tunnel(goal: Mapping, segments: List[dict], slice_height: Any, source: str) -> dict:
     where = f"{source}: goal tunnel"
     _shape(goal, "oval", source)
     params = _params(goal, ("axis_start", "axis_end", "width", "height"), source)
@@ -163,6 +169,12 @@ def _tunnel(goal: Mapping, segments: List[dict], source: str) -> dict:
         raise MapError(f"{where}: its centre is not on its axis")
     width = _pos(params["width"], f"{where}.params.width")
     height = _pos(params["height"], f"{where}.params.height")
+    if isinstance(slice_height, (int, float)) and not isinstance(slice_height, bool):   # else parse_map refuses it
+        half = PlannerConfig().drone_half_height_m
+        if not half <= slice_height <= height - half:
+            raise MapError(f"{where}: flight height {slice_height} m does not fit a {height} m tube "
+                           f"with {half} m of drone above and below")
+        width = min(_oval_width(width, height, slice_height - half), _oval_width(width, height, slice_height + half))
     nx, ny = -u[1], u[0]
     for side in (-1.0, 1.0):
         off = side * width / 2.0
@@ -232,7 +244,9 @@ def _open_window(goal: Mapping, window: dict, segments: List[dict], source: str)
     if math.dist(pieces[1]["start"], pieces[1]["end"]) > 1e-6:
         segments.append(pieces[1])
     if math.dist(pieces[0]["start"], pieces[0]["end"]) <= 1e-6:
-        segments[window["index"]] = segments.pop()
+        last = segments.pop()
+        if window["index"] < len(segments):     # else the sliver was itself the last segment
+            segments[window["index"]] = last
     return {"name": "window", "shape": "rect", "centre": list(window["centre"]),
             "params": {"axis": list(window["u"]), "width": side, "depth": float(wall.get("thickness", 0.0)),
                        "bottom": window["sill"], "top": window["head"], "clearance_radius": clearance}}

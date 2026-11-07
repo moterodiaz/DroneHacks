@@ -92,6 +92,49 @@ class NodeTest(unittest.TestCase):
         self.tick()
         self.assertEqual(self.node.mission.state, "WAIT")
 
+    def take_off(self):
+        """Get the real node to Offboard over its topics; returns with the mission in TAKEOFF."""
+        half = math.radians(90) / 2
+        self.feed("/fmu/out/vehicle_attitude_v1", fake_ros.VehicleAttitude((math.cos(half), 0, 0, math.sin(half))))
+        self.feed("/fmu/out/vehicle_land_detected_v1", fake_ros.VehicleLandDetected(True))
+        self.feed("/skybeta/state", fake_ros.String(json.dumps({"offboard_active": True})))
+        self.feed("/visual_slam/tracking/odometry", self.odom(self.handle.now_s))
+        self.tick()
+        self.assertEqual(self.node.mission.state, "TAKEOFF")
+
+    def test_losing_state_in_flight_is_unknown_not_a_mode_exit(self):
+        self.take_off()
+        self.handle.now_s += 5.0                                  # /skybeta/state stopped arriving
+        self.feed("/visual_slam/tracking/odometry", self.odom(self.handle.now_s))
+        self.tick()
+        self.assertEqual(self.node.mission.state, "TAKEOFF")
+
+    def test_losing_state_on_the_descent_keeps_descending(self):
+        # Stopping here lets the last twist expire into the pose above: the drone climbs back up.
+        self.take_off()
+        self.node.mission.state = "LAND"
+        self.handle.now_s += 5.0
+        self.feed("/visual_slam/tracking/odometry", self.odom(self.handle.now_s, z=0.5))
+        self.feed("/fmu/out/vehicle_land_detected_v1", fake_ros.VehicleLandDetected(False))
+        self.tick()
+        self.assertEqual(self.node.mission.state, "LAND")
+        self.assertLess(self.node.publishers["/skybeta/setpoint/twist"].sent[-1].twist.linear.z, 0.0)
+
+    def test_a_real_offboard_exit_still_stops(self):
+        self.take_off()
+        self.feed("/skybeta/state", fake_ros.String(json.dumps({"offboard_active": False})))
+        self.tick()
+        self.assertEqual(self.node.mission.state, "STOPPED")
+
+    def test_malformed_state_is_ignored(self):
+        self.take_off()
+        for payload in ("null", "[]", "3", '"x"', "{}", '{"offboard_active": "no"}', "not json"):
+            with self.subTest(payload=payload):
+                self.feed("/skybeta/state", fake_ros.String(payload))
+                self.feed("/visual_slam/tracking/odometry", self.odom(self.handle.now_s))
+                self.tick()
+                self.assertEqual(self.node.mission.state, "TAKEOFF")
+
     def test_status_json(self):
         self.node.timers[1][1]()
         status = json.loads(self.node.publishers["~/status"].sent[-1].data)
