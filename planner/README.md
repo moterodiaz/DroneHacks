@@ -233,6 +233,31 @@ restrictive.
 Rule 8.5 forbids changing the organisers' PX4 parameters. These values
 describe what the drone does; they configure nothing on it.
 
+## A map from the STEP model
+
+Without a survey, the map comes from the organisers' STEP model
+(`dronehacks-course-v3.step`, PR #4). The lidar stream's extractor turns the
+STEP into a pair of JSON files: `course-map/1` (walls, openings, tube, rocks,
+nets, markings) and `course-rules/1` (checkpoints, start, finish).
+`convert.py` turns that pair into this planner's map:
+
+```sh
+python -m dronehacks_planner.convert course_v3_map.json course_v3_rules.json --launch-heading 0 1 \
+    --route-gate gate_b ends "C2b chicane wall" "A1 approach wall" --out course_v3_step.yaml
+```
+
+* It slices across the drone's whole band, 0.7–0.9 m. Walls become
+  rectangles, split at openings that cover the band. The tube is cut at its
+  narrowest within the band (1.409 m inside, not 1.461 m).
+* `--launch-heading 0 1` is `contracts/frames.md`'s "facing north".
+* `--route-gate gate_b ends ...` follows `contracts/course.md`: "Gate B, 1.13 m
+  gap, C2b to A1". The rules file instead puts Gate B between C2b and
+  Barrier 2. The contract wins (AGENTS.md §3.1).
+
+On it, the planner gives 17.46 m through the window (17.49 m on the
+provisional map) and 18.75 m via Gate B (18.78 m). The generated map and its
+inputs live with the flight package: `nav_traj/maps/`.
+
 ## Input: the map file
 
 `contracts/course.md`'s schema, plus these fields, marked PROPOSED in the
