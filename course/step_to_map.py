@@ -225,6 +225,19 @@ def hull_and_interior(points: list[tuple[float, float, float]]) -> tuple[list[tu
 
 def segment_from_points(points: list[tuple[float, float, float]]) -> dict[str, object]:
     hull = convex_hull([(point[0], point[1]) for point in points])
+    bottom = min(point[2] for point in points)
+    top = max(point[2] for point in points)
+    if not bottom <= SLICE_HEIGHT <= top:
+        raise StepError("wall does not span the map slice height")
+    # Only vertical extrusions are supported; never project a sloping solid
+    # into a footprint that claims to describe one horizontal flight slice.
+    for level in (bottom, top):
+        face = convex_hull([
+            (point[0], point[1]) for point in points
+            if math.isclose(point[2], level, abs_tol=1e-9)
+        ])
+        if len(face) != len(hull) or any(math.dist(a, b) > 1e-8 for a, b in zip(face, hull)):
+            raise StepError("unsupported nonvertical wall geometry")
     edges = [
         (math.dist(hull[index], hull[(index + 1) % len(hull)]), hull[index], hull[(index + 1) % len(hull)])
         for index in range(len(hull))
@@ -240,10 +253,6 @@ def segment_from_points(points: list[tuple[float, float, float]]) -> dict[str, o
     start = (min(along_values) * along[0] + centre_normal * normal[0], min(along_values) * along[1] + centre_normal * normal[1])
     end = (max(along_values) * along[0] + centre_normal * normal[0], max(along_values) * along[1] + centre_normal * normal[1])
     return {"start": start, "end": end, "thickness": max(normal_values) - min(normal_values)}
-
-
-def mean_xy(points: list[tuple[float, float, float]]) -> tuple[float, float]:
-    return (sum(point[0] for point in points) / len(points), sum(point[1] for point in points) / len(points))
 
 
 def round_value(value: float) -> float:
@@ -440,13 +449,19 @@ def generate_map(step_path: Path, heading_deg: float, clearance: float | None) -
 
     window_points = part_data[window_name][0]
     sill, head, opening_edges = window_opening(window_name, window_points)
-    window_centre = mean_xy(opening_edges)
     wall = raw_segments[window_name]
     wall_start, wall_end = wall["start"], wall["end"]
     wall_length = math.dist(wall_start, wall_end)
     along = ((wall_end[0] - wall_start[0]) / wall_length, (wall_end[1] - wall_start[1]) / wall_length)
     normal = (-along[1], along[0])
     projections = [point[0] * along[0] + point[1] * along[1] for point in opening_edges]
+    normal_projections = [point[0] * normal[0] + point[1] * normal[1] for point in opening_edges]
+    centre_along = (min(projections) + max(projections)) / 2.0
+    centre_normal = (min(normal_projections) + max(normal_projections)) / 2.0
+    window_centre = (
+        centre_along * along[0] + centre_normal * normal[0],
+        centre_along * along[1] + centre_normal * normal[1],
+    )
     side = max(projections) - min(projections)
     if side <= 0.0:
         raise StepError(f"{window_name!r} opening has no measurable width")
@@ -513,6 +528,17 @@ def render_yaml(data: dict[str, object], command: str) -> str:
 
 def structural_check(data: dict[str, object]) -> list[str]:
     """course.md schema validation, independent of any one layout."""
+    def finite(value: object) -> bool:
+        if isinstance(value, dict):
+            return all(finite(item) for item in value.values())
+        if isinstance(value, (list, tuple)):
+            return all(finite(item) for item in value)
+        return not isinstance(value, (int, float)) or math.isfinite(value)
+
+    # Derived centres can overflow even when the source coordinates are finite.
+    if not finite(data):
+        return ["map geometry is not finite"]
+
     failures: list[str] = []
     goals = {goal["name"]: goal for goal in data["goals"]}
     for name in ("tunnel", "window", "pad", "launch"):
