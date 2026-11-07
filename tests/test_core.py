@@ -365,3 +365,21 @@ def test_fillet_arc_keeps_lethal_clearance():
     assert clearance_at((0.0, 0.0)) >= LETHAL_CLEARANCE  # vertex clearance
     with pytest.raises(ValueError, match="rounded turn"):
         build_trajectory(waypoints, course, clearance_at=clearance_at)
+
+
+def test_grid_corner_goal_chord_and_prune():
+    from core.planner import _polyline_max_cost
+
+    costmap = Costmap(np.zeros((4, 4)), (0.0, 0.0), 1.0)
+    start = np.array([-0.5, -1.5])
+    goal = np.array([-1.0, -1.0])
+    snap = np.array([-0.5, -0.5])
+    for _ in range(3):
+        for a, b in ((start, goal), (goal, start)):
+            assert _chord_acceptable(costmap, a, b, 0.0)
+            assert _polyline_max_cost(costmap, [a, b]) == 0.0
+        pruned = _prune_goal_snap([start, snap, goal], costmap, 1.0)
+        assert len(pruned) == 2
+        assert np.array_equal(pruned[-1], goal)
+    costmap.costs[costmap.world_to_grid(goal)] = np.inf
+    assert not _chord_acceptable(costmap, start, goal, 0.0)

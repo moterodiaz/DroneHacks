@@ -8,6 +8,7 @@ import math
 import numpy as np
 
 from .costmap import Costmap
+from .grid import crossed_cells as _crossed_cells
 
 
 def _goal_centres(course_map):
@@ -50,40 +51,6 @@ def _astar(costmap: Costmap, start, target):
                 heuristic = math.hypot(nxt[0] - target[0], nxt[1] - target[1]) * costmap.resolution
                 heapq.heappush(queue, (candidate + heuristic, nxt))
     raise ValueError("no collision-free route to goal")
-
-
-def _crossed_cells(start, end):
-    """Yield every unit grid cell the segment ``start`` -> ``end`` crosses.
-
-    ``start``/``end`` are float grid coordinates; cell ``i`` spans ``[i, i+1)``.
-    Sampling rounded points at unit steps can skip a cell whose interior the
-    segment crosses when it hugs a row or column boundary, so a chord could
-    pass through a blocked cell that was never sampled. This boundary-
-    crossing walk visits every crossed cell. Cells touched only at a grid
-    corner are included, which rejects more chords, never fewer.
-    """
-    x0, y0 = float(start[0]), float(start[1])
-    x1, y1 = float(end[0]), float(end[1])
-    ix, iy = math.floor(x0), math.floor(y0)
-    final = (math.floor(x1), math.floor(y1))
-    yield (ix, iy)
-    if (ix, iy) == final:
-        return
-    dx, dy = x1 - x0, y1 - y0
-    sx = 1 if dx > 0 else -1
-    sy = 1 if dy > 0 else -1
-    t_max_x = ((ix + (sx > 0)) - x0) / dx if dx else math.inf
-    t_max_y = ((iy + (sy > 0)) - y0) / dy if dy else math.inf
-    t_dx = abs(1.0 / dx) if dx else math.inf
-    t_dy = abs(1.0 / dy) if dy else math.inf
-    while (ix, iy) != final:
-        if t_max_x < t_max_y:
-            ix += sx
-            t_max_x += t_dx
-        else:
-            iy += sy
-            t_max_y += t_dy
-        yield (ix, iy)
 
 
 def _line_cells(a, b):
