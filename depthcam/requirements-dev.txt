@@ -1,0 +1,6 @@
+# Development / test dependencies (runtime dependencies are in requirements.txt).
+#   python -m pip install -r requirements-dev.txt
+#   python -m pytest tests -q          # Windows: fake cuVSLAM, the camera is never opened
+# 9.1.1 is what the Windows dev venv (Python 3.13) has; 8.x and 9.x both run on Python 3.10
+# (WSL2 / Jetson).  pytest 9 dropped Python 3.9, which is below this project's floor anyway.
+pytest>=8.0,<10

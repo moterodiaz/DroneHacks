@@ -1,0 +1,643 @@
+<?xml version="1.0"?>
+<sdf version="1.9">
+  <model name="course_v3_model">
+    <static>true</static>
+    <link name="course">
+      <collision name="Net_roof_0_c">
+        <pose>0 0 3.058 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>6.09854 6.09854 0.02</size>
+          </box>
+        </geometry>
+      </collision>
+      <collision name="Net_side_east_0_c">
+        <pose>3.058 -5.73441e-19 1.524 0 0 1.5708</pose>
+        <geometry>
+          <box>
+            <size>6.096 0.02 3.048</size>
+          </box>
+        </geometry>
+      </collision>
+      <collision name="Net_side_north_0_c">
+        <pose>0 3.058 1.524 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>6.09854 0.02 3.048</size>
+          </box>
+        </geometry>
+      </collision>
+      <collision name="Net_side_south_0_c">
+        <pose>0 -3.058 1.524 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>6.09854 0.02 3.048</size>
+          </box>
+        </geometry>
+      </collision>
+      <collision name="Net_side_west_0_c">
+        <pose>-3.058 5.73441e-19 1.524 0 0 1.5708</pose>
+        <geometry>
+          <box>
+            <size>6.096 0.02 3.048</size>
+          </box>
+        </geometry>
+      </collision>
+      <collision name="Boulder_1_0_c">
+        <pose>2.01168 -2.46888 0.2667 0 0 0</pose>
+        <geometry>
+          <cylinder>
+            <radius>0.2286</radius>
+            <length>0.5334</length>
+          </cylinder>
+        </geometry>
+      </collision>
+      <visual name="Boulder_1_0_v">
+        <pose>2.01168 -2.46888 0 0 0 0</pose>
+        <geometry>
+          <ellipsoid>
+            <radii>0.2286 0.2286 0.5334</radii>
+          </ellipsoid>
+        </geometry>
+        <material>
+          <ambient>0.83922 0.83922 0.88627 1</ambient>
+          <diffuse>0.83922 0.83922 0.88627 1</diffuse>
+          <specular>0.1 0.1 0.1 1</specular>
+        </material>
+      </visual>
+      <collision name="Boulder_2_0_c">
+        <pose>2.52984 -1.55448 0.2667 0 0 0</pose>
+        <geometry>
+          <cylinder>
+            <radius>0.2286</radius>
+            <length>0.5334</length>
+          </cylinder>
+        </geometry>
+      </collision>
+      <visual name="Boulder_2_0_v">
+        <pose>2.52984 -1.55448 0 0 0 0</pose>
+        <geometry>
+          <ellipsoid>
+            <radii>0.2286 0.2286 0.5334</radii>
+          </ellipsoid>
+        </geometry>
+        <material>
+          <ambient>0.83922 0.83922 0.88627 1</ambient>
+          <diffuse>0.83922 0.83922 0.88627 1</diffuse>
+          <specular>0.1 0.1 0.1 1</specular>
+        </material>
+      </visual>
+      <collision name="Boulder_3_0_c">
+        <pose>0.79248 -2.34696 0.2667 0 0 0</pose>
+        <geometry>
+          <cylinder>
+            <radius>0.2286</radius>
+            <length>0.5334</length>
+          </cylinder>
+        </geometry>
+      </collision>
+      <visual name="Boulder_3_0_v">
+        <pose>0.79248 -2.34696 0 0 0 0</pose>
+        <geometry>
+          <ellipsoid>
+            <radii>0.2286 0.2286 0.5334</radii>
+          </ellipsoid>
+        </geometry>
+        <material>
+          <ambient>0.83922 0.83922 0.88627 1</ambient>
+          <diffuse>0.83922 0.83922 0.88627 1</diffuse>
+          <specular>0.1 0.1 0.1 1</specular>
+        </material>
+      </visual>
+      <collision name="Boulder_4_0_c">
+        <pose>-2.56032 -2.49936 0.2667 0 0 0</pose>
+        <geometry>
+          <cylinder>
+            <radius>0.2286</radius>
+            <length>0.5334</length>
+          </cylinder>
+        </geometry>
+      </collision>
+      <visual name="Boulder_4_0_v">
+        <pose>-2.56032 -2.49936 0 0 0 0</pose>
+        <geometry>
+          <ellipsoid>
+            <radii>0.2286 0.2286 0.5334</radii>
+          </ellipsoid>
+        </geometry>
+        <material>
+          <ambient>0.83922 0.83922 0.88627 1</ambient>
+          <diffuse>0.83922 0.83922 0.88627 1</diffuse>
+          <specular>0.1 0.1 0.1 1</specular>
+        </material>
+      </visual>
+      <collision name="Boulder_5_0_c">
+        <pose>-1.34112 -2.37744 0.2667 0 0 0</pose>
+        <geometry>
+          <cylinder>
+            <radius>0.2286</radius>
+            <length>0.5334</length>
+          </cylinder>
+        </geometry>
+      </collision>
+      <visual name="Boulder_5_0_v">
+        <pose>-1.34112 -2.37744 0 0 0 0</pose>
+        <geometry>
+          <ellipsoid>
+            <radii>0.2286 0.2286 0.5334</radii>
+          </ellipsoid>
+        </geometry>
+        <material>
+          <ambient>0.83922 0.83922 0.88627 1</ambient>
+          <diffuse>0.83922 0.83922 0.88627 1</diffuse>
+          <specular>0.1 0.1 0.1 1</specular>
+        </material>
+      </visual>
+      <visual name="Tube_oval_58_x_72_x_60_0_v">
+        <geometry>
+          <mesh>
+            <uri>model://course_v3_model/meshes/tube_0.obj</uri>
+          </mesh>
+        </geometry>
+        <material>
+          <ambient>0.4 0.4 0.4 1</ambient>
+          <diffuse>0.4 0.4 0.4 1</diffuse>
+          <specular>0.1 0.1 0.1 1</specular>
+        </material>
+      </visual>
+      <collision name="Tube_oval_58_x_72_x_60_wall_0_c">
+        <pose>1.59047 0.4572 1.05772 1.67637 0 1.5708</pose>
+        <geometry>
+          <box>
+            <size>1.524 0.249021 0.01</size>
+          </box>
+        </geometry>
+      </collision>
+      <collision name="Tube_oval_58_x_72_x_60_wall_1_c">
+        <pose>1.6396 0.4572 1.28553 1.8926 0 1.5708</pose>
+        <geometry>
+          <box>
+            <size>1.524 0.243245 0.01</size>
+          </box>
+        </geometry>
+      </collision>
+      <collision name="Tube_oval_58_x_72_x_60_wall_2_c">
+        <pose>1.73451 0.4572 1.48977 2.12406 0 1.5708</pose>
+        <geometry>
+          <box>
+            <size>1.524 0.232903 0.01</size>
+          </box>
+        </geometry>
+      </collision>
+      <collision name="Tube_oval_58_x_72_x_60_wall_3_c">
+        <pose>1.86874 0.4572 1.65654 2.38007 0 1.5708</pose>
+        <geometry>
+          <box>
+            <size>1.524 0.220357 0.01</size>
+          </box>
+        </geometry>
+      </collision>
+      <collision name="Tube_oval_58_x_72_x_60_wall_4_c">
+        <pose>2.03313 0.4572 1.77446 2.66631 0 1.5708</pose>
+        <geometry>
+          <box>
+            <size>1.524 0.208885 0.01</size>
+          </box>
+        </geometry>
+      </collision>
+      <collision name="Tube_oval_58_x_72_x_60_wall_5_c">
+        <pose>2.21649 0.4572 1.8355 2.97946 0 1.5708</pose>
+        <geometry>
+          <box>
+            <size>1.524 0.201964 0.01</size>
+          </box>
+        </geometry>
+      </collision>
+      <collision name="Tube_oval_58_x_72_x_60_wall_6_c">
+        <pose>2.40631 0.4572 1.8355 -2.97946 0 1.5708</pose>
+        <geometry>
+          <box>
+            <size>1.524 0.201964 0.01</size>
+          </box>
+        </geometry>
+      </collision>
+      <collision name="Tube_oval_58_x_72_x_60_wall_7_c">
+        <pose>2.58967 0.4572 1.77446 -2.66631 0 1.5708</pose>
+        <geometry>
+          <box>
+            <size>1.524 0.208885 0.01</size>
+          </box>
+        </geometry>
+      </collision>
+      <collision name="Tube_oval_58_x_72_x_60_wall_8_c">
+        <pose>2.75406 0.4572 1.65654 -2.38007 0 1.5708</pose>
+        <geometry>
+          <box>
+            <size>1.524 0.220357 0.01</size>
+          </box>
+        </geometry>
+      </collision>
+      <collision name="Tube_oval_58_x_72_x_60_wall_9_c">
+        <pose>2.88829 0.4572 1.48977 -2.12406 0 1.5708</pose>
+        <geometry>
+          <box>
+            <size>1.524 0.232903 0.01</size>
+          </box>
+        </geometry>
+      </collision>
+      <collision name="Tube_oval_58_x_72_x_60_wall_10_c">
+        <pose>2.9832 0.4572 1.28553 -1.8926 0 1.5708</pose>
+        <geometry>
+          <box>
+            <size>1.524 0.243245 0.01</size>
+          </box>
+        </geometry>
+      </collision>
+      <collision name="Tube_oval_58_x_72_x_60_wall_11_c">
+        <pose>3.03233 0.4572 1.05772 -1.67637 0 1.5708</pose>
+        <geometry>
+          <box>
+            <size>1.524 0.249021 0.01</size>
+          </box>
+        </geometry>
+      </collision>
+      <collision name="Tube_oval_58_x_72_x_60_wall_12_c">
+        <pose>3.03233 0.4572 0.821879 -1.46523 0 1.5708</pose>
+        <geometry>
+          <box>
+            <size>1.524 0.249021 0.01</size>
+          </box>
+        </geometry>
+      </collision>
+      <collision name="Tube_oval_58_x_72_x_60_wall_13_c">
+        <pose>2.9832 0.4572 0.594073 -1.24899 0 1.5708</pose>
+        <geometry>
+          <box>
+            <size>1.524 0.243245 0.01</size>
+          </box>
+        </geometry>
+      </collision>
+      <collision name="Tube_oval_58_x_72_x_60_wall_14_c">
+        <pose>2.88829 0.4572 0.389827 -1.01753 0 1.5708</pose>
+        <geometry>
+          <box>
+            <size>1.524 0.232903 0.01</size>
+          </box>
+        </geometry>
+      </collision>
+      <collision name="Tube_oval_58_x_72_x_60_wall_15_c">
+        <pose>2.75406 0.4572 0.223061 -0.761518 0 1.5708</pose>
+        <geometry>
+          <box>
+            <size>1.524 0.220357 0.01</size>
+          </box>
+        </geometry>
+      </collision>
+      <collision name="Tube_oval_58_x_72_x_60_wall_16_c">
+        <pose>2.58967 0.4572 0.10514 -0.475282 0 1.5708</pose>
+        <geometry>
+          <box>
+            <size>1.524 0.208885 0.01</size>
+          </box>
+        </geometry>
+      </collision>
+      <collision name="Tube_oval_58_x_72_x_60_wall_17_c">
+        <pose>2.40631 0.4572 0.0440996 -0.162132 0 1.5708</pose>
+        <geometry>
+          <box>
+            <size>1.524 0.201964 0.01</size>
+          </box>
+        </geometry>
+      </collision>
+      <collision name="Tube_oval_58_x_72_x_60_wall_18_c">
+        <pose>2.21649 0.4572 0.0440996 0.162132 0 1.5708</pose>
+        <geometry>
+          <box>
+            <size>1.524 0.201964 0.01</size>
+          </box>
+        </geometry>
+      </collision>
+      <collision name="Tube_oval_58_x_72_x_60_wall_19_c">
+        <pose>2.03313 0.4572 0.10514 0.475282 0 1.5708</pose>
+        <geometry>
+          <box>
+            <size>1.524 0.208885 0.01</size>
+          </box>
+        </geometry>
+      </collision>
+      <collision name="Tube_oval_58_x_72_x_60_wall_20_c">
+        <pose>1.86874 0.4572 0.223061 0.761518 0 1.5708</pose>
+        <geometry>
+          <box>
+            <size>1.524 0.220357 0.01</size>
+          </box>
+        </geometry>
+      </collision>
+      <collision name="Tube_oval_58_x_72_x_60_wall_21_c">
+        <pose>1.73451 0.4572 0.389827 1.01753 0 1.5708</pose>
+        <geometry>
+          <box>
+            <size>1.524 0.232903 0.01</size>
+          </box>
+        </geometry>
+      </collision>
+      <collision name="Tube_oval_58_x_72_x_60_wall_22_c">
+        <pose>1.6396 0.4572 0.594073 1.24899 0 1.5708</pose>
+        <geometry>
+          <box>
+            <size>1.524 0.243245 0.01</size>
+          </box>
+        </geometry>
+      </collision>
+      <collision name="Tube_oval_58_x_72_x_60_wall_23_c">
+        <pose>1.59047 0.4572 0.821879 1.46523 0 1.5708</pose>
+        <geometry>
+          <box>
+            <size>1.524 0.249021 0.01</size>
+          </box>
+        </geometry>
+      </collision>
+      <collision name="A1_approach_wall_0_c">
+        <pose>-0.97536 -0.10795 0.8636 0 0 1.5708</pose>
+        <geometry>
+          <box>
+            <size>1.0287 0.1016 1.7272</size>
+          </box>
+        </geometry>
+      </collision>
+      <visual name="A1_approach_wall_0_v">
+        <pose>-0.97536 -0.10795 0.8636 0 0 1.5708</pose>
+        <geometry>
+          <box>
+            <size>1.0287 0.1016 1.7272</size>
+          </box>
+        </geometry>
+        <material>
+          <ambient>0.92157 0.8 0.6549 1</ambient>
+          <diffuse>0.92157 0.8 0.6549 1</diffuse>
+          <specular>0.1 0.1 0.1 1</specular>
+        </material>
+      </visual>
+      <collision name="Barrier_1_0_c">
+        <pose>-2.24155 0.4572 0.8636 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>1.6129 0.1016 1.7272</size>
+          </box>
+        </geometry>
+      </collision>
+      <visual name="Barrier_1_0_v">
+        <pose>-2.24155 0.4572 0.8636 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>1.6129 0.1016 1.7272</size>
+          </box>
+        </geometry>
+        <material>
+          <ambient>0.80392 0.37255 0.23529 1</ambient>
+          <diffuse>0.80392 0.37255 0.23529 1</diffuse>
+          <specular>0.1 0.1 0.1 1</specular>
+        </material>
+      </visual>
+      <collision name="Barrier_2_0_c">
+        <pose>-0.62865 0.4572 0.8636 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>1.6129 0.1016 1.7272</size>
+          </box>
+        </geometry>
+      </collision>
+      <visual name="Barrier_2_0_v">
+        <pose>-0.62865 0.4572 0.8636 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>1.6129 0.1016 1.7272</size>
+          </box>
+        </geometry>
+        <material>
+          <ambient>0.80392 0.37255 0.23529 1</ambient>
+          <diffuse>0.80392 0.37255 0.23529 1</diffuse>
+          <specular>0.1 0.1 0.1 1</specular>
+        </material>
+      </visual>
+      <collision name="Barrier_3__cut_to_55_in_0_c">
+        <pose>0.8763 0.4572 0.8636 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>1.397 0.1016 1.7272</size>
+          </box>
+        </geometry>
+      </collision>
+      <visual name="Barrier_3__cut_to_55_in_0_v">
+        <pose>0.8763 0.4572 0.8636 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>1.397 0.1016 1.7272</size>
+          </box>
+        </geometry>
+        <material>
+          <ambient>0.80392 0.37255 0.23529 1</ambient>
+          <diffuse>0.80392 0.37255 0.23529 1</diffuse>
+          <specular>0.1 0.1 0.1 1</specular>
+        </material>
+      </visual>
+      <collision name="C1_chicane_wall_0_c">
+        <pose>1.2492 -0.370705 0.8636 0 0 1.22173</pose>
+        <geometry>
+          <box>
+            <size>1.6129 0.1016 1.7272</size>
+          </box>
+        </geometry>
+      </collision>
+      <visual name="C1_chicane_wall_0_v">
+        <pose>1.2492 -0.370705 0.8636 0 0 1.22173</pose>
+        <geometry>
+          <box>
+            <size>1.6129 0.1016 1.7272</size>
+          </box>
+        </geometry>
+        <material>
+          <ambient>0.92157 0.8 0.6549 1</ambient>
+          <diffuse>0.92157 0.8 0.6549 1</diffuse>
+          <specular>0.1 0.1 0.1 1</specular>
+        </material>
+      </visual>
+      <collision name="C2a_chicane_wall__window_0_c">
+        <pose>-0.687035 -2.86562 0.8636 0 0 1.22173</pose>
+        <geometry>
+          <box>
+            <size>0.34925 0.1016 1.7272</size>
+          </box>
+        </geometry>
+      </collision>
+      <visual name="C2a_chicane_wall__window_0_v">
+        <pose>-0.687035 -2.86562 0.8636 0 0 1.22173</pose>
+        <geometry>
+          <box>
+            <size>0.34925 0.1016 1.7272</size>
+          </box>
+        </geometry>
+        <material>
+          <ambient>0.92157 0.8 0.6549 1</ambient>
+          <diffuse>0.92157 0.8 0.6549 1</diffuse>
+          <specular>0.1 0.1 0.1 1</specular>
+        </material>
+      </visual>
+      <collision name="C2a_chicane_wall__window_1_c">
+        <pose>-0.47094 -2.27189 0.1524 0 0 1.22173</pose>
+        <geometry>
+          <box>
+            <size>0.9144 0.1016 0.3048</size>
+          </box>
+        </geometry>
+      </collision>
+      <visual name="C2a_chicane_wall__window_1_v">
+        <pose>-0.47094 -2.27189 0.1524 0 0 1.22173</pose>
+        <geometry>
+          <box>
+            <size>0.9144 0.1016 0.3048</size>
+          </box>
+        </geometry>
+        <material>
+          <ambient>0.92157 0.8 0.6549 1</ambient>
+          <diffuse>0.92157 0.8 0.6549 1</diffuse>
+          <specular>0.1 0.1 0.1 1</specular>
+        </material>
+      </visual>
+      <collision name="C2a_chicane_wall__window_2_c">
+        <pose>-0.47094 -2.27189 1.4732 0 0 1.22173</pose>
+        <geometry>
+          <box>
+            <size>0.9144 0.1016 0.508</size>
+          </box>
+        </geometry>
+      </collision>
+      <visual name="C2a_chicane_wall__window_2_v">
+        <pose>-0.47094 -2.27189 1.4732 0 0 1.22173</pose>
+        <geometry>
+          <box>
+            <size>0.9144 0.1016 0.508</size>
+          </box>
+        </geometry>
+        <material>
+          <ambient>0.92157 0.8 0.6549 1</ambient>
+          <diffuse>0.92157 0.8 0.6549 1</diffuse>
+          <specular>0.1 0.1 0.1 1</specular>
+        </material>
+      </visual>
+      <collision name="C2a_chicane_wall__window_3_c">
+        <pose>-0.254845 -1.67817 0.8636 0 0 1.22173</pose>
+        <geometry>
+          <box>
+            <size>0.349248 0.1016 1.7272</size>
+          </box>
+        </geometry>
+      </collision>
+      <visual name="C2a_chicane_wall__window_3_v">
+        <pose>-0.254845 -1.67817 0.8636 0 0 1.22173</pose>
+        <geometry>
+          <box>
+            <size>0.349248 0.1016 1.7272</size>
+          </box>
+        </geometry>
+        <material>
+          <ambient>0.92157 0.8 0.6549 1</ambient>
+          <diffuse>0.92157 0.8 0.6549 1</diffuse>
+          <specular>0.1 0.1 0.1 1</specular>
+        </material>
+      </visual>
+      <collision name="C2b_chicane_wall_0_c">
+        <pose>-0.01911 -1.03054 0.8636 0 0 1.22173</pose>
+        <geometry>
+          <box>
+            <size>1.0287 0.1016 1.7272</size>
+          </box>
+        </geometry>
+      </collision>
+      <visual name="C2b_chicane_wall_0_v">
+        <pose>-0.01911 -1.03054 0.8636 0 0 1.22173</pose>
+        <geometry>
+          <box>
+            <size>1.0287 0.1016 1.7272</size>
+          </box>
+        </geometry>
+        <material>
+          <ambient>0.92157 0.8 0.6549 1</ambient>
+          <diffuse>0.92157 0.8 0.6549 1</diffuse>
+          <specular>0.1 0.1 0.1 1</specular>
+        </material>
+      </visual>
+      <collision name="M1_maze_divider_0_c">
+        <pose>-1.9304 1.31445 0.8636 0 0 1.5708</pose>
+        <geometry>
+          <box>
+            <size>1.6129 0.1016 1.7272</size>
+          </box>
+        </geometry>
+      </collision>
+      <visual name="M1_maze_divider_0_v">
+        <pose>-1.9304 1.31445 0.8636 0 0 1.5708</pose>
+        <geometry>
+          <box>
+            <size>1.6129 0.1016 1.7272</size>
+          </box>
+        </geometry>
+        <material>
+          <ambient>0.92157 0.8 0.6549 1</ambient>
+          <diffuse>0.92157 0.8 0.6549 1</diffuse>
+          <specular>0.1 0.1 0.1 1</specular>
+        </material>
+      </visual>
+      <collision name="M2_maze_divider_0_c">
+        <pose>-0.8128 2.24155 0.8636 0 0 1.5708</pose>
+        <geometry>
+          <box>
+            <size>1.6129 0.1016 1.7272</size>
+          </box>
+        </geometry>
+      </collision>
+      <visual name="M2_maze_divider_0_v">
+        <pose>-0.8128 2.24155 0.8636 0 0 1.5708</pose>
+        <geometry>
+          <box>
+            <size>1.6129 0.1016 1.7272</size>
+          </box>
+        </geometry>
+        <material>
+          <ambient>0.92157 0.8 0.6549 1</ambient>
+          <diffuse>0.92157 0.8 0.6549 1</diffuse>
+          <specular>0.1 0.1 0.1 1</specular>
+        </material>
+      </visual>
+      <collision name="M3_maze_divider_0_c">
+        <pose>0.3048 1.31445 0.8636 0 0 1.5708</pose>
+        <geometry>
+          <box>
+            <size>1.6129 0.1016 1.7272</size>
+          </box>
+        </geometry>
+      </collision>
+      <visual name="M3_maze_divider_0_v">
+        <pose>0.3048 1.31445 0.8636 0 0 1.5708</pose>
+        <geometry>
+          <box>
+            <size>1.6129 0.1016 1.7272</size>
+          </box>
+        </geometry>
+        <material>
+          <ambient>0.92157 0.8 0.6549 1</ambient>
+          <diffuse>0.92157 0.8 0.6549 1</diffuse>
+          <specular>0.1 0.1 0.1 1</specular>
+        </material>
+      </visual>
+      <visual name="floor_markings_v">
+        <cast_shadows>false</cast_shadows>
+        <geometry>
+          <mesh>
+            <uri>model://course_v3_model/meshes/floor.obj</uri>
+          </mesh>
+        </geometry>
+      </visual>
+    </link>
+  </model>
+</sdf>

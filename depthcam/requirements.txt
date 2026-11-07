@@ -1,0 +1,14 @@
+# Pinned to what is installed in .venv on the Windows 11 dev laptop (Python 3.13.3, `python -m pip list`).
+# DepthAI v3 API only (depthai 3.10.0); nothing from the v2 era.
+depthai==3.10.0
+opencv-python==5.0.0.93
+# numpy 2.5.x needs Python >= 3.12. On the Jetson Orin Nano (JetPack 6.2, Ubuntu 22.04, Python 3.10)
+# the last release with a cp310 aarch64 wheel is 2.2.6; the scripts only use APIs present in 2.2.
+# See camera/docs/jetson-orin-nano-setup.md.
+numpy==2.5.3; python_version >= "3.12"
+numpy==2.2.6; python_version < "3.12"
+# open3d is only needed by the point-cloud viewer script (imported lazily inside that script);
+# every other script runs without it. Needs Python >= 3.10 and glibc >= 2.35 (JetPack 6+).
+open3d==0.20.0
+# matplotlib is an optional import for plots; not installed in the dev venv.
+# matplotlib

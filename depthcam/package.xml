@@ -1,0 +1,34 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>dronehacks_lidar</name>
+  <version>0.1.0</version>
+  <description>
+    DroneHacks team nodes: the cuVSLAM Guard, the MS200K lidar localiser on the course map, the drift
+    correction applied to the flight commands, and the route Follower. PX4 keeps flying on raw cuVSLAM
+    through the organisers' bridge; these nodes only read /fmu/out/* and send setpoints to the kit's
+    flight interface. See methods/lidar-vo-fusion/README.md.
+  </description>
+  <maintainer email="noreply@example.com">DroneHacks team</maintainer>
+  <license>Proprietary</license>
+
+  <exec_depend>rclpy</exec_depend>
+  <exec_depend>std_msgs</exec_depend>
+  <exec_depend>geometry_msgs</exec_depend>
+  <exec_depend>nav_msgs</exec_depend>
+  <exec_depend>px4_msgs</exec_depend>
+  <exec_depend>ament_index_python</exec_depend>
+  <exec_depend>launch</exec_depend>
+  <exec_depend>launch_ros</exec_depend>
+  <!-- The kit's flight interface, started by launch/lidar_nav.launch.py exactly as competitor.launch.py does -->
+  <exec_depend>skybeta_flight_interface</exec_depend>
+  <exec_depend>python3-numpy</exec_depend>
+  <!-- pyserial for the MS200K: install it in the team image (host/run.sh build), see docs/deploy.md -->
+  <exec_depend>python3-serial</exec_depend>
+
+  <test_depend>python3-pytest</test_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>
