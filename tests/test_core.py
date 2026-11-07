@@ -383,3 +383,45 @@ def test_grid_corner_goal_chord_and_prune():
         assert np.array_equal(pruned[-1], goal)
     costmap.costs[costmap.world_to_grid(goal)] = np.inf
     assert not _chord_acceptable(costmap, start, goal, 0.0)
+
+
+def test_fillet_gate_checks_chords_between_arc_samples():
+    # The fillet gate's checked points are the flown polyline's vertices, but
+    # the flown path between two consecutive vertices is a straight chord, and
+    # near a point obstacle the chord's midpoint sits measurably closer than
+    # either endpoint. With caller-tunable coarse arc sampling (ds = 0.5 m
+    # gives 3 samples on this 150-degree turn) a corner placed under the first
+    # chord's midpoint keeps the lethal clearance at every fillet vertex yet
+    # breaks it on the flown chord between them: the vertex-only gate passed
+    # such a turn, the midpoint check must fail it.
+    course = synthetic_map()
+    turn = math.radians(150.0)
+    radius = 0.35  # R_MAX; the vertex gate below leaves it unclamped
+    vertex = np.array([0.0, 0.0])
+    incoming = np.array([1.0, 0.0])
+    outgoing = np.array([math.cos(turn), math.sin(turn)])
+    tangent_distance = radius * math.tan(turn / 2.0)
+    entry = vertex - incoming * tangent_distance
+    centre = entry + radius * np.array([0.0, 1.0])  # left of incoming, cross > 0
+    start_angle = math.atan2(*(entry - centre)[::-1])
+    arc_count = 3  # max(3, ceil(radius * turn / 0.5)) == 3 for these numbers
+    first_arc = centre + radius * np.array(
+        [math.cos(start_angle + turn / arc_count), math.sin(start_angle + turn / arc_count)]
+    )
+    midpoint = (entry + first_arc) / 2.0
+    outward = (midpoint - centre) / np.linalg.norm(midpoint - centre)
+    obstacle = midpoint + 0.30 * outward  # 0.30 m of clearance under the chord
+
+    def clearance_at(p):
+        return float(np.linalg.norm(np.asarray(p, dtype=float) - obstacle))
+
+    waypoints = [(-3.0, 0.0), (0.0, 0.0), tuple(3.0 * outgoing)]
+    # The premise of the scenario: every fillet vertex keeps the rule, the
+    # flown chord between the first two does not, and the vertex gate clears
+    # the radius cap.
+    assert clearance_at(vertex) - LETHAL_CLEARANCE >= radius
+    assert clearance_at(entry) >= LETHAL_CLEARANCE
+    assert clearance_at(first_arc) >= LETHAL_CLEARANCE
+    assert clearance_at(midpoint) < LETHAL_CLEARANCE
+    with pytest.raises(ValueError, match="rounded turn"):
+        build_trajectory(waypoints, course, clearance_at=clearance_at, ds=0.5)

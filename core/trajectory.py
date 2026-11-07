@@ -76,9 +76,18 @@ class Trajectory:
                 # fillet: a sharp turn's arc cuts up to radius * (1 / cos(turn/2)
                 # - 1) metres into the corner interior and can approach an
                 # obstacle the vertex check never sees. The flown path is the
-                # polyline through these fillet points, so checking them is
-                # checking the turn; a violation fails closed.
-                if any(float(clearance_at(point)) < 0.32 - 1e-6 for point in fillet):
+                # polyline through these fillet points (they are appended
+                # verbatim into the geometry that self.points samples), so
+                # checking them is checking the turn's vertices; a violation
+                # fails closed. Between two consecutive vertices the clearance
+                # field can still dip below the endpoint values near a
+                # non-convex obstacle corner, by up to about l^2 / (8 * 0.32)
+                # for vertex spacing l, so the chord midpoints are checked too,
+                # shrinking the possible dip by a factor of four. A violation
+                # fails closed.
+                flown = list(fillet)
+                flown.extend((p + q) / 2.0 for p, q in zip(fillet, fillet[1:]))
+                if any(float(clearance_at(point)) < 0.32 - 1e-6 for point in flown):
                     raise ValueError("rounded turn fillet breaks the 0.32 m clearance")
             geometry.append(entry)
             geometry.extend(fillet[1:])
