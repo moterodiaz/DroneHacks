@@ -14,6 +14,7 @@
 
 ## 3. Merge rules
 
+- No human code review or human merge approval is required. Independent AI review through docs/BOARD.md's trusted mechanism is sufficient; no self-review or self-sign-off. Owner notification is not a human approval gate.
 - Squash-merge only through `make merge-reviewed N=<n>` from a trusted policy checkout, dry-run first. See docs/BOARD.md for execution and review requirements.
 - Merge only after the PR carries the `review-passed` label.
 - Designated session correction agents may merge qualifying same-repository team PRs. No forks, direct main pushes, admin bypasses, force-pushes or self-sign-off.

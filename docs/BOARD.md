@@ -56,6 +56,15 @@ Real areas and per-area owners replace these generic rows as code lands — add 
 
 ## The handshake
 
+Human code review and human merge approval are not required. Independent AI
+review through the trusted mechanism below satisfies the review requirement;
+the implementing or fixing agent cannot review its own changes. Designated
+agents proceed automatically once every gate passes, without waiting for a
+human reviewer, owner response or merge authorization. Owner notification
+remains required, but is not an approval gate. Spending, live flight, deployment
+and access changes still require human approval. Required checks, branch
+protections, technical blockers and safety evidence are never bypassed.
+
 1. **Implementer opens a PR** from an area branch (`localization/*`, `navigation/*`, `course/*`, `docs/*`, `infra/*`, `contracts/*`). The `board.yml` workflow automatically strips any stale `in-review`, `review-passed`, or `changes-requested` labels left over from a previous head, then applies `needs-review`.
 
 2. **A review agent runs `make review-queue`**, takes the oldest entry, and immediately runs `make claim N=<n>` to atomically swap `needs-review` → `in-review` and self-assign. The label swap IS the lock — a second reviewer who lists the queue after this point sees nothing to claim for this PR.
