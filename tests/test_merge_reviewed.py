@@ -6,6 +6,7 @@ import io
 import json
 import os
 from pathlib import Path
+import re
 import tempfile
 import subprocess
 import unittest
@@ -167,9 +168,8 @@ class GateTests(unittest.TestCase):
 
     def test_missing_and_spoofed_review(self):
         for login, kind in [("claude", "User"), ("attacker", "Bot")]:
-            s = snapshot()
-            s["comments"] = [{"user": {"login": login, "type": kind},
-                              "body": "<!-- dronehacks-review-v1 {} -->"}]
+            s, *_ = self.trusted()
+            s["comments"][0]["user"] = {"login": login, "type": kind}
             with self.assertRaises(RuntimeError):
                 gate.attestation(s, 42)
 
@@ -181,7 +181,7 @@ class GateTests(unittest.TestCase):
                              "source": "executed", "run_id": 20}],
                   "manual_actions": [], "missing_evidence": []}
         s["comments"] = [{"id": 7, "user": {"login": "claude[bot]", "type": "Bot"},
-            "body": "<!-- dronehacks-review-v1 " + json.dumps(record) + " -->",
+            "body": "```dronehacks-review-v1\n" + json.dumps(record) + "\n```",
             "created_at": "2026-11-07T01:00:01Z", "updated_at": "2026-11-07T01:00:01Z"}]
         run = {"path": gate.WORKFLOW, "event": "issue_comment", "head_sha": BASE,
                "head_branch": "main", "head_repository": {"full_name": gate.REPO},
@@ -221,11 +221,37 @@ class GateTests(unittest.TestCase):
                      "workflow_run": {"id": 10}}]
         return s, record, run, api, pages, blob.getvalue()
 
+    def test_attestation_survives_action_comment_sanitization(self):
+        s, record, run, api, pages, blob = self.trusted()
+        body = "Review complete\n\n```dronehacks-review-v1\n" + json.dumps(record) + "\n```"
+        # Upstream action uses stripHtmlComments on both trigger and MCP output:
+        # src/github/utils/sanitizer.ts, src/mcp/github-comment-server.ts.
+        for _ in range(2):
+            body = re.sub(r"<!--[\s\S]*?-->", "", body)
+        self.assertIn(json.dumps(record), body)
+        s["comments"][0]["body"] = body
+        with patch.object(gate, "api", side_effect=api), \
+             patch.object(gate, "pages", side_effect=pages), \
+             patch.object(gate.subprocess, "run") as execute:
+            execute.return_value.returncode = 0
+            execute.return_value.stdout = blob
+            self.assertEqual(gate.attestation(s, 42), record)
+        workflow = (PATH.parents[2] / gate.WORKFLOW).read_text()
+        self.assertIn("```dronehacks-review-v1\n", workflow)
+        self.assertNotIn("<!-- dronehacks-review-v1", workflow)
+        hidden = "<!-- dronehacks-review-v1 " + json.dumps(record) + " -->"
+        self.assertEqual(re.sub(r"<!--[\s\S]*?-->", "", hidden), "")
+        for invalid in [hidden, json.dumps(record), body.replace(
+                "```dronehacks-review-v1", "```json"), body.rsplit("\n", 1)[0]]:
+            s["comments"][0]["body"] = invalid
+            with self.subTest(body=invalid), self.assertRaises(RuntimeError):
+                gate.attestation(s, 42)
+
     def test_legacy_bootstrap_is_bound_to_one_pr_and_trusted_workflow(self):
         s, record, run, api, pages, blob = self.trusted()
         s["pr"]["user"]["login"] = "moterodiaz"
         record.update(pr=31, bootstrap=True, request_comment=20)
-        s["comments"][0]["body"] = "<!-- dronehacks-review-v1 " + json.dumps(record) + " -->"
+        s["comments"][0]["body"] = "```dronehacks-review-v1\n" + json.dumps(record) + "\n```"
         def legacy_api(path, *args):
             if "/contents/.github/workflows/claude-review.yml" in path:
                 return {"sha": gate.LEGACY_WORKFLOW_BLOB}
@@ -265,7 +291,7 @@ class GateTests(unittest.TestCase):
                            ("manual_actions", ["deploy"]), ("missing_evidence", ["hover"])]:
             s, record, *_ = self.trusted()
             record[key] = value
-            s["comments"][0]["body"] = "<!-- dronehacks-review-v1 " + json.dumps(record) + " -->"
+            s["comments"][0]["body"] = "```dronehacks-review-v1\n" + json.dumps(record) + "\n```"
             with self.subTest(field=key), self.assertRaises(RuntimeError):
                 gate.attestation(s, 42)
 
@@ -273,7 +299,7 @@ class GateTests(unittest.TestCase):
         s, record, run, api, pages, blob = self.trusted()
         later = copy.deepcopy(s["comments"][0])
         record["verdict"] = "blocked"
-        later["body"] = "<!-- dronehacks-review-v1 " + json.dumps(record) + " -->"
+        later["body"] = "```dronehacks-review-v1\n" + json.dumps(record) + "\n```"
         later["created_at"] = later["updated_at"] = "2026-11-07T01:00:02Z"
         s["comments"].append(later)
         with patch.object(gate, "api", side_effect=api), \
@@ -304,7 +330,7 @@ class GateTests(unittest.TestCase):
     def test_copied_author_test_results_do_not_qualify(self):
         s, record, *_ = self.trusted()
         record["tests"][0]["source"] = "author-reported"
-        s["comments"][0]["body"] = "<!-- dronehacks-review-v1 " + json.dumps(record) + " -->"
+        s["comments"][0]["body"] = "```dronehacks-review-v1\n" + json.dumps(record) + "\n```"
         with self.assertRaises(RuntimeError):
             gate.attestation(s, 42)
 

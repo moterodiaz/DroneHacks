@@ -22,7 +22,10 @@ WORKFLOW = ".github/workflows/claude-review.yml"
 BOOTSTRAP_PR = 31
 # Git blob independently read from the pre-rollout main a3592e2, never PR input.
 LEGACY_WORKFLOW_BLOB = "fa10d8dc5102314526de6d6c1477b659424e8ec3"
-MARKER = re.compile(r"<!-- dronehacks-review-v1\s+(\{.*?\})\s*-->", re.S)
+# The action strips HTML comments from both trigger text and tracking updates.
+MARKER = re.compile(
+    r"^```dronehacks-review-v1[ \t]*\r?\n(\{.*?\})[ \t]*\r?\n```[ \t]*\r?$",
+    re.S | re.M)
 SHA = re.compile(r"[0-9a-f]{40}")
 
 

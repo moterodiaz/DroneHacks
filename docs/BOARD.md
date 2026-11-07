@@ -160,6 +160,10 @@ comments do not dismiss an outstanding changes-requested review.
 Every relevant test must pass; absent
 physical validation remains a blocker, never a guessed pass.
 
+The attestation is a visible fenced code block with language
+`dronehacks-review-v1` and a JSON object inside. Do not use an HTML comment:
+the review action strips HTML comments from both requests and tracking updates.
+
 Test entries require `source: "executed"` and the actual CI `run_id`.
 The helper verifies that independent exact-head/base CI execution completed the
 `Isolated Python tests` step successfully under the reviewed test workflow.
