@@ -68,7 +68,7 @@ for f in "$tmp"/f.*; do
     changes-requested) who=${people:-@$author}; note="$who please address these open findings and push a fix; board.yml will re-queue the PR." ;;
     in-review) who=${reviewers:+@$reviewers}; who=${who:-@$author}; note="$who review of head \`$head\` is pending." ;;
     needs-review) note="@$author this review is unclaimed; run \`make review-queue\` then \`make claim N=$pr\`." ;;
-    review-passed) note="@moterodiaz review passed; run \`gh pr merge $pr --squash --delete-branch --match-head-commit $head\`." ;;
+    review-passed) note="Independent review recorded for \`$head\`; run \`make merge-reviewed N=$pr\` from a trusted policy checkout. Open findings still block merging." ;;
     *) echo "SKIP PR #$pr: no recognized state label"; continue ;;
   esac
   body=$(printf '<!-- issue-sweep -->\n%s\n\nOpen findings:\n' "$note")

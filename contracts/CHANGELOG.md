@@ -2,6 +2,35 @@
 
 Newest entries first. One entry per contract-affecting change, linking the PR.
 
+## 2026-11-07 — autonomous repository decisions and guarded merges
+
+[PR #31](https://github.com/moterodiaz/DroneHacks/pull/31):
+remove per-PR human approval for code, contract, cross-area and guard decisions.
+Require documented reasoning, affected-owner notification, independent exact-head
+review, recorded relevant tests and the trusted guarded squash-merge helper.
+Bootstrap is restricted to this policy PR and the pinned pre-rollout main
+review workflow, with independently authored exact-head/base review evidence.
+Review follow-up: preserve change requests across later comment-only reviews,
+honor newer non-pass verdicts, bind the tracking comment to the action's
+pre-model log, and require independently executed exact-head/base sandboxed CI
+tests rather than copied author results. Add explicit intent reconciliation
+without retries of uncertain same-head writes. Extend the existing CI job,
+not its job count. No flight, organizer or physical-evidence constraint changes.
+Also preserve explicit open issue/PR dependencies in the merge gate and local
+controller, even when the dependency itself has no blocking label.
+Second review follow-up: validate Make entry-point arguments as environment
+data without evaluating shell/Make payloads; grant only the Python merge helper,
+not a blanket Make command. Remove raw `gh api` from reviewer tools, retaining
+read views and the intended review-comment/board operations. Exercise Make
+argument attacks and valid dry-run/execute forwarding in the isolated CI image.
+Give every merge attempt a unique journal ID so a previously reconciled attempt
+cannot hide a later uncertain request at the same head and base.
+Same-repository team PRs only; no self-sign-off, force pushes or admin bypass.
+Spending, live flight, deployment and access changes remain manual. All physical
+validation, organizer restrictions, immutable sources and secrets protections
+remain unchanged. Existing holds require individual evidence-based reassessment.
+Affected owner: @moterodiaz (all currently assigned areas).
+
 ## 2026-11-07 — reconcile instruction identifiers without merging (PR #5, decision #19)
 
 Maintainer approved the docs-only integration correction in
