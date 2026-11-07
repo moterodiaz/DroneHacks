@@ -2,6 +2,24 @@
 
 Newest entries first. One entry per contract-affecting change, linking the PR.
 
+## 2026-11-07 — make remaining review evidence and clearance semantics explicit (PR #5)
+
+Follow-up to the current-head review: record immutable organizer-source links
+and Git blob IDs in [the evidence catalog](README.md#organizer-source-evidence),
+since the snapshot is absent from this branch. Mark answered day-one questions
+as answered rather than leaving Q1/Q2 under an open heading.
+
+Distinguish the window's geometric inradius (`side / 2`) from the planned
+robot-centre costmap `clearance_radius`. The inherited 0.29 m value is an
+unvalidated design example, not a geometric property or an enabled flight
+setting. No consumer implements the old field name; a future map must provide
+a reviewed clearance budget. Explicitly block follower cadence selection until
+the required props-off validation, without changing the kit's 10 Hz default.
+
+Affected owner: @moterodiaz (contracts, course, localization and navigation).
+No snapshot, runtime, allowlist or hardware changes. Merge conflicts with main
+are not resolved by this documentation correction.
+
 ## 2026-11-07 — reconcile published kit interfaces and frame alignment (PR #5)
 
 Supersedes the earlier ENU/no-rotation startup assumption: distinguish world
@@ -47,6 +65,8 @@ internally); `contracts/course.md`'s goal schema now defines `params` for
   publishes ENU setpoints to `/skybeta/setpoint/pose`/`/skybeta/setpoint/twist`
   at whatever rate `skybeta_flight_interface` expects (see
   `contracts/ros-graph.md`).
+  The snapshot is not present in this branch: use the immutable archived
+  sources and hashes in [the evidence catalog](README.md#organizer-source-evidence).
 
 ## 2026-11-06 — first four contracts, extracted from the field guide
 Added `contracts/frames.md`, `contracts/course.md`, `contracts/px4.md`,
@@ -74,24 +94,29 @@ contract too — once recorded here, code may rely on it.
   took 27–31 s launch to pad; 1.0 m/s was cleanest (0 of 5 touched). Fly at
   the kit's 1.0 m/s cap.
 
-### Still open
-The field guide's day-one questions for an organiser, verbatim. Each answer
-lands here as a new dated finding when it arrives.
+### Day-one question status
 
-1. Who publishes vision to PX4: their bridge fed by our guard, or our own
-   bridge?
-2. May we fork the flight interface (the two-line fix) and raise its
-   `setpoint_rate_hz` to 50? Or use the starter's advanced track, which takes
-   velocity and acceleration directly?
-3. Who arms and takes off for a scored run, and can our code re-arm for the
-   return?
-4. Can the camera's stereo depth run beside cuVSLAM in their `depthai-ros`
-   launch?
-5. What speed limit is set? At 1.0 m/s it costs us nothing.
-6. Firmware: is it v1.16.1 (`ver all`)?
-7. May we tape-measure the course as laid and plan on that map (rule 6.4)?
-8. The tunnel: roughly how dark inside, and what is its floor? It sets the
-   exposure cap and the guard's threshold.
+These are the field guide's original question numbers, with current status.
+Published-source answers are not a claim of a live organizer decision.
+
+1. **Answered by published source:** the organizer bridge consumes cuVSLAM
+   directly; neither a team bridge nor upstream Guard is authorized. See the
+   Q1/Q2 finding above and [source evidence](README.md#organizer-source-evidence).
+2. **Answered by published source:** do not fork the flight interface or
+   require a 50 Hz upgrade. The supplied pose/twist path is the chosen scope;
+   alternative advanced-track permission is not inferred.
+3. **Partly answered:** the safety pilot arms on RC, then the interface may
+   enter Offboard after the specified ground sequence. Autonomous landing,
+   disarm/rearm and return support remain blocked (`contracts/px4.md`).
+4. **Open:** can stereo depth run beside cuVSLAM in the issued launch?
+5. **Documented, verify issued kit:** the recorded PX4 cap is 1.0 m/s
+   (`contracts/px4.md`); this is not permission to change it.
+6. **Open:** verify actual firmware with the organizer. Older simulator notes
+   name v1.16.1; the archived fleet README names v1.16.2.
+7. **Open:** may the physical course be tape-surveyed and that map used
+   under rule 6.4?
+8. **Open:** how dark is the tunnel and what is its floor? No safe exposure,
+   vision-loss duration or Guard threshold is established by this question.
 
 ## 2026-11-06 — contracts layer established
 No contracts exist yet. This file and `contracts/README.md` establish the rule

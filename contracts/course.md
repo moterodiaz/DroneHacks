@@ -87,8 +87,9 @@ yaw reference, not a routed waypoint.
     width:  1.473   # 58 in, Tube oval cross-section
     height: 1.524   # 60 in
   ```
-- **`window`** (shape `rect`): relaxed to the inscribed-circle radius for
-  costmap clearance, not the full square. The traversal axis is a directed
+- **`window`** (shape `rect`): a square portal, not an obstacle disc.
+  Its geometric inscribed-circle radius is `side / 2`, separate from robot
+  clearance. The traversal axis is a directed
   normal through the opening centre in course east/north coordinates.
   `wall_segment_index` identifies the containing segment in `segments`;
   the opening is a portal in that wall, not an additional obstacle disc.
@@ -100,7 +101,7 @@ yaw reference, not a routed waypoint.
     side: 0.914            # 0.914 m square opening
     sill_height: 0.305     # metres above the floor where the opening starts
     head_height: 1.219     # metres above the floor where the opening ends
-    inscribed_radius: 0.29 # relaxed clearance radius used by the costmap
+    clearance_radius: <m>  # reviewed robot-centre exclusion radius, not opening radius
   ```
 - **`pad`** (shape `disc`): see worked example below.
 - **`launch`** (shape `point`): the drone starts here, facing the heading
@@ -111,6 +112,18 @@ yaw reference, not a routed waypoint.
   params:
     heading_deg: 0   # clockwise from course north (east = 90 degrees)
   ```
+
+For the documented square opening, `0.914 / 2 = 0.457 m` is the geometric
+inradius (`derived` from the organizer dimensions above). The inherited
+0.29 m costmap value is a design example from the earlier contract revision,
+not a validated flight setting. With the documented 0.28 m prop reach it
+would add only `0.29 - 0.28 = 0.01 m` radial margin and leave
+`0.457 - 0.29 = 0.167 m` centre-position margin on each side of the opening.
+Those calculations do not validate the choice. Supply `clearance_radius`
+from a reviewed combined airframe/yaw, planner, estimator and control-error
+budget; do not substitute 0.29 m or the opening inradius as a default.
+Window traversal remains blocked until that budget and vertical clearance
+are validated on the actual kit.
 
 Every listed goal parameter is required. Reject an invalid wall index,
 non-finite geometry, zero-length traversal axis, or an axis that does not

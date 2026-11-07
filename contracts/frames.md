@@ -79,7 +79,9 @@ configuration cannot represent the measured transform.
 Source: read-only `drone-snapshot/home/dronehacks/skybeta/README.md` §Frames,
 `src/oakd_vslam_bringup/oakd_vslam_bringup/px4_odom_bridge.py`, and
 `src/skybeta_flight_interface/skybeta_flight_interface/{frames,flight_interface}.py`
-under that snapshot.
+under that snapshot. It is not included in this branch; use the
+[pinned source evidence](README.md#organizer-source-evidence) for immutable
+links and blob IDs.
 
 ## Acceptance check (required before flight, not performed by this PR)
 

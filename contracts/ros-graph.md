@@ -12,7 +12,7 @@ this file wins (AGENTS.md §3.1).
 | cuVSLAM (`visual_slam`) | library (Isaac ROS, NVIDIA) | stereo image pair, IMU | pose | `nav_msgs/Odometry` (pose+covariance) | ~30 Hz, stereo-only mode | default |
 | `px4_odom_bridge.py` | kit | `/visual_slam/tracking/odometry`, tracking status | `VehicleOdometry` (world-fixed arbitrary-heading FRD) | `px4_msgs/VehicleOdometry` | passthrough | best-effort out |
 | **Planner** | **ours** | `contracts/course.md` map file | route | internal | once per run / re-plan | — |
-| **Follower** (planned) | **ours** | Planner's route, odometry, kit state | `/skybeta/setpoint/pose` or `/skybeta/setpoint/twist` | `geometry_msgs/PoseStamped` / `geometry_msgs/TwistStamped`, world ENU | see below | match kit |
+| **Follower** (planned) | **ours** | Planner's route, odometry, kit state | `/skybeta/setpoint/pose` or `/skybeta/setpoint/twist` | `geometry_msgs/PoseStamped` / `geometry_msgs/TwistStamped`, world ENU | blocked pending cadence validation | match kit |
 | `skybeta_flight_interface` | kit | competitor pose/twist | PX4 setpoints and heartbeat (kit alone writes `/fmu/in/*`) | clamped 1.5 m/s twist and 0.3–3 m altitude by default; no horizontal geofence | 10 Hz default | kit-owned |
 
 ## Guard proposal (blocked, not in the shipped data path)
@@ -53,9 +53,17 @@ with props off before choosing the follower cadence. PX4's documented
 1.0 m/s cap still applies; the interface's 1.5 m/s twist clamp does not
 override it.
 
+The follower's publication cadence is **blocked pending cadence validation**;
+the 10 Hz kit output default is not a selected competitor-input cadence.
+Record the measured freshness/jitter margin and timeout behavior before
+unblocking a follower implementation. No flight rate is chosen here.
+
 Sources: read-only `drone-snapshot/home/dronehacks/skybeta/README.md` and
 `src/skybeta_flight_interface/skybeta_flight_interface/flight_interface.py`
-under that snapshot. Use `contracts/frames.md` for measured frame alignment.
+under that snapshot, available through
+[pinned source evidence](README.md#organizer-source-evidence) even though the
+snapshot is absent from this branch. Use `contracts/frames.md` for measured
+frame alignment.
 
 ## QoS / DDS traps (normative, not advisory)
 
