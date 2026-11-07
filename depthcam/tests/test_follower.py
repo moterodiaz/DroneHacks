@@ -103,6 +103,16 @@ class Vehicle:
         return Pose(t, self.x, self.y, self.z, self.yaw)
 
 
+class StandOriginVehicle(Vehicle):
+    """cuVSLAM started on a stand and the drone was then placed on the mark: its z origin is the
+    stand, 0.30 m above the floor-rest pose, so every pose it reports is the true rise minus 0.30,
+    while PX4 still holds height on its rangefinder (EKF2_HGT_REF 2), on its own z reference."""
+
+    def pose(self, t: float) -> Pose:
+        p = Vehicle.pose(self, t)
+        return Pose(p.t, p.x, p.y, p.z - 0.30, p.yaw)
+
+
 def fly(follower: Follower, vehicle: Vehicle, seconds: float, offboard_at: float = 0.5, ready=lambda t: True):
     log = []
     for i in range(int(seconds / DT)):
@@ -276,6 +286,17 @@ def test_a_switch_before_ready_is_refused_and_a_switch_after_flies():
     late = Follower(synthetic_route(corner=False), FollowerConfig(rest_height_m=REST, land=True))
     log = fly(late, Vehicle(), 40.0, offboard_at=4.0, ready=lambda t: t >= 3.0)   # re-armed, switched once ready
     assert log[-1][1] == STOPPED
+
+
+def test_takeoff_finishes_when_cuvslams_z_origin_is_not_the_floor_rest_pose():
+    """PR #27 review, P1: the start checks cross-check only x, y and yaw against the measured
+    transform, so a stand start passes them all with a resting tracker z of -0.30. PX4 still
+    climbs to the requested height on its rangefinder, so the mission must measure the climb as
+    a rise above the resting tracker z it recorded when the checks passed - not against z_fly
+    bare, or it never leaves TAKEOFF and the route never starts."""
+    follower = Follower(synthetic_route(corner=False), FollowerConfig(rest_height_m=REST))
+    log = fly(follower, StandOriginVehicle(), 30.0)
+    assert any(s == FOLLOW for _, s, _, _ in log), "takeoff never finished: " + follower.reason
 
 
 def test_losing_offboard_stops_for_good():

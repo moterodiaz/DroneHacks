@@ -199,7 +199,7 @@ def test_plan_gate_room_matches_hand_numbers(window_plan) -> None:
 
 def test_plan_outputs(window_plan, tmp_path: Path) -> None:
     paths = write_outputs(window_plan, tmp_path, "w")
-    with paths["ned"].open() as fh:
+    with paths["ned"].open(encoding="utf-8") as fh:
         rows = list(csv.DictReader(fh))
     assert rows[0]["phase"] == "takeoff"
     assert [float(rows[0][k]) for k in ("north", "east", "down")] == pytest.approx([0.0, 0.0, 0.0], abs=1e-3)
@@ -207,7 +207,7 @@ def test_plan_outputs(window_plan, tmp_path: Path) -> None:
     phases = [r["phase"] for r in rows]
     assert phases.index("course") < phases.index("landing") < phases.index("return_climb") \
         < phases.index("return_cross") < phases.index("return_descent")
-    summary = json.loads(paths["summary"].read_text())
+    summary = json.loads(paths["summary"].read_text(encoding="utf-8"))
     assert summary["route"] == "window" and summary["checkpoints"][3]["bonus_points"] == 5
 
 
@@ -260,9 +260,9 @@ def test_cli_pipeline(tmp_path: Path) -> None:
     assert r.returncode == 0, r.stderr
     assert (tmp_path / "gz" / "worlds" / "course_v3.sdf").is_file()
     assert (tmp_path / "gz" / "models" / "course_v3_model" / "meshes" / "floor.png").is_file()
-    rules = json.loads(RULES.read_text())
+    rules = json.loads(RULES.read_text(encoding="utf-8"))
     rules["map"] = out_map.name
-    (tmp_path / "rules.json").write_text(json.dumps(rules))
+    (tmp_path / "rules.json").write_text(json.dumps(rules), encoding="utf-8")
     r = subprocess.run([PYTHON, str(REPO_ROOT / "course" / "14_plan_course.py"), "--rules", str(tmp_path / "rules.json"),
                         "--route", "window", "--iterations", "120", "--out", str(tmp_path / "out")],
                        capture_output=True, text=True, timeout=300)

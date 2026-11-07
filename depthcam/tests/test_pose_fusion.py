@@ -441,7 +441,7 @@ def test_every_node_class_defines_the_required_param_helpers_it_calls():
     sources = sorted(nodes_dir.glob("*_node.py"))
     assert len(sources) >= 3, "expected the follower, pose-fusion and lidar-localiser node modules"
     for source in sources:
-        for cls in (n for n in ast.parse(source.read_text()).body if isinstance(n, ast.ClassDef)):
+        for cls in (n for n in ast.parse(source.read_text(encoding="utf-8")).body if isinstance(n, ast.ClassDef)):
             defined = {fn.name for fn in cls.body if isinstance(fn, ast.FunctionDef)}
             called = {
                 node.attr

@@ -306,7 +306,10 @@ def test_snap_applies_the_estimate_at_once_and_forbidden_is_always_aligned():
 def _following(**cfg):
     follower = Follower(fixture_route(), FollowerConfig(rest_height_m=REST, **cfg))
     z = follower.z_fly
-    for i in range(20):                                   # take off and start following
+    # Offboard starts with the drone resting on the floor: PRECHECK runs there and records the
+    # resting tracker z the climb is measured over (PR #27 review), then the drone is at z_fly.
+    follower.update(0.0, True, Pose(0.0, 0.0, 0.0, 0.0, 0.0), None, True, True)
+    for i in range(1, 20):                                # take off and start following
         follower.update(i * DT, True, Pose(i * DT, 0.0, 0.0, z, 0.0), None, True, True)
     assert follower.state == FOLLOW
     return follower, z

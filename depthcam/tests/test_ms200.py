@@ -214,7 +214,7 @@ def test_cli_check_and_localize_on_a_recording(scene: Scene, tmp_path: Path) -> 
                           "--yaw-offset", "10", "--csv", str(tmp_path / "walk.csv")],
                          capture_output=True, text=True, timeout=120)
     assert out.returncode == 0, out.stderr
-    rows = list(csv.DictReader((tmp_path / "walk.csv").open()))
+    rows = list(csv.DictReader((tmp_path / "walk.csv").open(encoding="utf-8")))
     assert len(rows) >= 18
     last = rows[-1]
     truth_y = float(np.interp(float(last["t"]) - HOST0, [0, 1.5, 3.0], [0.914, 0.914, 2.414]))

@@ -93,8 +93,14 @@ Following
   current point.
 * **Checkpoints:** each gate index the projection passes is recorded as crossed.
 
-Height: ``cruise_z_m`` is above the floor, and the tracker frame's z starts at the body resting on
-the floor, so the setpoint z is ``cruise_z_m - rest_height_m``.
+Height: ``cruise_z_m`` is above the floor, and the setpoint z is ``cruise_z_m - rest_height_m``.
+That arithmetic assumes the tracker frame's z starts at the body resting on the floor, but
+cuVSLAM's origin is wherever the stack started, which need not be that pose (a stand start), and
+nothing else fixes it: the lidar is 2D (the course->odom transform has no height step) and EKF2
+takes its height from the rangefinder (``EKF2_HGT_REF`` 2). So ``_takeoff`` measures the climb as
+a rise above the resting tracker z recorded when the pre-takeoff checks passed, not against an
+assumed z of 0: PX4 reaches the requested height on its rangefinder whatever cuVSLAM's z origin
+is, and the mission still starts the route.
 
 Not done: the optional return flight, and the planner's speed profile (PX4 sets the pace here).
 
@@ -219,6 +225,7 @@ class Follower:
         self._was_offboard = False
         self._precheck_since: Optional[float] = None
         self._takeoff_xy = (0.0, 0.0)
+        self._takeoff_z = 0.0            # resting tracker z; PRECHECK records the measured one (PR #27 review)
         self._yaw_cmd: Optional[float] = None
         self._last_t: Optional[float] = None
         self._hold_since: Optional[float] = None
@@ -314,6 +321,7 @@ class Follower:
         self.state = TAKEOFF
         self.reason = ""
         self._takeoff_xy = (pose.x, pose.y)
+        self._takeoff_z = pose.z         # resting: cuVSLAM's z origin need not be the floor-rest pose
         self._yaw_cmd = pose.yaw
         return self._takeoff(t, dt, pose, landed, ready)
 
@@ -326,7 +334,10 @@ class Follower:
 
     def _takeoff(self, t: float, dt: float, pose: Pose, landed: Optional[bool], ready: bool) -> Command:
         self._turn_toward(self.route.yaw, dt)
-        if abs(pose.z - self.z_fly) < self.config.takeoff_tolerance_m:
+        # The climb is a rise over the resting tracker z the checks recorded: PX4 holds its
+        # height on the rangefinder (EKF2_HGT_REF 2), so cuVSLAM's startup-relative z may stay
+        # offset from z_fly after the climb (a stand start) and must not be compared to it bare.
+        if abs(pose.z - self._takeoff_z - self.z_fly) < self.config.takeoff_tolerance_m:
             self.state = FOLLOW
             self.index = 0
             return self._follow(t, dt, pose, landed, ready)

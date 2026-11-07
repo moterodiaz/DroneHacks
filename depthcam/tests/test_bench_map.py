@@ -47,8 +47,8 @@ def bench(tmp_path_factory) -> Path:
 
 def test_map_has_the_inside_faces_where_measured(bench: Path) -> None:
     cmap = CourseMap.load(bench / "bench_map.json")
-    rules = json.loads((bench / "bench_rules.json").read_text())
-    summary = json.loads((bench / "bench_summary.json").read_text())
+    rules = json.loads((bench / "bench_rules.json").read_text(encoding="utf-8"))
+    summary = json.loads((bench / "bench_summary.json").read_text(encoding="utf-8"))
     assert cmap.feature(rules["start"]["marking"])["centre"] == list(START)
     assert summary["px4_ned_origin_enu"] == [*START, HEIGHT] and Path(summary["rules"]).is_file()
     scene = Scene.from_map(cmap)
@@ -82,7 +82,7 @@ def test_localize_cli_in_the_room(bench: Path, tmp_path: Path) -> None:
                           "--scan-z", str(HEIGHT + 0.1), "--csv", str(tmp_path / "room.csv")],
                          capture_output=True, text=True, timeout=120)
     assert out.returncode == 0, out.stderr
-    last = list(csv.DictReader((tmp_path / "room.csv").open()))[-1]
+    last = list(csv.DictReader((tmp_path / "room.csv").open(encoding="utf-8")))[-1]
     truth_y = float(np.interp(float(last["t"]) - 1000.0, WALK_T, WALK_Y))
     assert float(last["x"]) == pytest.approx(START[0], abs=0.03) and float(last["y"]) == pytest.approx(truth_y, abs=0.03)
     assert float(last["yaw_deg"]) == pytest.approx(90.0, abs=1.0)
@@ -149,7 +149,7 @@ def test_bridge_runs_on_the_room_map(bench: Path, tmp_path: Path, monkeypatch) -
     code = bridge.main(["--sim", "--summary", str(bench / "bench_summary.json"), "--seconds", "2.0",
                         "--log", str(tmp_path / "log")])
     assert code == 0
-    rows = [r for r in csv.DictReader((tmp_path / "log" / "bridge_log.csv").open()) if r["sent"] == "1"]
+    rows = [r for r in csv.DictReader((tmp_path / "log" / "bridge_log.csv").open(encoding="utf-8")) if r["sent"] == "1"]
     sent = _FakeLink.made[0].sent
     assert len(sent) == len(rows) >= 15
     for f, r in zip(sent, rows):

@@ -65,7 +65,7 @@ def built(tmp_path_factory):
         rec.write(host_t, data)
     rec.close()
     yaw_enu = np.unwrap(traj.rpy[:, 2])
-    with (out / "walk_att.csv").open("w", newline="") as fh:  # PX4's ATTITUDE: FRD / NED
+    with (out / "walk_att.csv").open("w", newline="", encoding="utf-8") as fh:  # PX4's ATTITUDE: FRD / NED
         w = csv.writer(fh)
         w.writerow(["t", "roll", "pitch", "yaw", "yaw_dot"])
         for ti, y, r in zip(traj.t, yaw_enu, np.gradient(yaw_enu, traj.t)):
@@ -105,7 +105,7 @@ def test_too_short_a_walk_is_refused() -> None:
 def test_build_maps_every_inside_face(built) -> None:
     code, out, _ = built
     assert code == 0
-    report = json.loads((out / "room_report.json").read_text())
+    report = json.loads((out / "room_report.json").read_text(encoding="utf-8"))
     assert report["check_passed"] and report["check"]["trusted"] >= 0.98
     assert report["mapping"]["slam_trusted"] == report["mapping"]["slam_revolutions"]
     assert report["mapping"]["start_motion_m"] < 0.01        # still on the mark: no "moved at the start" warning
@@ -127,8 +127,8 @@ def test_build_maps_every_inside_face(built) -> None:
                 err = abs((p0[k] + p1[k]) / 2 + side * f["thickness"] / 2 - want)
                 best = err if best is None else min(best, err)
         assert best is not None and best < 0.015, "{} face: {}".format(name, best)
-    rules = json.loads((out / "room_rules.json").read_text())
-    summary = json.loads((out / "room_summary.json").read_text())
+    rules = json.loads((out / "room_rules.json").read_text(encoding="utf-8"))
+    summary = json.loads((out / "room_summary.json").read_text(encoding="utf-8"))
     assert cmap.feature(rules["start"]["marking"])["centre"] == [0.0, 0.0]
     assert summary["px4_ned_origin_enu"] == [0.0, 0.0, HEIGHT] and Path(summary["rules"]).is_file()
     assert (out / "room_map.png").stat().st_size > 1000
@@ -136,7 +136,7 @@ def test_build_maps_every_inside_face(built) -> None:
 
 def test_mapper_poses_follow_the_walk(built) -> None:
     _, out, scans = built
-    rows = list(csv.DictReader((out / "room_poses.csv").open()))
+    rows = list(csv.DictReader((out / "room_poses.csv").open(encoding="utf-8")))
     assert len(rows) >= 0.95 * len(scans)
     truth_t = np.array([s.t_end for s in scans])
     truth = np.array([[s.true_pos[-1, 0] - START[0], s.true_pos[-1, 1] - START[1]] for s in scans])
