@@ -10,6 +10,15 @@
 #
 # lidar_policy has no default on purpose; choose it for every run. No course coordinate is written
 # here (AGENTS.md §3.7): the launch mark comes from the rules file's start marking, in the map.
+#
+# The measured course->odom transform (contracts/frames.md "Course -> odom (normative)", issue #29)
+# is required by lidar_localizer (the yaw), pose_fusion and follower (all three), with no defaults:
+# uncomment and MEASURE them for each run -- a node started without them fails closed and publishes
+# nothing. odom_yaw_deg is in degrees CLOCKWISE FROM COURSE NORTH (a compass bearing; the stack's
+# internal course yaw is counter-clockwise from east, 90 = nose north, and the nodes convert).
+# odom_origin_x/_y are the tracker-frame reading of the reference pose, in metres. For a tracker
+# started on the reference pose facing north, the measured values are 0.0 / 0.0 / 0.0 -- measure
+# them anyway; the follower's 0.25 m / 10 deg start check cross-checks the placement against them.
 
 vo_guard:
   ros__parameters:
@@ -26,6 +35,8 @@ lidar_localizer:
     port: "/dev/ms200"               # the udev name course/docs/hardware-setup.md sets up
     map_file: "course/maps/course_v3_map.json"
     rules_file: "course/maps/course_v3_rules.json"
+    # The measured course->odom yaw for this run (see the header). MEASURE it, then uncomment:
+    # odom_yaw_deg: 0.0                # bearing of the tracker +x axis, clockwise from course north
     frame_id: "course"
     output_topic: "/lidar_localizer/pose"
     px4_odometry_topic: "auto"
@@ -58,6 +69,10 @@ pose_fusion:
     lidar_frame_id: "course"
     map_file: "course/maps/course_v3_map.json"
     rules_file: "course/maps/course_v3_rules.json"
+    # The measured course->odom transform for this run (see the header). MEASURE it, then uncomment:
+    # odom_yaw_deg: 0.0                # bearing of the tracker +x axis, clockwise from course north
+    # odom_origin_x: 0.0               # o_odom: the tracker-frame reading of the reference pose, m
+    # odom_origin_y: 0.0
     # Tuning: starting points, not measurements (pose_fusion.fusion.FusionConfig). Whole numbers are fine.
     max_correction_speed_mps: 0.10
     max_correction_yaw_rate_rps: 0.0523599   # 3 deg/s
@@ -71,6 +86,10 @@ follower:
     route_file: "routes/course_v3_window.json"       # planned from the STEP map through the ground-truth checkpoints
     map_file: "course/maps/course_v3_map.json"
     rules_file: "course/maps/course_v3_rules.json"
+    # The measured course->odom transform for this run (see the header). MEASURE it, then uncomment:
+    # odom_yaw_deg: 0.0                # bearing of the tracker +x axis, clockwise from course north
+    # odom_origin_x: 0.0               # o_odom: the tracker-frame reading of the reference pose, m
+    # odom_origin_y: 0.0
     rest_height_m: 0.07              # as above; the setpoint z is the route's cruise_z_m minus this
     pose_topic: "/pose_fusion/odometry"
     ready_topic: "/pose_fusion/ready"

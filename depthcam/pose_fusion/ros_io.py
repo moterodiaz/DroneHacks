@@ -21,7 +21,7 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
-from .frames import LaunchMark, course_cov_to_tracker, course_pose_to_tracker
+from .frames import CourseToTracker, course_cov_to_tracker, course_pose_to_tracker
 from .fusion import FusedPose, LidarFix, VoSample
 from .se2 import quat_yaw
 
@@ -49,8 +49,9 @@ def odometry_to_vo_sample(msg: Any) -> VoSample:
                     (float(q.x), float(q.y), float(q.z), float(q.w)))
 
 
-def lidar_pose_to_fix(msg: Any, expected_frame_id: str, mark: LaunchMark) -> LidarFix:
-    """The localiser's course-frame ``geometry_msgs/PoseWithCovarianceStamped`` as a tracker-frame :class:`LidarFix`."""
+def lidar_pose_to_fix(msg: Any, expected_frame_id: str, tf: CourseToTracker) -> LidarFix:
+    """The localiser's course-frame ``geometry_msgs/PoseWithCovarianceStamped`` as a tracker-frame :class:`LidarFix`,
+    through the measured course->odom transform (contracts/frames.md "Course → odom")."""
     frame_id = msg.header.frame_id
     if frame_id != expected_frame_id:
         raise LidarInputError("lidar pose is in frame {!r}, expected {!r} (the course frame: x east, "
@@ -68,8 +69,8 @@ def lidar_pose_to_fix(msg: Any, expected_frame_id: str, mark: LaunchMark) -> Lid
         raise LidarInputError("lidar pose covariance needs finite, positive x, y and yaw variances "
                               "(diagonal {})".format(np.diag(cov_course).tolist()))
     heading = quat_yaw((values[2], values[3], values[4], values[5]))
-    pose = course_pose_to_tracker(values[0], values[1], heading, mark)
-    return LidarFix(stamp_to_s(msg.header.stamp), pose, course_cov_to_tracker(cov_course))
+    pose = course_pose_to_tracker(values[0], values[1], heading, tf)
+    return LidarFix(stamp_to_s(msg.header.stamp), pose, course_cov_to_tracker(cov_course, tf))
 
 
 #: Variance written for the axes a 2D lidar does not measure (z, roll, pitch): "unknown".

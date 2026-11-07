@@ -192,7 +192,9 @@ def test_fusion_allowed_shifts_the_setpoints_by_the_drift():
     mark = launch_mark_from_files(MAP, RULES)
     fusion = PoseFusionNode(parameter_overrides=params(
         lidar_policy="allowed", lidar_topic="/lidar_localizer/pose", lidar_frame_id="course",
-        map_file=MAP, rules_file=RULES, **FUSION_TOPICS))
+        map_file=MAP, rules_file=RULES,
+        odom_yaw_deg=0.0, odom_origin_x=0.0, odom_origin_y=0.0,   # the measured identity, passed explicitly
+        **FUSION_TOPICS))
     test = Node("test_allowed")
     vo_pub = test.create_publisher(Odometry, "/vo_guard/odometry", 10)
     lidar_pub = test.create_publisher(PoseWithCovarianceStamped, "/lidar_localizer/pose", 10)
@@ -240,7 +242,9 @@ def test_fusion_reports_aligned_and_drops_it_at_a_vo_gap():
     mark = launch_mark_from_files(MAP, RULES)
     fusion = PoseFusionNode(parameter_overrides=params(
         lidar_policy="allowed", lidar_topic="/lidar_localizer/pose", lidar_frame_id="course",
-        map_file=MAP, rules_file=RULES, **FUSION_TOPICS))
+        map_file=MAP, rules_file=RULES,
+        odom_yaw_deg=0.0, odom_origin_x=0.0, odom_origin_y=0.0,   # the measured identity, passed explicitly
+        **FUSION_TOPICS))
     test = Node("test_aligned")
     vo_pub = test.create_publisher(Odometry, "/vo_guard/odometry", 10)
     lidar_pub = test.create_publisher(PoseWithCovarianceStamped, "/lidar_localizer/pose", 10)
@@ -318,7 +322,8 @@ def test_localizer_reads_a_serial_port_and_lands_on_the_launch_mark():
 
     loc = LidarLocalizerNode(LidarPolicy.ALLOWED, parameter_overrides=params(
         port=os.ttyname(slave), map_file=MAP, rules_file=RULES, yaw_offset_deg=0.0, mount_x=0.0, mount_y=0.0,
-        mount_z=0.035, rest_height_m=REST, slice_heights=[0.2]))
+        mount_z=0.035, rest_height_m=REST, slice_heights=[0.2],
+        odom_yaw_deg=0.0))        # the measured identity (bearing 0 = north), passed explicitly
     test = Node("test_localizer")
     px4 = test.create_publisher(px4_msgs.VehicleOdometry, "/fmu/out/vehicle_odometry", 10)
     poses = Collector(test, PoseWithCovarianceStamped, "/lidar_localizer/pose")
@@ -362,7 +367,8 @@ def test_follower_takes_off_on_offboard_and_stops_when_it_ends():
 
     route_file = str(REPO_ROOT / "routes" / "course_v3_window.json")
     follower = FollowerNode(parameter_overrides=params(route_file=route_file, map_file=MAP, rules_file=RULES,
-                                                       rest_height_m=REST, land_detected_topic=""))
+                                                       rest_height_m=REST, land_detected_topic="",
+                                                       odom_yaw_deg=0.0, odom_origin_x=0.0, odom_origin_y=0.0))
     test = Node("test_follower")
     state_pub = test.create_publisher(String, "/skybeta/state", 10)
     ready_pub = test.create_publisher(Bool, "/pose_fusion/ready", 10)

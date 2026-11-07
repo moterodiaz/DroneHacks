@@ -59,11 +59,22 @@ To replan after a change to the map or the rules, run `python -m follower.make_r
    | `lidar_nav_forbidden_gate_b.launch.py` | forbidden | Gate B |
 
    The kit passes only these two keys into the container, so the choice lives in the file name.
-2. **Put the drone on the launch mark, facing north, and restart the stack:**
-   `docker rm -f skybeta-stack` (it is back in about 10 s). The restart re-zeroes cuVSLAM's
-   origin there, which is the frame the route is flown in. If you skip it, the origin is
-   wherever the stack started (at power-on). The follower's pre-takeoff check then keeps the
-   drone on the ground, unless the lidar is allowed and corrects the offset.
+2. **Measure the course→odom transform for this run, and put the drone on the launch mark.**
+   cuVSLAM's odom frame starts wherever the stack started, at whatever heading the rig had:
+   nothing about the launch mark or facing north can be assumed (contracts/frames.md, "Course →
+   odom": "Do not assume an identity rotation from the launch heading"). Measure it each run and
+   set it in the params file (`config/pose_fusion.example.yaml`, all three nodes):
+   - `odom_yaw_deg`: the direction the tracker's +x axis points, in degrees **clockwise from
+     course north** (a compass bearing; the stack converts internally — its own course frame is
+     counter-clockwise from east, 90 = nose north). For a drone on the mark facing north that
+     is `0.0`.
+   - `odom_origin_x` / `odom_origin_y`: the tracker-frame reading of the reference pose, in
+     metres. For an origin on the reference pose itself, `0.0` and `0.0`.
+   These are required parameters with no defaults: with one missing or non-finite the nodes fail
+   closed at start-up and publish nothing. Then `docker rm -f skybeta-stack` (it is back in about
+   10 s) with the drone on the mark. The follower's pre-takeoff check (within 0.25 m and 10° of
+   the route start) now cross-checks that the measured transform and the physical placement
+   agree: a disagreement keeps the drone on the ground, so fix what it names.
 3. **Wait for ready, before arming.** `/pose_fusion/ready` must be `true`; it always is when the
    lidar is forbidden. `/follower/status` must say `WAIT_FOR_OFFBOARD`, with the reason "on the
    start, sending the takeoff pose". That stream is what lets the kit enter Offboard: it asks once
@@ -96,7 +107,8 @@ Ctrl-C; two flight interfaces fight), then
   withheld as `clock`. If every pose is withheld as `clock`, cuVSLAM's stamps aren't on the
   ROS clock, and nothing downstream will fly.
 - Carry test: carry the drone by hand from the launch mark. `/pose_fusion/odometry` must follow
-  it in the tracker frame (x = north, y = west).
+  it in the tracker frame (x along the measured `odom_yaw_deg`, y 90° counter-clockwise of it;
+  x = north, y = west when the measured yaw is north).
 - Props off, on the mark and ready: before arming, `/skybeta/setpoint/pose` must already carry the
   takeoff pose (z 0.73 m). Then arm and switch to Position: the follower must leave
   `WAIT_FOR_OFFBOARD`.

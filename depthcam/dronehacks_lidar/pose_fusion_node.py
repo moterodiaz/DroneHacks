@@ -56,6 +56,14 @@ Parameters:
     lidar_topic, lidar_frame_id                                               required when allowed
     map_file, rules_file  the launch mark (the rules' start marking, in the map)   required when allowed,
     launch_mark_east/_north  or else the two numbers from contracts/course.md      one or the other
+    odom_yaw_deg          the MEASURED course->odom yaw (contracts/frames.md       required when allowed
+                          "Course → odom"): the tracker frame's +x axis, in degrees
+                          CLOCKWISE FROM COURSE NORTH (a compass bearing; the stack's
+                          internal course yaw is counter-clockwise from east, and the
+                          node converts). No identity rotation is assumed from the
+                          launch heading.
+    odom_origin_x/_y      the MEASURED o_odom: the tracker-frame reading of the     required when allowed
+                          reference pose, metres. Not assumed to be the origin.
     <FusionConfig field>  any field of pose_fusion.fusion.FusionConfig
 """
 
@@ -75,7 +83,7 @@ from rclpy.qos import DurabilityPolicy, HistoryPolicy, QoSProfile, ReliabilityPo
 from std_msgs.msg import Bool, Header, String
 
 from pose_fusion.course_files import launch_mark_from_files
-from pose_fusion.frames import LaunchMark
+from pose_fusion.frames import CourseToTracker, LaunchMark, bearing_to_course_yaw
 from pose_fusion.fusion import FusionConfig, PolicyViolation, PoseFusion
 from pose_fusion.policy import LidarPolicy, parse_lidar_policy
 from pose_fusion.ros_io import (LidarInputError, fill_pose, fill_pose_setpoint, fill_twist_setpoint,
@@ -116,6 +124,8 @@ class PoseFusionNode(Node):
         declare(self, "refresh_max_age_s", 0.5)
         declare(self, "launch_mark_east", float("nan"))
         declare(self, "launch_mark_north", float("nan"))
+        for name in ("odom_yaw_deg", "odom_origin_x", "odom_origin_y"):
+            declare(self, name, float("nan"))
         defaults = FusionConfig()
         for f in fields(FusionConfig):
             declare(self, f.name, getattr(defaults, f.name))
@@ -149,6 +159,12 @@ class PoseFusionNode(Node):
             self._lidar_frame_id = self._required_str("lidar_frame_id")
             try:
                 self._mark = self._launch_mark()
+                # The measured course->odom transform (contracts/frames.md "Course → odom",
+                # issue #29 recommendation B): required, no defaults, fail closed.
+                self._tf = CourseToTracker(
+                    self._mark,
+                    bearing_to_course_yaw(self._required_float("odom_yaw_deg")),
+                    self._required_float("odom_origin_x"), self._required_float("odom_origin_y"))
                 config = FusionConfig(**{f.name: self._config_value(f.name, getattr(FusionConfig(), f.name))
                                          for f in fields(FusionConfig)})
             except (OSError, KeyError, TypeError, ValueError) as exc:
@@ -250,7 +266,7 @@ class PoseFusionNode(Node):
 
     def _on_lidar(self, msg: PoseWithCovarianceStamped) -> None:
         try:
-            fix = lidar_pose_to_fix(msg, self._lidar_frame_id, self._mark)
+            fix = lidar_pose_to_fix(msg, self._lidar_frame_id, self._tf)
         except LidarInputError as exc:
             self.counts["lidar_rejected"] += 1
             self.get_logger().warning("lidar pose refused: {}".format(exc), throttle_duration_sec=5.0)

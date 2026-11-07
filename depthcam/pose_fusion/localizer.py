@@ -45,7 +45,7 @@ from typing import Any, Deque, Dict, Optional, Sequence, Tuple
 
 import numpy as np
 
-from .course_files import START_HEADING_NORTH, wall_and_net_tops
+from .course_files import wall_and_net_tops
 
 #: Scan-plane heights (m) with a map slice, from course/19_lidar_px4_bridge.py.
 SLICE_HEIGHTS = (0.2, 0.4, 0.65, 0.9, 1.2, 1.5, 2.0, 2.4)
@@ -231,8 +231,14 @@ class LocalizerResult:
 class LidarLocalizer:
     """Revolution after revolution, from the launch mark. Make a new one for each run (rule 6.4)."""
 
-    def __init__(self, cmap: Any, start_xy: Tuple[float, float], config: LocalizerConfig,
-                 start_yaw: float = START_HEADING_NORTH, slices: Optional[MapSlices] = None) -> None:
+    def __init__(self, cmap: Any, start_xy: Tuple[float, float], config: LocalizerConfig, start_yaw: float,
+                 slices: Optional[MapSlices] = None) -> None:
+        """*start_xy* / *start_yaw* are the drone's startup pose guess in the course frame. The
+        yaw is the measured course->odom yaw (contracts/frames.md "Course → odom", issue #29,
+        recommendation B): cuVSLAM's odom frame starts on the body, so that measured yaw is the
+        drone's startup course heading. It has no default - not the north the launch heading
+        suggests; pass the measured value (``pose_fusion.frames.bearing_to_course_yaw`` converts
+        an operator's compass bearing)."""
         from course.lidar_localize import LIVE_GUARDS, MatchConfig, Tracker
 
         self.config = config

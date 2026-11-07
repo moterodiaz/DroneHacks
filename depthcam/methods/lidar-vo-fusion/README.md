@@ -76,8 +76,11 @@ The details are in `follower/mission.py`.
    - `/pose_fusion/ready` must be true.
 
    cuVSLAM's origin is wherever the stack started, so a drone carried after power-on fails the
-   first check. That's why the stack must be restarted on the mark (`docs/deploy.md`, "Every
-   run"). The checks run again once Offboard is active, for up to 20 s. They fail there only if
+   first check. The route is converted through the **measured** course→odom transform
+   (contracts/frames.md "Course → odom"; `odom_yaw_deg` / `odom_origin_x` / `odom_origin_y` are
+   required parameters with no defaults — see `docs/deploy.md`, "Every run"), and these checks
+   cross-check that the measured transform and the physical placement agree. The checks run
+   again once Offboard is active, for up to 20 s. They fail there only if
    something changed in the second before the switch. If they are still failing at 20 s, the
    follower blocks and sends nothing: the interface holds the last takeoff pose, and the pilot
    takes over.
@@ -91,8 +94,9 @@ The details are in `follower/mission.py`.
 5. **Land:** it holds over the pad for 2 s, then descends with a velocity setpoint (the kit only
    floors *pose* setpoints). PX4 disarms 2 s after touchdown (`COM_DISARM_LAND`), which ends
    Offboard.
-6. **Stop:** when Offboard ends, for any reason, it stops for good. A pose older than 0.5 s sends
-   nothing, so the interface holds.
+6. **Stop:** when Offboard ends, for any reason, it stops for good. A pose older than 0.5 s
+   (a cuVSLAM gap past the timeout) makes it hold still with a zero velocity setpoint in flight
+   (or descend straight down while landing); before Offboard it still sends nothing.
 
 Not done: the optional return flight, and the planner's speed profile (PX4 sets the pace).
 

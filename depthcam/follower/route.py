@@ -24,9 +24,11 @@ The format (course frame, ``(east, north)`` metres, as the planner works):
 * ``map_sha256``, ``rules_sha256``: the files it came from (:func:`file_sha256`). Given the map
   and rules it will fly with, :func:`load_route` refuses a route planned from different ones.
 
-The follower converts it to the tracker frame of contracts/frames.md (launch-mark origin,
-x = north, y = west) with ``pose_fusion.frames.course_pose_to_tracker``, the same transform the
-fusion uses. The tracker yaw is ``yaw_deg - 90``.
+The follower converts it to the tracker frame with ``pose_fusion.frames.course_pose_to_tracker``,
+through the measured course->odom transform (contracts/frames.md "Course → odom"; issue #29,
+recommendation B) - the same transform the fusion uses. If the measured transform says the
+tracker faces north at the launch mark, the tracker axes are x = north, y = west and the
+tracker yaw is ``yaw_deg - 90``; nothing assumes that any more.
 """
 
 from __future__ import annotations
@@ -40,7 +42,7 @@ from typing import Any, Dict, List, Tuple, Union
 
 import numpy as np
 
-from pose_fusion.frames import LaunchMark, course_pose_to_tracker
+from pose_fusion.frames import CourseToTracker, course_pose_to_tracker
 
 ROUTE_FORMAT = "dronehacks-lidar-route/1"
 
@@ -75,7 +77,7 @@ class Route:
         return float(np.hypot(*np.diff(self.path, axis=0).T).sum())
 
 
-def route_from_dict(data: Dict[str, Any], mark: LaunchMark) -> Route:
+def route_from_dict(data: Dict[str, Any], tf: CourseToTracker) -> Route:
     if not isinstance(data, dict) or data.get("format") != ROUTE_FORMAT:
         fmt = data.get("format") if isinstance(data, dict) else None
         raise ValueError("not a {} route (format {!r}); make one with follower.make_route".format(ROUTE_FORMAT, fmt))
@@ -86,13 +88,13 @@ def route_from_dict(data: Dict[str, Any], mark: LaunchMark) -> Route:
     yaw_deg = float(data["yaw_deg"])
     if not (math.isfinite(cruise) and cruise > 0.0 and math.isfinite(yaw_deg)):
         raise ValueError("route needs a finite cruise_z_m > 0 and yaw_deg")
-    tracker = np.array([course_pose_to_tracker(e, n, 0.0, mark).as_tuple()[:2] for e, n in path])
+    tracker = np.array([course_pose_to_tracker(e, n, 0.0, tf).as_tuple()[:2] for e, n in path])
     gates = tuple(Gate(int(g["index"]), str(g.get("name", ""))) for g in data.get("gates", []))
     for g in gates:
         if not 0 <= g.index < len(path):
             raise ValueError("gate {!r} index {} is outside the path".format(g.name, g.index))
     drone = data.get("drone") or {}
-    return Route(tracker, math.radians(yaw_deg) - 0.5 * math.pi, cruise, gates, str(data.get("route", "")),
+    return Route(tracker, math.radians(yaw_deg) - tf.odom_yaw_rad, cruise, gates, str(data.get("route", "")),
                  float(data.get("min_room_m", float("nan"))), float(drone.get("margin_m", float("nan"))),
                  {k: data[k] for k in ("map_sha256", "rules_sha256", "generated", "planner_finish_s") if k in data})
 
@@ -120,13 +122,13 @@ def check_sources(data: Dict[str, Any], map_file: Union[str, Path, None] = None,
                                                                         source, actual))
 
 
-def load_route(path: Union[str, Path], mark: LaunchMark, map_file: Union[str, Path, None] = None,
+def load_route(path: Union[str, Path], tf: CourseToTracker, map_file: Union[str, Path, None] = None,
                rules_file: Union[str, Path, None] = None) -> Route:
     """Read a route file. With *map_file* / *rules_file*, refuse it unless it was planned from them."""
     with Path(path).open("r", encoding="utf-8") as fh:
         data = json.load(fh)
     check_sources(data, map_file, rules_file)
-    return route_from_dict(data, mark)
+    return route_from_dict(data, tf)
 
 
 def plan_to_dict(plan: Any, route: str, map_sha256: str, rules_sha256: str, generated: str) -> Dict[str, Any]:

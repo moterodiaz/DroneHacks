@@ -13,9 +13,10 @@
 #      and the STEP model.
 #   2. adds pyserial to the team image's Dockerfile (~/team_ws/Dockerfile), if missing
 # then prints the remaining steps. It does not edit /etc/skybeta/drone.env (that needs sudo, and
-# choosing the run's lidar policy is yours). It does not restart the stack either: a restart
-# re-zeroes the VIO origin, so do it yourself with the drone on the launch mark, facing north.
-# See methods/lidar-vo-fusion/docs/deploy.md.
+# choosing the run's lidar policy is yours). It does not restart the stack either. Supply the
+# measured course->odom transform (odom_yaw_deg / odom_origin_x / odom_origin_y) in the params
+# file for the run, and verify the drone's placement against the follower's 0.25 m / 10 deg
+# start check. See methods/lidar-vo-fusion/docs/deploy.md.
 set -euo pipefail
 
 EXPECTED_HOST="skybeta-01"
@@ -69,6 +70,7 @@ Done. Remaining steps (methods/lidar-vo-fusion/docs/deploy.md):
                                                    #   lidar_nav_allowed_gate_b.launch.py   lidar allowed,   Gate B route
                                                    #   lidar_nav_forbidden.launch.py        lidar forbidden, window route
                                                    #   lidar_nav_forbidden_gate_b.launch.py lidar forbidden, Gate B route
-  # put the drone on the launch mark, facing north, then restart the stack (re-zeroes the VIO origin):
+  # measure the course->odom transform for this run (see deploy.md step 2), fill it into the
+  # params file, put the drone on the launch mark, then restart the stack:
   docker rm -f skybeta-stack
 NEXT

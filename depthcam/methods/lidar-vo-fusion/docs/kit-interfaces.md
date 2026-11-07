@@ -29,7 +29,9 @@ From `docs/competitor_guide.md` §1, "Frames — read this twice":
   mean "whatever direction the vehicle's x and y axes pointed when the SLAM node started".
 - **Origin:** the startup pose.
 - **On the launch mark, facing north:** x is north and y is west. That is the tracker frame
-  `pose_fusion` works in (contracts/frames.md, "Origin").
+  `pose_fusion` works in **when the measured course→odom yaw says the tracker faces north**
+  (contracts/frames.md, "Course → odom"): the measured transform defines the tracker axes, and
+  a north-facing launch-mark placement is only the case where they come out x = north, y = west.
 - **The flight interface's conversion:** `(x_ned, y_ned, z_ned) = (y_enu, x_enu, -z_enu)` and
   `yaw_ned = 90° - yaw_enu`. PX4's local frame is EKF2's, so its heading is arbitrary.
   **Open question for the frames contract:** contracts/frames.md describes course → PX4 NED/FRD

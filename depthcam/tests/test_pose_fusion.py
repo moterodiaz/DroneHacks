@@ -13,8 +13,8 @@ from typing import Callable, List, Optional, Tuple
 import numpy as np
 import pytest
 
-from pose_fusion.frames import (LaunchMark, course_cov_to_tracker, course_pose_to_tracker, course_to_frd_xy,
-                                frd_to_flu_xy)
+from pose_fusion.frames import (CourseToTracker, LaunchMark, bearing_to_course_yaw, course_cov_to_tracker,
+                                course_pose_to_tracker)
 from pose_fusion.fusion import (FusedPose, FusionConfig, LidarFix, PolicyViolation, PoseFusion, VoSample,
                                 apply_correction, floor_covariance)
 from pose_fusion.policy import LidarPolicy, parse_lidar_policy
@@ -25,6 +25,9 @@ VO_DT = 1.0 / 30.0
 LIDAR_DT = 0.1
 HEIGHT = 0.73
 FIXTURE_MARK = LaunchMark(east=1.25, north=-0.5)     # synthetic, not the course's launch mark
+#: the measured identity for a launch-mark placement facing north, passed explicitly (issue #29,
+#: recommendation B: the measured transform has no default, not even this one).
+NORTH_TF = CourseToTracker(FIXTURE_MARK, 0.5 * math.pi, 0.0, 0.0)
 
 
 # ---------------------------------------------------------------------------------------------- helpers
@@ -128,11 +131,14 @@ def test_policy_has_no_default_and_no_guessing(value):
 
 # ---------------------------------------------------------------------------------------------- frames
 
-def test_frd_follows_the_contract_axis_map():
-    # contracts/frames.md step 2: world north -> PX4 +x (forward), world east -> PX4 +y (right)
-    forward, right = course_to_frd_xy(FIXTURE_MARK.east + 2.0, FIXTURE_MARK.north + 3.0, FIXTURE_MARK)
-    assert (forward, right) == pytest.approx((3.0, 2.0))
-    assert frd_to_flu_xy(forward, right) == pytest.approx((3.0, -2.0))
+def test_an_operators_bearing_converts_to_the_internal_course_yaw():
+    # contracts/frames.md states course heading clockwise from north (a compass bearing); the
+    # course frame the stack works in is counter-clockwise from east (90 deg = nose north)
+    assert bearing_to_course_yaw(0.0) == pytest.approx(0.5 * math.pi)      # north
+    assert bearing_to_course_yaw(90.0) == pytest.approx(0.0)                # east
+    assert wrap_angle(bearing_to_course_yaw(-90.0) - math.pi) == pytest.approx(0.0, abs=1e-12)  # west
+    with pytest.raises(ValueError, match="bearing"):
+        bearing_to_course_yaw(float("nan"))
 
 
 @pytest.mark.parametrize("d_east, d_north, heading, expected", [
@@ -141,20 +147,37 @@ def test_frd_follows_the_contract_axis_map():
     (-1.0, 0.0, math.pi, (0.0, 1.0, math.pi / 2)),       # 1 m west, facing west: left of start
 ])
 def test_course_pose_to_tracker(d_east, d_north, heading, expected):
-    pose = course_pose_to_tracker(FIXTURE_MARK.east + d_east, FIXTURE_MARK.north + d_north, heading, FIXTURE_MARK)
+    pose = course_pose_to_tracker(FIXTURE_MARK.east + d_east, FIXTURE_MARK.north + d_north, heading, NORTH_TF)
     assert (pose.x, pose.y) == pytest.approx(expected[:2])
     assert wrap_angle(pose.yaw - expected[2]) == pytest.approx(0.0, abs=1e-12)
 
 
+def test_a_measured_transform_rotates_and_shifts_instead_of_assuming_north():
+    tf = CourseToTracker(FIXTURE_MARK, 0.0, 0.3, -0.1)   # tracker +x = course east; o_odom = (0.3, -0.1)
+    pose = course_pose_to_tracker(FIXTURE_MARK.east + 2.0, FIXTURE_MARK.north + 1.0, 0.5 * math.pi, tf)
+    assert (pose.x, pose.y) == pytest.approx((2.3, 0.9))          # (2 east, 1 north) + o_odom, unrotated
+    assert wrap_angle(pose.yaw - 0.5 * math.pi) == pytest.approx(0.0, abs=1e-12)
+
+
 def test_course_covariance_swaps_axes():
     cov = np.diag([0.1 ** 2, 0.3 ** 2, 0.02 ** 2])          # east, north, heading
-    out = course_cov_to_tracker(cov)
+    out = course_cov_to_tracker(cov, NORTH_TF)
     assert np.sqrt(np.diag(out)) == pytest.approx([0.3, 0.1, 0.02])   # x = north, y = west
+    east_tf = CourseToTracker(FIXTURE_MARK, 0.0, 0.0, 0.0)   # tracker +x = course east: no swap
+    assert np.sqrt(np.diag(course_cov_to_tracker(cov, east_tf))) == pytest.approx([0.1, 0.3, 0.02])
 
 
 def test_launch_mark_must_be_given():
     with pytest.raises(ValueError, match="contracts/course.md"):
         LaunchMark(float("nan"), 0.0)
+
+
+def test_the_measured_transform_must_be_given_and_finite():
+    for bad in (float("nan"), float("inf")):
+        with pytest.raises(ValueError, match="measured"):
+            CourseToTracker(FIXTURE_MARK, bad, 0.0, 0.0)
+        with pytest.raises(ValueError, match="measured"):
+            CourseToTracker(FIXTURE_MARK, 0.5 * math.pi, 0.0, bad)
 
 
 # ---------------------------------------------------------------------------------------------- forbidden policy
@@ -375,7 +398,7 @@ def _pose_msg(frame_id: str, sec: int, nanosec: int, x: float, y: float, heading
 
 def test_lidar_message_becomes_a_tracker_frame_fix():
     msg = _pose_msg("course", 12, 500_000_000, FIXTURE_MARK.east, FIXTURE_MARK.north + 2.0, math.pi / 2)
-    fix = lidar_pose_to_fix(msg, "course", FIXTURE_MARK)
+    fix = lidar_pose_to_fix(msg, "course", NORTH_TF)
     assert fix.t == pytest.approx(12.5)
     assert fix.pose.as_tuple() == pytest.approx((2.0, 0.0, 0.0), abs=1e-12)
     assert np.diag(fix.cov) == pytest.approx([0.04, 0.01, 4e-4])        # north variance -> x
@@ -383,13 +406,13 @@ def test_lidar_message_becomes_a_tracker_frame_fix():
 
 def test_lidar_message_in_the_wrong_frame_is_refused():
     with pytest.raises(LidarInputError, match="frame"):
-        lidar_pose_to_fix(_pose_msg("odom", 1, 0, 0.0, 0.0, 0.0), "course", FIXTURE_MARK)
+        lidar_pose_to_fix(_pose_msg("odom", 1, 0, 0.0, 0.0, 0.0), "course", NORTH_TF)
 
 
 def test_lidar_message_with_unknown_covariance_is_refused():
     with pytest.raises(LidarInputError, match="covariance"):
         lidar_pose_to_fix(_pose_msg("course", 1, 0, 0.0, 0.0, 0.0, diag=(0.01, 0.01, 1, 1, 1, 0.0)), "course",
-                          FIXTURE_MARK)
+                          NORTH_TF)
 
 
 def test_odometry_round_trip():

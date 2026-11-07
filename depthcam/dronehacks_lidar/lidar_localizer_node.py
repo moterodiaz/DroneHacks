@@ -16,8 +16,10 @@ For each revolution it:
 
 It only *reads* PX4 (``/fmu/out/*``, best-effort). It never writes to ``/fmu/in/*``, never sets a
 parameter, and never arms or changes mode. It holds no state across runs and saves no map
-(rule 6.4); the map is the published course. Start it with the drone resting on the launch mark,
-facing north. That is its starting guess, and PX4's first height is taken as the floor.
+(rule 6.4); the map is the published course. Start it with the drone resting on the launch mark:
+the measured course->odom yaw is its starting heading, and PX4's first height is taken as the
+floor. The 0.25 m / 10 deg pre-takeoff check then cross-checks the placement against that
+measured transform.
 
 ``lidar_policy`` is required and has no default. Under ``forbidden`` the node exits (status 0)
 before it opens the serial port.
@@ -27,6 +29,12 @@ Parameters (``required`` = no default):
     lidar_policy        "allowed" | "forbidden"                                   required
     port                the MS200K's serial device, e.g. /dev/ms200               required
     map_file, rules_file  course map and rules (the rules name the start mark)    required
+    odom_yaw_deg        the MEASURED course->odom yaw (contracts/frames.md       required
+                        "Course → odom"): the tracker frame's +x axis, in degrees
+                        CLOCKWISE FROM COURSE NORTH (a compass bearing; the stack's
+                        internal course yaw is counter-clockwise from east, and the
+                        node converts). cuVSLAM's odom starts on the body, so this
+                        is also the drone's startup course heading.
     yaw_offset_deg      where the sensor's 0 deg points, CCW from the nose        required
     mount_x, mount_y, mount_z   scan centre in the body frame (FLU), m            required
     rest_height_m       body centre above the floor when landed, m                required
@@ -58,6 +66,7 @@ from std_msgs.msg import String
 
 from course import ms200
 from pose_fusion.course_files import load_course_map, load_rules, start_marking_centre
+from pose_fusion.frames import bearing_to_course_yaw
 from pose_fusion.localizer import SLICE_HEIGHTS, LidarLocalizer, LocalizerConfig, Px4Buffer, px4_sample_from_odometry
 from pose_fusion.policy import LidarPolicy, parse_lidar_policy
 from pose_fusion.ros_io import fill_pose_with_covariance, s_to_stamp
@@ -82,7 +91,7 @@ class LidarLocalizerNode(Node):
         self.declare_parameter("lidar_policy", policy.value)
         for name in ("port", "map_file", "rules_file"):
             self.declare_parameter(name, "")
-        for name in ("yaw_offset_deg", "mount_x", "mount_y", "mount_z", "rest_height_m"):
+        for name in ("yaw_offset_deg", "odom_yaw_deg", "mount_x", "mount_y", "mount_z", "rest_height_m"):
             declare(self, name, float("nan"))
         self.declare_parameter("clockwise", True)
         declare(self, "range_min_m", 0.25)
@@ -113,11 +122,12 @@ class LidarLocalizerNode(Node):
                 iterations=self._whole("iterations"),
                 slice_heights=tuple(numbers(self, "slice_heights")))
             range_min, latency, baud = number(self, "range_min_m"), number(self, "latency_s"), self._whole("baud")
+            odom_yaw = bearing_to_course_yaw(self._required_float("odom_yaw_deg"))
         except (OSError, KeyError, TypeError, ValueError) as exc:
             raise ConfigError(str(exc)) from exc
         yaw_offset = self._required_float("yaw_offset_deg")
         self.get_logger().info("building map slices from {} (start mark {:.4f}, {:.4f})".format(map_file, *start))
-        self.localizer = LidarLocalizer(cmap, start, config)
+        self.localizer = LidarLocalizer(cmap, start, config, odom_yaw)
         self._asm = ms200.Assembler(clockwise=bool(self._param("clockwise")), yaw_offset_deg=yaw_offset,
                                     range_min=range_min, latency_s=latency)
         try:

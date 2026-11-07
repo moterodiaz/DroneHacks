@@ -24,7 +24,7 @@ from follower.mission import (BLOCKED, FOLLOW, HOLD, LAND, LANDED, PRECHECK, STO
                               Follower, FollowerConfig, Pose)
 from follower.route import ROUTE_FORMAT, load_route, plan_to_dict, route_from_dict
 from pose_fusion.course_files import launch_mark_from_files, load_course_map, load_rules
-from pose_fusion.frames import LaunchMark, course_pose_to_tracker
+from pose_fusion.frames import CourseToTracker, LaunchMark, course_pose_to_tracker
 
 ROOT = Path(__file__).resolve().parents[1]
 MAP = ROOT / "course" / "maps" / "course_v3_map.json"
@@ -33,6 +33,9 @@ ROUTES = {name: ROOT / "routes" / "course_v3_{}.json".format(name) for name in (
 REST = 0.07
 DT = 1.0 / 50.0
 MARK = launch_mark_from_files(MAP, RULES)
+#: the measured identity for the drone on the launch mark facing north, passed explicitly
+#: (issue #29, recommendation B: the measured transform has no default, not even this one).
+TF = CourseToTracker(MARK, 0.5 * math.pi, 0.0, 0.0)
 KIT_SETPOINT_TIMEOUT_S = 1.0                    # the flight interface's setpoint_timeout_s default
 
 
@@ -137,7 +140,7 @@ def test_shipped_route_traces_to_the_map_and_the_checkpoints(name):
     assert [g["name"] for g in data["gates"]] == gates                  # CP1-CP4, in order
     idx = [g["index"] for g in data["gates"]]
     assert idx == sorted(idx) and len(set(idx)) == len(idx)
-    route = load_route(ROUTES[name], MARK)
+    route = load_route(ROUTES[name], TF)
     assert route.start == pytest.approx((0.0, 0.0), abs=1e-3)           # the tracker origin is the launch mark
     assert route.yaw == pytest.approx(0.0)                              # planned nose north = tracker yaw 0
     assert route.cruise_z_m == pytest.approx(0.8)
@@ -157,7 +160,7 @@ def test_shipped_window_route_is_what_the_planner_makes_today():
 # ---------------------------------------------------------------------------------------------- the real route, flown
 
 def test_window_route_flown_stays_inside_the_planners_margin():
-    route = load_route(ROUTES["window"], MARK)
+    route = load_route(ROUTES["window"], TF)
     follower = Follower(route, FollowerConfig(rest_height_m=REST))
     log = fly(follower, Vehicle(), 240.0)
     states = [s for _, s, _, _ in log]
@@ -178,13 +181,14 @@ def test_window_route_flown_stays_inside_the_planners_margin():
 def synthetic_route(corner: bool = True):
     """3 m north of a fixture launch mark, then (if corner) 2 m east, as a 4 cm polyline."""
     mark = LaunchMark(east=1.25, north=-0.5)
+    tf = CourseToTracker(mark, 0.5 * math.pi, 0.0, 0.0)   # measured identity, passed explicitly
     pts = [(mark.east, mark.north + s) for s in np.arange(0.0, 3.0 + 1e-9, 0.04)]
     if corner:
         pts += [(mark.east + s, mark.north + 3.0) for s in np.arange(0.04, 2.0 + 1e-9, 0.04)]
     data = {"format": ROUTE_FORMAT, "route": "synthetic", "yaw_deg": 90.0, "cruise_z_m": 0.8,
             "path": [list(p) for p in pts], "gates": [{"index": 40, "name": "G1"}],
             "drone": {"margin_m": 0.05}, "min_room_m": 0.0}
-    return route_from_dict(data, mark)
+    return route_from_dict(data, tf)
 
 
 def test_route_converts_to_the_tracker_frame():
@@ -197,7 +201,7 @@ def test_route_converts_to_the_tracker_frame():
 
 def test_route_rejects_other_formats():
     with pytest.raises(ValueError, match=ROUTE_FORMAT):
-        route_from_dict({"format": "dronehacks-route/0"}, MARK)
+        route_from_dict({"format": "dronehacks-route/0"}, TF)
 
 
 def test_every_carrot_keeps_the_path_within_max_cut():
@@ -241,7 +245,7 @@ def test_a_drone_carried_off_the_mark_sends_nothing_so_the_kit_refuses_offboard(
     vehicle = Vehicle(x=0.6, y=0.0)                                     # 0.6 m from the start
     log = fly(follower, vehicle, 10.0)
     assert vehicle.refused and not vehicle.offboard and vehicle.z == 0.0
-    assert follower.state == WAIT_FOR_OFFBOARD and "restart the stack" in follower.reason
+    assert follower.state == WAIT_FOR_OFFBOARD and "measured course->odom transform" in follower.reason
     assert all(c is None for _, _, c, _ in log)
 
 
@@ -260,7 +264,7 @@ def test_checks_that_fail_in_the_second_before_the_switch_still_block():
     after = [follower.update((ticks + i) * DT, True, Pose((ticks + i) * DT, 0.6, 0.0, 0.0, 0.0))
              for i in range(int(3.0 / DT))]
     assert all(c is None for c in after)
-    assert follower.state == BLOCKED and "restart the stack" in follower.reason
+    assert follower.state == BLOCKED and "measured course->odom transform" in follower.reason
 
 
 def test_a_switch_before_ready_is_refused_and_a_switch_after_flies():
@@ -330,27 +334,27 @@ def test_cruise_must_be_above_the_rest_height():
     data = json.loads(ROUTES["window"].read_text(encoding="utf-8"))
     data["cruise_z_m"] = 0.05
     with pytest.raises(ValueError, match="rest height"):
-        Follower(route_from_dict(data, MARK), FollowerConfig(rest_height_m=REST))
+        Follower(route_from_dict(data, TF), FollowerConfig(rest_height_m=REST))
 
 
 def test_course_points_use_the_fusions_transform():
-    p = course_pose_to_tracker(MARK.east, MARK.north + 1.0, 0.0, MARK)
+    p = course_pose_to_tracker(MARK.east, MARK.north + 1.0, 0.0, TF)
     assert (p.x, p.y) == pytest.approx((1.0, 0.0))
 
 
 # ---------------------------------------------------------------------------------------------- route provenance
 
 def test_a_route_is_refused_with_other_map_or_rules(tmp_path):
-    route = load_route(ROUTES["window"], MARK, MAP, RULES)            # the shipped files: accepted
+    route = load_route(ROUTES["window"], TF, MAP, RULES)            # the shipped files: accepted
     assert len(route.path) > 2
     other_map = tmp_path / "map.json"
     other_map.write_bytes(MAP.read_bytes() + b" ")
     with pytest.raises(ValueError, match="different map file"):
-        load_route(ROUTES["window"], MARK, other_map, RULES)
+        load_route(ROUTES["window"], TF, other_map, RULES)
     other_rules = tmp_path / "rules.json"
     other_rules.write_bytes(RULES.read_bytes().replace(b"\n", b"\n\n", 1))
     with pytest.raises(ValueError, match="different rules file"):
-        load_route(ROUTES["window"], MARK, MAP, other_rules)
+        load_route(ROUTES["window"], TF, MAP, other_rules)
 
 
 def test_a_route_without_hashes_is_refused_when_checked(tmp_path):
@@ -359,5 +363,5 @@ def test_a_route_without_hashes_is_refused_when_checked(tmp_path):
     stripped = tmp_path / "route.json"
     stripped.write_text(json.dumps(data), encoding="utf-8")
     with pytest.raises(ValueError, match="records map_sha256 None"):
-        load_route(stripped, MARK, MAP, RULES)
-    assert len(load_route(stripped, MARK).path) > 2                    # unchecked when no files are given
+        load_route(stripped, TF, MAP, RULES)
+    assert len(load_route(stripped, TF).path) > 2                    # unchecked when no files are given

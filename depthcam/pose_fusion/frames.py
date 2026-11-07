@@ -1,20 +1,30 @@
-"""Course frame -> tracker frame, following contracts/frames.md ("The transform (normative)").
+"""Course frame -> tracker frame, following contracts/frames.md ("Course → odom (normative)").
 
-contracts/frames.md defines the map from course ``(east, north)`` to a PX4 NED/FRD setpoint:
+contracts/frames.md requires a **measured** rigid course-to-odom transform at each tracking
+initialisation:
 
-1. subtract the launch mark;
-2. world north -> PX4 +x (forward), world east -> PX4 +y (right).
+    p_odom = o_odom + R_odom_course * (p_course - o_course)
 
-The fusion works in the frame the tracker publishes to ``px4_odom_bridge.py``: the ROS FLU
-frame of the body resting on the launch mark, facing north (contracts/frames.md, "Origin").
-That is the FRD frame above with y negated (frame table, FRD vs FLU): x forward = north,
-y left = west. This module applies the contract's steps 1-2 unchanged, then the FRD -> FLU flip
-from the frame table. It adds no rotation or sign of its own, so contracts/frames.md stays the
-only source of truth. Step 3 (height) is not used: a 2D lidar does not measure height, and EKF2
-takes height from the rangefinder.
+and says "Do not assume an identity rotation from the launch heading". The tracker frame here is
+the frame the tracker publishes to ``px4_odom_bridge.py``: the frame cuVSLAM starts on the body
+at its reference pose. :class:`CourseToTracker` holds that transform, measured per run with no
+defaults (issue #29, recommendation B): ``mark`` is the surveyed ``o_course`` (the launch mark,
+from contracts/course.md at run time, AGENTS.md §3.7), ``odom_yaw_rad`` is the planar
+``R_odom_course`` and ``odom_x``/``odom_y`` are the measured ``o_odom``.
 
-The launch mark is a required value with no default. AGENTS.md §3.7 forbids course geometry
-literals in code, so it comes from contracts/course.md (Geometry, "Launch mark") at run time.
+Conventions differ between the contract's prose and this stack's internal course frame, and
+the conversion happens in exactly one place, :func:`bearing_to_course_yaw`:
+
+* contracts/frames.md states course heading **clockwise from north** (an operator's compass
+  bearing, degrees) - the convention the ROS parameters take;
+* the course frame the stack works in (contracts/course.md, the map, the route files, this
+  module) is **counter-clockwise from east** (90 deg = nose north).
+
+Step 3 of the contract's transform (height) is not used: a 2D lidar does not measure height,
+and EKF2 takes height from the rangefinder.
+
+The follower's 0.25 m / 10 deg start-tolerance check cross-checks that this measured transform
+and the physical placement agree; it is not the source of the transform.
 """
 
 from __future__ import annotations
@@ -41,39 +51,79 @@ class LaunchMark:
                              "contracts/course.md".format(self.east, self.north))
 
 
-def course_to_frd_xy(east: float, north: float, mark: LaunchMark) -> Tuple[float, float]:
-    """contracts/frames.md, "The transform (normative)", steps 1 and 2: course -> PX4 (forward, right)."""
-    d_east = east - mark.east          # step 1: subtract the launch mark
-    d_north = north - mark.north
-    return d_north, d_east             # step 2: north -> PX4 +x (forward), east -> PX4 +y (right)
+@dataclass(frozen=True)
+class CourseToTracker:
+    """The measured course -> tracker (odom) transform (contracts/frames.md, "Course → odom").
+
+    Every measured value is required and has no default: a node built without one must fail
+    closed rather than fly on an assumed transform.
+
+    * ``mark`` - ``o_course``, the surveyed course-frame position of the tracked body at the
+      reference pose: the launch mark, read from the rules file's start marking in the map
+      (``pose_fusion.course_files.launch_mark_from_files``).
+    * ``odom_yaw_rad`` - the planar ``R_odom_course``: the course-frame heading of the tracker
+      frame's +x axis. **Convention: the course frame's own, counter-clockwise from east, in
+      radians (0.5*pi = north).** contracts/frames.md's "Course heading is clockwise from
+      north" is an operator's compass bearing; convert it with
+      :func:`bearing_to_course_yaw` before it reaches here. cuVSLAM's odom frame starts on the
+      body at the reference pose, so this yaw is also the drone's startup course heading - the
+      localiser's first-guess heading.
+    * ``odom_x``, ``odom_y`` - ``o_odom``, the tracker-frame reading of the reference pose, in
+      metres (x along the frame's +x axis, y 90 deg counter-clockwise from it). Measured; do
+      not assume the origin is the reference pose.
+    """
+
+    mark: LaunchMark
+    odom_yaw_rad: float
+    odom_x: float
+    odom_y: float
+
+    def __post_init__(self) -> None:
+        for name, value in (("odom_yaw_rad", self.odom_yaw_rad), ("odom_x", self.odom_x),
+                            ("odom_y", self.odom_y)):
+            if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+                raise ValueError("CourseToTracker.{} must be a finite measured number (got {!r}); "
+                                 "contracts/frames.md requires a measured course->odom transform, "
+                                 "not an assumed one".format(name, value))
 
 
-def frd_to_flu_xy(forward: float, right: float) -> Tuple[float, float]:
-    """contracts/frames.md frame table: x is forward in both, y is right in FRD and left in FLU."""
-    return forward, -right
+def bearing_to_course_yaw(bearing_deg: float) -> float:
+    """An operator's measured heading, clockwise from course north in degrees
+    (contracts/frames.md's "Course heading is clockwise from north"), as the course frame's
+    internal yaw: counter-clockwise from east, radians (90 deg = nose north). internal = 90 - bearing.
+    """
+    if isinstance(bearing_deg, bool) or not isinstance(bearing_deg, (int, float)) \
+            or not math.isfinite(bearing_deg):
+        raise ValueError("the measured bearing must be a finite number of degrees (got {!r})".format(bearing_deg))
+    return wrap_angle(0.5 * math.pi - math.radians(float(bearing_deg)))
 
 
-def course_pose_to_tracker(east: float, north: float, heading: float, mark: LaunchMark) -> Pose2:
+def course_pose_to_tracker(east: float, north: float, heading: float, tf: CourseToTracker) -> Pose2:
     """A body pose in the course frame, as a :class:`Pose2` in the tracker frame.
 
-    *heading* is the course-frame yaw, counter-clockwise from east (course x = east, y = north).
-    The tracker frame starts facing north, so its yaw is counter-clockwise from north:
-    ``yaw = heading - pi/2``.
+    ``p_tracker = o_odom + R_odom_course @ (p_course - o_course)``, planar: the displacement from
+    the surveyed reference position is rotated into the tracker frame by the measured yaw and
+    shifted by the measured ``o_odom``. *heading* is the course-frame yaw, counter-clockwise
+    from east; the tracker yaw is ``heading - odom_yaw`` (the translation does not change it).
     """
-    x, y = frd_to_flu_xy(*course_to_frd_xy(east, north, mark))
-    return Pose2(x, y, wrap_angle(heading - 0.5 * math.pi))
+    d_east = east - tf.mark.east          # p_course - o_course
+    d_north = north - tf.mark.north
+    c, s = math.cos(tf.odom_yaw_rad), math.sin(tf.odom_yaw_rad)
+    x = c * d_east + s * d_north + tf.odom_x
+    y = -s * d_east + c * d_north + tf.odom_y
+    return Pose2(x, y, wrap_angle(heading - tf.odom_yaw_rad))
 
 
-#: d(tracker x, y, yaw) / d(course east, north, heading) for :func:`course_pose_to_tracker`.
-COURSE_TO_TRACKER_JACOBIAN = np.array([[0.0, 1.0, 0.0],
-                                       [-1.0, 0.0, 0.0],
-                                       [0.0, 0.0, 1.0]])
+def course_cov_to_tracker(cov: np.ndarray, tf: CourseToTracker) -> np.ndarray:
+    """A 3x3 (east, north, heading) covariance as a 3x3 (x, y, yaw) covariance in the tracker frame.
 
-
-def course_cov_to_tracker(cov: np.ndarray) -> np.ndarray:
-    """A 3x3 (east, north, heading) covariance as a 3x3 (x, y, yaw) covariance in the tracker frame."""
+    The rotation of :func:`course_pose_to_tracker` applies; the ``o_odom`` shift does not.
+    """
     cov = np.asarray(cov, dtype=float)
     if cov.shape != (3, 3):
         raise ValueError("expected a 3x3 covariance, got shape {}".format(cov.shape))
-    jac = COURSE_TO_TRACKER_JACOBIAN
+    c, s = math.cos(tf.odom_yaw_rad), math.sin(tf.odom_yaw_rad)
+    jac = np.array([[c, s, 0.0],
+                    [-s, c, 0.0],
+                    [0.0, 0.0, 1.0]])
     return jac @ cov @ jac.T

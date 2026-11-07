@@ -36,6 +36,14 @@ Parameters:
 
     route_file          a dronehacks-lidar-route/1 file                       required
     map_file, rules_file  the launch mark (the rules' start marking, in the map)   required
+    odom_yaw_deg        the MEASURED course->odom yaw (contracts/frames.md       required
+                        "Course → odom"): the tracker frame's +x axis, in degrees
+                        CLOCKWISE FROM COURSE NORTH (a compass bearing; the stack's
+                        internal course yaw is counter-clockwise from east, and the
+                        node converts). The route is converted through it; no
+                        identity rotation is assumed from the launch heading.
+    odom_origin_x/_y    the MEASURED o_odom: the tracker-frame reading of the     required
+                        reference pose, metres. Not assumed to be the origin.
     rest_height_m       body centre above the floor when landed               required
     pose_topic          the true pose                                         /pose_fusion/odometry
     ready_topic         pose_fusion's readiness (before takeoff)              /pose_fusion/ready
@@ -70,6 +78,7 @@ from std_msgs.msg import Bool, String
 from follower.mission import Command, Follower, FollowerConfig, Pose
 from follower.route import load_route
 from pose_fusion.course_files import launch_mark_from_files
+from pose_fusion.frames import CourseToTracker, bearing_to_course_yaw
 from pose_fusion.se2 import quat_yaw
 
 from .params import declare, number
@@ -99,6 +108,8 @@ class FollowerNode(Node):
         declare(self, "state_timeout_s", 1.0)
         declare(self, "land_timeout_s", 2.0)
         declare(self, "rest_height_m", float("nan"))
+        for name in ("odom_yaw_deg", "odom_origin_x", "odom_origin_y"):
+            declare(self, name, float("nan"))
         cfg_fields = [f for f in fields(FollowerConfig) if f.name != "rest_height_m"]
         defaults = FollowerConfig(rest_height_m=0.0)
         for f in cfg_fields:
@@ -108,7 +119,12 @@ class FollowerNode(Node):
             route_file = self._required_str("route_file")
             map_file, rules_file = self._required_str("map_file"), self._required_str("rules_file")
             mark = launch_mark_from_files(map_file, rules_file)
-            route = load_route(route_file, mark, map_file, rules_file)
+            # The measured course->odom transform (contracts/frames.md "Course → odom", issue #29
+            # recommendation B): required, no defaults, fail closed - the route is flown in the
+            # tracker frame it defines, under either lidar policy.
+            tf = CourseToTracker(mark, bearing_to_course_yaw(self._required_float("odom_yaw_deg")),
+                                 self._required_float("odom_origin_x"), self._required_float("odom_origin_y"))
+            route = load_route(route_file, tf, map_file, rules_file)
             rest = number(self, "rest_height_m")
             if not math.isfinite(rest):
                 raise ValueError("parameter rest_height_m is required: measure it (it has no default)")

@@ -23,7 +23,7 @@ import pytest
 
 from follower.mission import FOLLOW, HOLD, LAND, LAND_HERE, LANDED, TAKEOFF, Command, Follower, FollowerConfig, Pose
 from follower.route import ROUTE_FORMAT, route_from_dict
-from pose_fusion.frames import LaunchMark
+from pose_fusion.frames import CourseToTracker, LaunchMark
 from pose_fusion.fusion import FusionConfig, LidarFix, PoseFusion, VoSample
 from pose_fusion.policy import LidarPolicy
 from pose_fusion.se2 import IDENTITY, Pose2, quat_about_z, quat_yaw, wrap_angle
@@ -32,6 +32,9 @@ from pose_fusion.setpoints import PoseSetpoint, TwistSetpoint, to_odom_pose, to_
 DT = 1.0 / 50.0
 REST = 0.07
 FIXTURE_MARK = LaunchMark(east=1.25, north=-0.5)       # synthetic, not the course's launch mark
+#: the measured identity for a launch-mark placement facing north, passed explicitly (issue #29,
+#: recommendation B: the measured transform has no default, not even this one).
+FIXTURE_TF = CourseToTracker(FIXTURE_MARK, 0.5 * math.pi, 0.0, 0.0)
 JUMP = Pose2(0.6, -0.4, math.radians(15.0))           # new odom = JUMP ∘ old odom, at the same place
 
 
@@ -42,7 +45,7 @@ def fixture_route():
     pts += [(m.east + s, m.north + 3.0) for s in np.arange(0.04, 2.0 + 1e-9, 0.04)]
     data = {"format": ROUTE_FORMAT, "route": "fixture", "yaw_deg": 90.0, "cruise_z_m": 0.8,
             "path": [list(p) for p in pts], "gates": [], "drone": {"margin_m": 0.05}, "min_room_m": 0.0}
-    return route_from_dict(data, m)
+    return route_from_dict(data, FIXTURE_TF)
 
 
 def distance_to_path(path: np.ndarray, x: float, y: float) -> float:

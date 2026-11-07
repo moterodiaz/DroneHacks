@@ -20,9 +20,13 @@ It flies the true pose (``/pose_fusion/odometry``) in the true (tracker) frame. 
 Pre-takeoff checks (``PRECHECK``)
 ---------------------------------
 cuVSLAM's origin is wherever the organisers' stack started, at power-on unless it was restarted.
-The route assumes that origin is the launch mark, facing north. So these checks gate the
-takeoff-pose stream before Offboard (above), and run again once Offboard is active, for at most
-``start_timeout_s``:
+The route is converted into the tracker frame through the **measured** course→odom transform
+(contracts/frames.md "Course → odom"; ``pose_fusion.frames.CourseToTracker``), which is a
+required input with no defaults, not an assumption that the origin is the launch mark facing
+north. These checks then cross-check that the measured transform and the physical placement
+agree: a placement that disagrees with the measured transform fails them, and so does a carried
+drone. They gate the takeoff-pose stream before Offboard (above), and run again once Offboard is
+active, for at most ``start_timeout_s``:
 
 * the true pose must be within ``start_tolerance_m`` of the route's start, at the planned heading
   within ``start_yaw_tolerance_rad``. If the drone was carried after the stack started, this fails
@@ -265,8 +269,8 @@ class Follower:
         yaw_off = abs(_wrap(pose.yaw - self.route.yaw))
         problems = []
         if off > cfg.start_tolerance_m:
-            problems.append("{:.2f} m from the route start (> {:.2f}): restart the stack on the launch mark".format(
-                off, cfg.start_tolerance_m))
+            problems.append("{:.2f} m from the route start (> {:.2f}): the placement disagrees with the "
+                            "measured course->odom transform".format(off, cfg.start_tolerance_m))
         if yaw_off > cfg.start_yaw_tolerance_rad:
             problems.append("heading {:.0f} deg off the planned {:.0f} deg".format(
                 math.degrees(yaw_off), math.degrees(self.route.yaw)))

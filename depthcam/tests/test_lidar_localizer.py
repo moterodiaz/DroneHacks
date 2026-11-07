@@ -19,6 +19,7 @@ import pytest
 from course.lidar_sim import LidarSpec, Scene, Trajectory, simulate
 from pose_fusion.course_files import (START_HEADING_NORTH, launch_mark_from_files, load_course_map, load_rules,
                                       start_marking_centre, wall_and_net_tops)
+from pose_fusion.frames import CourseToTracker
 from pose_fusion.localizer import (LidarLocalizer, LocalizerConfig, MapSlices, Px4Buffer, Px4Sample,
                                    course_velocity, match_covariance, px4_sample_from_odometry)
 from pose_fusion.ros_io import fill_pose_with_covariance, lidar_pose_to_fix, s_to_stamp
@@ -185,7 +186,7 @@ def test_no_information_no_covariance():
 
 def test_localizer_follows_a_corridor_flight(cmap, start, slices):
     traj = corridor_flight(start)
-    loc = LidarLocalizer(cmap, start, config(), slices=slices)
+    loc = LidarLocalizer(cmap, start, config(), START_HEADING_NORTH, slices=slices)
     results = fly(loc, traj, cmap, 5.5)
 
     assert [r.publish for r, _ in results[:2]] == [False, False]           # 3 good matches before the first pose
@@ -207,14 +208,14 @@ def test_localizer_follows_a_corridor_flight(cmap, start, slices):
 
 
 def test_no_px4_attitude_no_pose(cmap, start, slices):
-    loc = LidarLocalizer(cmap, start, config(), slices=slices)
+    loc = LidarLocalizer(cmap, start, config(), START_HEADING_NORTH, slices=slices)
     results = fly(loc, corridor_flight(start), cmap, 1.0, with_px4=False)
     assert not any(r.publish for r, _ in results)
     assert all(r.reason == "no fresh PX4 attitude" for r, _ in results)
 
 
 def test_a_blank_revolution_is_lost_not_published(cmap, start, slices):
-    loc = LidarLocalizer(cmap, start, config(), slices=slices)
+    loc = LidarLocalizer(cmap, start, config(), START_HEADING_NORTH, slices=slices)
     results = fly(loc, corridor_flight(start), cmap, 0.8)
     assert results[-1][0].publish
     last_scan = results[-1][1]
@@ -231,7 +232,7 @@ def test_resting_pose_reaches_the_fusion_as_the_tracker_origin(cmap, start, slic
 
     On the launch mark, facing north, the drone is the tracker frame's origin (contracts/frames.md).
     """
-    loc = LidarLocalizer(cmap, start, config(), slices=slices)
+    loc = LidarLocalizer(cmap, start, config(), START_HEADING_NORTH, slices=slices)
     results = fly(loc, corridor_flight(start), cmap, 0.8)
     r = results[-1][0]
     assert r.publish
@@ -240,7 +241,8 @@ def test_resting_pose_reaches_the_fusion_as_the_tracker_origin(cmap, start, slic
                                                                     orientation=SimpleNamespace()), covariance=None))
     msg.header.stamp.sec, msg.header.stamp.nanosec = s_to_stamp(r.t)
     fill_pose_with_covariance(msg, r.x, r.y, r.z_body, r.yaw, r.cov)
-    fix = lidar_pose_to_fix(msg, "course", launch_mark_from_files(MAP, RULES))
+    tf = CourseToTracker(launch_mark_from_files(MAP, RULES), START_HEADING_NORTH, 0.0, 0.0)  # measured identity
+    fix = lidar_pose_to_fix(msg, "course", tf)
     assert fix.t == pytest.approx(r.t, abs=1e-6)
     assert math.hypot(fix.pose.x, fix.pose.y) < 0.03
     assert abs(math.degrees(fix.pose.yaw)) < 1.0
