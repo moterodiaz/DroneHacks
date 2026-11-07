@@ -37,7 +37,7 @@ class TunablesTest(unittest.TestCase):
     def test_track_speed_and_descent_set_each_versions_own_parameters(self):
         tun = {'track_speed_mps': 0.45, 'descent_mps': 0.25}
         _l, params, _h, _n = resolve_selection(CATALOG['traj'], {}, None, tun)
-        self.assertEqual((params['mission']['v_max_mps'], params['mission']['descent_mps']), (0.45, 0.25))
+        self.assertEqual((params['mission']['track_speed_mps'], params['mission']['descent_mps']), (0.45, 0.25))
         for vid in ('lidar_allowed', 'lidar_forbidden', 'return_flight', 'vo_nolidar'):
             _l, params, _h, _n = resolve_selection(CATALOG[vid], {}, None, tun)
             self.assertEqual((params['follower']['track_speed_mps'], params['follower']['descent_mps']),

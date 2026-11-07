@@ -75,9 +75,10 @@ on), so `DRONEHACKS_*` variables do not arrive, just as on the drone.
       limit follows it too (`dronehacks_traj`'s `v_max_mps`, through `$v_max`). The kit's
       flight interface still caps twist setpoints at its `max_speed_mps` (1.5 m/s);
     * the **track speed**: how fast the autonomy itself flies the route, separate from PX4's cap.
-      Blank keeps the version's own behaviour. traj: its planner's `v_max_mps`. The carrot
-      builds: `track_speed_mps`, which regulates the carrot's lookahead to hold that ground speed
-      (corners still slow it, and PX4's cap still applies);
+      Blank keeps the version's own behaviour. traj (`track_speed_mps`): the trajectory is planned
+      at that speed and FOLLOW flies it by velocity instead of reference poses. The carrot builds
+      (`track_speed_mps`): the carrot's lookahead is regulated to hold that ground speed. Corners
+      still slow both, and PX4's cap still applies;
     * the **landing descent** (`descent_mps`; blank: the version's 0.3 m/s). Below 0.275 m/s PX4's
       land detector can't use "commanded down, not moving" (1.1 x `LNDMC_Z_VEL_MAX`), so it waits
       for low throttle and disarms far later (33 s at 0.2 m/s, against 3 s at 0.3);
@@ -306,6 +307,16 @@ Each of these comes from running the real code here. They are worth checking on 
    lit tunnel, `vo_nolidar` then finishes in 74 s at 0.3 m/s, 48 s at 0.6 m/s and 47 s at
    0.9 m/s, against 87 s by default, with no touches. `lidar_allowed` at 0.6 m/s reaches CP4 at
    36 s instead of 71 s.
+
+   traj's reference poses are held near 0.3 m/s by its governor: PX4 trails a moving pose by
+   v/`MPC_XY_P`. Only its dropout coast, which flies the reference velocity, was faster, so a
+   higher plan speed sped up the tunnel alone. Relaxing the governor just let PX4 cut corners
+   by that lag until the cross-track abort stopped the drone. With a track speed, FOLLOW now
+   flies the trajectory by twist: the reference velocity 0.55 s ahead (PX4's velocity-loop
+   lag), plus a pull onto the reference. Twice a second it also sends a hold pose under the
+   drone, so stopped twists fall back to holding there. Window route, dark tunnel, takeoff to
+   pad: 59 s by default, 42 s at 0.5 m/s, 32 s at 0.8 m/s and 30 s at 1.0 m/s, with no touches
+   (path lead at 0.8 m/s: 35 s).
 9. **Flying over the rocks.** The carrot planner's window route never needed to cross a boulder:
    the over-rocks route is within 4 cm of it. traj's window route is clearance-weighted, and
    without the boulders it flies straight over Boulder 3, reaching the pad 1.4 s sooner with no

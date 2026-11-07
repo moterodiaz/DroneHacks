@@ -70,7 +70,7 @@ versions:
           avoid: {label: "plan around the boulders (shipped)"}
           fly_over: {label: "fly over the boulders (avoid_boulders: false)", params: {mission: {avoid_boulders: false}}}
     tunables:
-      track_speed_mps: {node: mission, param: v_max_mps}
+      track_speed_mps: {node: mission, param: track_speed_mps}
       descent_mps: {node: mission, param: descent_mps}
     followers:
       default: plain
