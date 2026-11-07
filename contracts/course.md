@@ -63,11 +63,47 @@ boulders:                       # obstacle discs
   - centre: [<east_m>, <north_m>]
     radius: <m>
 goals:                          # planner derives waypoints from these; no typed coords in code
-  - name: <tunnel|window|pad>
-    shape: <oval|rect|disc>
+  - name: <tunnel|window|pad|launch>
+    shape: <oval|rect|disc|point>
     centre: [<east_m>, <north_m>]
-    params: {}                  # shape-specific dimensions (see worked example below)
+    params: {}                  # shape-specific dimensions, required per name below
 ```
+
+A map missing any of `tunnel`, `window`, or `pad` is a **hard parse error** —
+the planner must refuse to run, never substitute a default coordinate
+(AGENTS.md §3.7). `launch` is required too, but only as the path origin and
+yaw reference, not a routed waypoint.
+
+### Required `params` by goal name
+
+- **`tunnel`** (shape `oval`): straight-line axis through the tube, so the
+  follower locks heading on the axis and skips yaw tracking inside
+  (`contracts/frames.md`'s no-yaw-inside rule).
+  ```yaml
+  params:
+    axis_start: [<east_m>, <north_m>]  # tube entrance centre
+    axis_end:   [<east_m>, <north_m>]  # tube exit centre
+    width:  1.473   # 58 in, Tube oval cross-section
+    height: 1.524   # 60 in
+  ```
+- **`window`** (shape `rect`): relaxed to the inscribed-circle radius for
+  costmap clearance, not the full square.
+  ```yaml
+  params:
+    side: 0.914            # 0.914 m square opening
+    sill_height: 0.305     # metres above slice_height=0.8 the opening starts
+    head_height: 1.219     # metres above slice_height=0.8 the opening ends
+    inscribed_radius: 0.29 # relaxed clearance radius used by the costmap
+  ```
+- **`pad`** (shape `disc`): see worked example below.
+- **`launch`** (shape `point`): the drone starts here, facing the heading
+  below. Not a planner waypoint — it anchors the course frame to the vision
+  `odom` frame at arm time (`contracts/frames.md`'s competitor-output
+  section).
+  ```yaml
+  params:
+    heading_deg: 0   # facing north, per the geometry table
+  ```
 
 ### Worked example — pad goal
 
