@@ -362,6 +362,33 @@ class GateTests(unittest.TestCase):
                 self.assertEqual(remote.call_args.args,
                                  (f"repos/{gate.REPO}/pulls/42",))
 
+    def test_reconciled_old_intent_cannot_hide_new_uncertain_attempt(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(d) / "merge.jsonl"
+            (Path(d) / "state.json").write_text('{"prs":{}}')
+            old = {"event": "intent", "key": f"42:{HEAD}:{BASE}",
+                   "pr": 42, "head": HEAD, "base": BASE, "phase": "prepared"}
+            gate.journal(path, old)
+            gate.journal(path, {**old, "event": "not-merged"})
+            def failed_api(endpoint, method="GET", data=None):
+                if method == "PUT":
+                    raise RuntimeError("Simulated unknown HTTP outcome")
+                return {"object": {"sha": BASE}}
+            with patch.object(gate, "collect", side_effect=[snapshot(), snapshot()]), \
+                 patch.object(gate, "attestation", return_value={"run_id": 10}), \
+                 patch.object(gate, "command", side_effect=[BASE, ""]), \
+                 patch.object(gate, "api", side_effect=failed_api):
+                with self.assertRaises(RuntimeError):
+                    gate.merge(42, True, path)
+            pr = {"merged": False, "state": "open", "head": {"sha": HEAD}}
+            with patch.object(gate, "collect",
+                              side_effect=AssertionError("Uncertain attempt was ignored")) as collect, \
+                 patch.object(gate, "api", return_value=pr) as remote:
+                with self.assertRaises(RuntimeError):
+                    gate.merge(42, True, path)
+                collect.assert_not_called()
+                self.assertEqual(remote.call_count, 1)
+
     def test_reconcile_only_provably_unsubmitted_or_stale_head(self):
         for attempted, changed_head in [(False, False), (True, True), (True, False)]:
             with self.subTest(attempted=attempted, changed=changed_head), \

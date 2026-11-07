@@ -11,6 +11,7 @@ from pathlib import Path
 import re
 import subprocess
 import sys
+import uuid
 import zipfile
 
 REPO = "moterodiaz/DroneHacks"
@@ -392,9 +393,11 @@ def merge(number, execute, journal_path, reconcile=False):
         attestation(fresh, number)
         require(hashlib.sha256(json.dumps(fresh, sort_keys=True).encode()).hexdigest()
                 == fingerprint, "Evidence changed; rerun dry-run")
-        key = f"{number}:{head}:{base}"
-        require(not any(e.get("key") == key and e["event"] == "merged" for e in prior),
+        require(not any(e.get("pr") == number and e.get("head") == head and
+                        e["event"] == "merged" for e in prior),
                 "Merge already recorded")
+        key = f"{number}:{head}:{base}:{uuid.uuid4().hex}"
+        require(not any(e.get("key") == key for e in prior), "Attempt ID collision")
         intent = {"event": "intent", "key": key, "pr": number, "head": head,
                   "base": base, "phase": "prepared"}
         journal(journal_path, intent)

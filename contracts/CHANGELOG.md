@@ -23,6 +23,8 @@ data without evaluating shell/Make payloads; grant only the Python merge helper,
 not a blanket Make command. Remove raw `gh api` from reviewer tools, retaining
 read views and the intended review-comment/board operations. Exercise Make
 argument attacks and valid dry-run/execute forwarding in the isolated CI image.
+Give every merge attempt a unique journal ID so a previously reconciled attempt
+cannot hide a later uncertain request at the same head and base.
 Same-repository team PRs only; no self-sign-off, force pushes or admin bypass.
 Spending, live flight, deployment and access changes remain manual. All physical
 validation, organizer restrictions, immutable sources and secrets protections
