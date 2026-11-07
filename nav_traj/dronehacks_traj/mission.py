@@ -43,9 +43,34 @@ Added for safety:
   ground until PX4's ``COM_DISARM_PRFLT`` disarms it or the pilot takes over.
 * **HELD.** Cross-track error over ``abort_cross_track_m``: hold where it is
   and wait for the pilot.
-* **A stale pose in the air** sends nothing. The interface then holds the
-  last pose: a led pose the Follower has checked is reachable in a straight
-  line.
+* **A stale pose in the air**, outside FOLLOW, sends nothing. The interface
+  then holds the last pose: a led pose the Follower has checked is reachable
+  in a straight line.
+* **A pose dropout in FOLLOW coasts on.** PX4's only horizontal position
+  source is cuVSLAM. When it stops (the dark tube), EKF2 dead-reckons on the
+  IMU for ``EKF2_NOAID_TOUT`` (5 s on drone 1), then declares the position
+  invalid: Offboard ends and PX4 falls back to Altitude, which sinks with the
+  throttle low (competitor_guide.md section 4). Stopping in the dark
+  guarantees that. So the mission flies on along the trajectory for up to
+  ``coast_max_s``: a dead reckoning (the last odometry, then the velocities
+  commanded since, each reached with a ``coast_response_s`` lag) stands in
+  for the pose, the Follower keeps running on it (its reference clock,
+  progress and checks), and the command is a **velocity**: the reference's,
+  times the Follower's clock rate, plus ``coast_gain`` times the dead
+  reckoning's offset from the reference, capped at ``v_max_mps``. A velocity
+  needs no position frame. After ``coast_max_s``, or at the trajectory's
+  end, it holds still by zero velocity (sending nothing would let the
+  interface expire the twist into the last pose setpoint, behind the drone).
+* **The frame after a coast.** cuVSLAM (stereo VO, ``enable_imu_fusion`` off
+  in the kit) resumes from the pose where it lost tracking, so its frame
+  jumps back by the motion it missed; the organisers' bridge bumps
+  ``reset_counter`` and PX4 follows it. With ``stitch_after_coast``, a resumed
+  pose at least ``stitch_fraction`` of the coast (and ``stitch_min_m``) from
+  the dead reckoning is taken as that jump:
+  it is added to every later pose and subtracted from every later pose
+  setpoint, so the trajectory stays where it is on the course. A jump larger
+  than the coast (+ ``stitch_margin_m``) can't be explained: it holds still
+  by velocity for the pilot.
 
 ROS-free; ``mission_node.py`` wraps it.
 """
@@ -99,6 +124,23 @@ class MissionConfig:
     #: for the pilot, because contracts/px4.md blocks the twist descent until a landing
     #: API is contracted. Set true only per that contract.
     land: bool = False
+    #: FOLLOW: no odometry arriving for this long counts as a dropout (when arrivals are known).
+    pose_gap_s: float = 0.15
+    #: FOLLOW: fly on through a dropout this long, by velocity along the trajectory. 0 turns it off.
+    coast_max_s: float = 4.0
+    #: The dead reckoning's lag to a commanded velocity: 1/MPC_XY_VEL_P_ACC (1.8 on drone 1).
+    coast_response_s: float = 0.55
+    #: 1/s: how hard the coast pulls the dead reckoning back onto the reference.
+    coast_gain: float = 1.0
+    #: Re-anchor the odom frame on the dead reckoning when the pose is back after a coast.
+    stitch_after_coast: bool = True
+    #: A resumed pose closer than this to the dead reckoning is kept as it is,
+    stitch_min_m: float = 0.10
+    #: and so is one closer than this share of the distance coasted (a frozen frame resumes
+    #: about the whole coast behind; the dead reckoning's own error is a few per cent of it).
+    stitch_fraction: float = 0.5
+    #: A jump larger than the coast plus this can't be explained: hold for the pilot.
+    stitch_margin_m: float = 0.5
 
     def __post_init__(self) -> None:
         for f in dataclasses.fields(self):
@@ -120,6 +162,8 @@ class OdomPose:
     yaw: float
     vx: float = 0.0
     vy: float = 0.0
+    #: When it arrived, on the mission's clock (None: unknown, only ``t`` counts).
+    received: Optional[float] = None
 
 
 @dataclasses.dataclass(frozen=True)
@@ -135,6 +179,32 @@ class Command:
     vy: float = 0.0
     vz: float = 0.0
     yaw_rate: float = 0.0
+
+
+class _DeadReckoning:
+    """Where the drone is during a dropout (odom frame): its last odometry, then the velocities
+    commanded since, each approached with a first-order lag (PX4's velocity loop)."""
+
+    def __init__(self, pose: OdomPose) -> None:
+        self.x, self.y, self.t = pose.x, pose.y, pose.t
+        self.vx, self.vy = pose.vx, pose.vy
+        self.cmd = (pose.vx, pose.vy)          # until the first command: carrying on as it was
+        self.since = 0.0                       # when the coast started (the mission's clock)
+        self.travelled = 0.0
+
+    def step(self, t: float, response_s: float) -> None:
+        dt = t - self.t
+        if dt <= 0.0:
+            return
+        a = 1.0 if response_s <= 0.0 else 1.0 - math.exp(-dt / response_s)
+        vx0, vy0 = self.vx, self.vy
+        self.vx += (self.cmd[0] - self.vx) * a
+        self.vy += (self.cmd[1] - self.vy) * a
+        dx, dy = 0.5 * (vx0 + self.vx) * dt, 0.5 * (vy0 + self.vy) * dt
+        self.x += dx
+        self.y += dy
+        self.travelled += math.hypot(dx, dy)
+        self.t = t
 
 
 class Mission:
@@ -172,12 +242,32 @@ class Mission:
         self._hold_since: Optional[float] = None
         self._hold_cmd: Optional[Command] = None
         self._yaw_cmd = 0.0
+        self.holds = 0                                   # zero-velocity holds in FOLLOW, this run
+        self.coasts = 0                                  # dropouts coasted through, this run
+        self.stitches = []                               # (t, dx, dy): frame jumps re-anchored
+        self.offset = (0.0, 0.0)                         # internal odom = input odom + offset
+        self._still_since: Optional[float] = None
+        self._last_good: Optional[OdomPose] = None       # newest odometry flown on (internal)
+        self._dr: Optional[_DeadReckoning] = None        # from a coast's start to the resume
+        self._frame_lost: Optional[float] = None         # an unexplained jump (m): never fly on
 
     # -- the tick ------------------------------------------------------------------
 
     def update(self, t: float, offboard_active: bool, pose: Optional[OdomPose],
                landed: Optional[bool] = None, px4_yaw: Optional[float] = None) -> Optional[Command]:
-        """``px4_yaw``: PX4's heading as an ENU yaw (None if unknown), for the heading gate."""
+        """``px4_yaw``: PX4's heading as an ENU yaw (None if unknown), for the heading gate.
+
+        Poses are shifted into the internal frame by :attr:`offset` (zero until a coast's
+        stitch), and pose setpoints shifted back out of it, so callers see only their own frame."""
+        if pose is not None and self.offset != (0.0, 0.0):
+            pose = dataclasses.replace(pose, x=pose.x + self.offset[0], y=pose.y + self.offset[1])
+        cmd = self._update(t, offboard_active, pose, landed, px4_yaw)
+        if cmd is not None and cmd.kind == "pose" and self.offset != (0.0, 0.0):
+            cmd = dataclasses.replace(cmd, x=cmd.x - self.offset[0], y=cmd.y - self.offset[1])
+        return cmd
+
+    def _update(self, t: float, offboard_active: bool, pose: Optional[OdomPose],
+                landed: Optional[bool], px4_yaw: Optional[float]) -> Optional[Command]:
         if self.state == STOPPED:
             return None
         if self._was_offboard and not offboard_active:
@@ -200,6 +290,17 @@ class Mission:
             return Command("twist")
         if self.state == HELD:
             return self._hold_cmd
+        if self.state == FOLLOW:
+            flowing = fresh and (pose.received is None or t - pose.received <= self.config.pose_gap_s)
+            if not flowing:
+                return self._dropout(t)
+            if self._dr is not None:
+                pose = self._end_coast(t, pose)
+            if self._frame_lost is not None:
+                return self._hold_still(t, f"odometry resumed {self._frame_lost:.2f} m from the dead reckoning, "
+                                           "more than the coast explains: holding for the pilot")
+            self._last_good = pose
+            self._still_since = None
         if not fresh:
             if self.state in (LAND, LANDED):
                 return self._descend_without_pose(t, landed)
@@ -328,6 +429,66 @@ class Mission:
             vx, vy = vx * cfg.land_xy_max_mps / speed, vy * cfg.land_xy_max_mps / speed
         return Command("twist", vx=vx, vy=vy, vz=-rate)
 
+    # -- dropouts ----------------------------------------------------------------------
+
+    def _dropout(self, t: float) -> Command:
+        """No odometry to fly on in FOLLOW: coast on along the trajectory, then hold still."""
+        cfg = self.config
+        if self._dr is None:
+            if cfg.coast_max_s <= 0.0 or self._last_good is None or self._frame_lost is not None:
+                return self._hold_still(t, "no fresh pose")
+            self._dr = _DeadReckoning(self._last_good)
+            self._dr.since = t
+            self.coasts += 1
+        dr = self._dr
+        dr.step(t, cfg.coast_response_s)
+        coasted = t - dr.since
+        if coasted < cfg.coast_max_s:
+            here = self.frame.to_course(dr.x, dr.y)
+            sp = self.follower.update(t, here, self.frame.rotate_to_course(dr.vx, dr.vy))
+            self.last_setpoint = sp
+            if not sp.done:
+                ref = self.plan.trajectory.at(sp.ref_time)
+                ff = 0.0 if "no_safe_target" in sp.flags else sp.clock_rate
+                ve = ff * ref.velocity[0] + cfg.coast_gain * (ref.position[0] - here[0])
+                vn = ff * ref.velocity[1] + cfg.coast_gain * (ref.position[1] - here[1])
+                speed = math.hypot(ve, vn)
+                if speed > self.limits.v_max_mps:
+                    ve, vn = ve * self.limits.v_max_mps / speed, vn * self.limits.v_max_mps / speed
+                vx, vy = self.frame.rotate_to_odom(ve, vn)
+                dr.cmd = (vx, vy)
+                self._still_since = None
+                self.reason = (f"no fresh pose: coasting on the trajectory by dead reckoning "
+                               f"({coasted:.1f} s, {dr.travelled:.2f} m)")
+                return Command("twist", vx=vx, vy=vy)
+        dr.cmd = (0.0, 0.0)
+        return self._hold_still(t, f"no fresh pose; coasted {dr.travelled:.2f} m")
+
+    def _hold_still(self, t: float, why: str) -> Command:
+        """Zero velocity, refreshed: it needs no frame, and it never expires into an old pose."""
+        if self._still_since is None:
+            self._still_since = t
+            self.holds += 1
+        self.reason = f"holding still: {why} ({t - self._still_since:.1f} s)"
+        return Command("twist")
+
+    def _end_coast(self, t: float, pose: OdomPose) -> OdomPose:
+        """The odometry is back after a coast: compare it with the dead reckoning, stitch the jump."""
+        cfg = self.config
+        dr, self._dr = self._dr, None
+        dr.step(t, cfg.coast_response_s)
+        back = max(0.0, t - pose.t)                  # the dead reckoning at the pose's capture time
+        jx, jy = dr.x - dr.vx * back - pose.x, dr.y - dr.vy * back - pose.y
+        jump = math.hypot(jx, jy)
+        if not cfg.stitch_after_coast or jump < max(cfg.stitch_min_m, cfg.stitch_fraction * dr.travelled):
+            return pose                              # tracking carried on: the dead reckoning's own error
+        if jump > dr.travelled + cfg.stitch_margin_m:
+            self._frame_lost = jump
+            return pose
+        self.offset = (self.offset[0] + jx, self.offset[1] + jy)
+        self.stitches.append((t, jx, jy))
+        return dataclasses.replace(pose, x=pose.x + jx, y=pose.y + jy)
+
     def _stop(self, why: str) -> None:
         self.state = STOPPED
         self.reason = why
@@ -348,4 +509,7 @@ class Mission:
             "cross_track_m": round(sp.cross_track_m, 3) if sp is not None else None,
             "lead_scale": round(sp.lead_scale, 2) if sp is not None else None,
             "flags": list(sp.flags) if sp is not None else [],
+            "holds": self.holds,
+            "coasts": self.coasts,
+            "offset_m": [round(self.offset[0], 3), round(self.offset[1], 3)],
         }

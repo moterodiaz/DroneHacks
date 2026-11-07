@@ -126,6 +126,39 @@ class StateMachineTest(unittest.TestCase):
         self.assertAlmostEqual(cmd.y, 0.5)
         self.assertEqual(self.m.update(1.2, True, self.pose(t=1.2), False, 0.0), cmd)
 
+    def _following(self, mission):
+        mission.update(0.0, False, self.pose(), True, 0.0)
+        mission.update(0.02, True, self.pose(t=0.02), True, 0.0)
+        mission.update(1.0, True, self.pose(t=1.0, z=0.73), False, 0.0)
+        self.assertEqual(mission.state, FOLLOW)
+
+    def test_stale_pose_while_following_coasts_on_by_velocity(self):
+        self._following(self.m)
+        t, x, y = 1.0, 0.0, 0.0
+        for _ in range(100):                              # 2 s on the reference: the drone is at its setpoints
+            t += 0.02
+            cmd = self.m.update(t, True, self.pose(t=t, x=x, y=y, z=0.73), False, 0.0)
+            x, y = cmd.x, cmd.y
+        cmd = self.m.update(t + 0.6, True, self.pose(t=t, x=x, y=y, z=0.73), False, 0.0)
+        self.assertEqual(cmd.kind, "twist")
+        self.assertGreater(math.hypot(cmd.vx, cmd.vy), 0.2)
+        self.assertGreater(cmd.vx, 0.0)                   # on along the route: north is odom +x here
+        self.assertEqual(self.m.coasts, 1)
+        self.assertIn("coasting", self.m.reason)
+
+    def test_a_quiet_stream_is_a_dropout_within_the_pose_gap(self):
+        self._following(self.m)
+        last = OdomPose(t=1.0, x=0.0, y=0.0, z=0.73, yaw=0.0, received=1.0)
+        self.assertEqual(self.m.update(1.0 + CONFIG.pose_gap_s - 0.01, True, last, False, 0.0).kind, "pose")
+        self.assertEqual(self.m.update(1.0 + CONFIG.pose_gap_s + 0.02, True, last, False, 0.0).kind, "twist")
+
+    def test_with_coasting_off_a_dropout_holds_still_by_velocity(self):
+        m = prep(l_course(), dataclasses.replace(CONFIG, coast_max_s=0.0)).mission
+        self._following(m)
+        cmd = m.update(1.6, True, self.pose(t=1.0, z=0.73), False, 0.0)
+        self.assertEqual((cmd.kind, cmd.vx, cmd.vy, cmd.vz), ("twist", 0.0, 0.0, 0.0))
+        self.assertIn("holding still", m.reason)
+
     def test_stale_pose_in_the_air_sends_nothing(self):
         self.m.update(0.0, False, self.pose(), True, 0.0)
         self.m.update(0.02, True, self.pose(t=0.02), True, 0.0)
@@ -190,6 +223,30 @@ class WholeFlightTest(unittest.TestCase):
         log = fly(prepared.mission, cfg=VehicleSimConfig(dropout_s=(5.0, 5.6)))
         self.assertIn("disarm", log.events)
         self.assertEqual(flight_checks(prepared, log.pos)["wall_touches"], 0)
+
+    def test_a_long_dropout_mid_follow_is_flown_through(self):
+        # the dark tube: 2.5 s without odometry would be a stop and a PX4 failsafe; it coasts on
+        prepared = prep(l_course(), CONFIG)
+        log = fly(prepared.mission, cfg=VehicleSimConfig(dropout_s=(4.0, 6.5)))
+        self.assertIn("disarm", log.events)
+        self.assertEqual(flight_checks(prepared, log.pos)["wall_touches"], 0)
+        self.assertTrue(flight_checks(prepared, log.pos)["on_pad"])
+        self.assertTrue(any("coasting" in r for r in log.reasons), log.reasons)
+        blind = log.pos[(log.t > 4.1) & (log.t < 6.4), :2]
+        self.assertGreater(float(np.hypot(*(blind[-1] - blind[0]))), 0.8)      # it kept flying
+
+    def test_after_a_frozen_dropout_the_frame_is_stitched_and_the_pad_reached(self):
+        # cuVSLAM resumes from where it froze: without re-anchoring the rest of the flight
+        # would be the coast's length off; the dead reckoning gives the jump
+        prepared = prep(l_course(), CONFIG)
+        log = fly(prepared.mission, cfg=VehicleSimConfig(dropout_s=(4.0, 5.5), freeze_on_dropout=True))
+        m = prepared.mission
+        self.assertEqual((m.coasts, len(m.stitches)), (1, 1))
+        self.assertGreater(math.hypot(*m.offset), 0.5)
+        checks = flight_checks(prepared, log.pos)
+        self.assertEqual(checks["wall_touches"], 0)
+        self.assertTrue(checks["on_pad"])
+        self.assertIn("disarm", log.events)
 
     def test_odometry_dropout_while_landing_never_climbs(self):
         # If the twist stopped, the interface would expire it into its last pose, the pad at

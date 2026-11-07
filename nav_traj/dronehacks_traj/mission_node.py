@@ -173,7 +173,8 @@ class MissionNode(Node):
     # -- inputs ------------------------------------------------------------------------
 
     def _on_odom(self, msg: Odometry) -> None:
-        self._pose = odom_to_pose(msg)
+        # the arrival time lets the mission see the stream itself stop (pose_gap_s)
+        self._pose = dataclasses.replace(odom_to_pose(msg), received=self._now_s())
 
     def _on_state(self, msg: String) -> None:
         try:
