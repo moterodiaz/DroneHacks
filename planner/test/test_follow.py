@@ -161,6 +161,15 @@ class PipelineTest(unittest.TestCase):
         self.assertLess(times["window"], times["gate_b"])
         self.assertEqual(best.route.goals, ["tunnel", "window", "pad"])
 
+    def test_fastest_honors_an_explicitly_preferred_window(self):
+        # route.plan keeps a window named in prefer; fastest must too, even
+        # with allow_windows unset (an explicit choice, not a default).
+        cmap = load_map(PUBLISHED)
+        best, table = fastest(cmap, PlannerConfig(prefer=("window",)))
+        self.assertEqual(len(table), 1)
+        self.assertEqual(best.route.goals, ["tunnel", "window", "pad"])
+        self.assertEqual(best.report["violations"], [])
+
     def test_random_mazes_build_cleanly(self):
         for seed in range(3):
             with self.subTest(seed=seed):

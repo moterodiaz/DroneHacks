@@ -64,7 +64,11 @@ def fastest(cmap: CourseMap, planner: PlannerConfig = PlannerConfig(), limits: V
     """
     stages = cmap.stages()
     if not planner.allow_windows:
-        stages = [tuple(g for g in stage if g.shape != "rect") or stage for stage in stages]
+        # The window is opt-in (unreviewed clearance_radius), but one the caller
+        # explicitly names in prefer is a choice, not a default — route.plan
+        # keeps it, so fastest must too.
+        stages = [tuple(g for g in stage if g.shape != "rect" or g.name in planner.prefer) or stage
+                  for stage in stages]
     groups = [stage for stage in stages if len(stage) > 1]
     options = [[g.name for g in stage if not planner.prefer or g.name in planner.prefer] or
                [g.name for g in stage] for stage in groups]
