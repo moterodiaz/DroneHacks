@@ -9,6 +9,23 @@ heading ±40° and turned in place facing a wall until cuVSLAM failed. This foll
 flown in Michael Bar On's PX4 SITL against the organisers' unmodified bridge and interface, where
 it reached the pad in about 27 s (his repo's `sim/README.md`, "The event's own path", 2026-10-28).
 
+## Against the other flight packages (2026-11-07)
+
+All four publish only `/skybeta/setpoint/*` through the kit's interface and never arm or change
+mode.
+
+| Package, branch | Flies | Lands | Has run |
+|---|---|---|---|
+| this one, `navigation/course-follower` | the whole course, planned from the map at start | itself, by twist | PX4 SITL with cuVSLAM in the loop, from the ground to disarm (as `fly_waypoints.py`); colcon build and tests under Humble |
+| `dronehacks_autonomy`, `navigation/team-ws-autonomy` | the whole course; the same design (A*, inflation, arcs, speed profile) | itself | a stand-in PX4 and stand-in ROS |
+| `dronehacks_traj`, `navigation/vo-traj-follower` | the whole course with `planner/`'s Follower | holds over the pad for the pilot by default | a stand-in PX4 with drone 1's parameters |
+| `dronehacks_manual_maze_tunnel_chicane_gateb_landing`, `main` | fixed waypoints as step poses, through Gate B | the pilot (decision #25) | — |
+
+Step poses are what overshot in the organisers' lab (docs/flight-findings.md). Decision #25 kept
+landing with the pilot pending an organiser-supported procedure; the organisers announced on
+2026-11-07 that drones have since taken off, flown and landed autonomously. Pick one package for
+`COMPETITOR_PKG` by the same bench check and a recorded short hover on the drone.
+
 ## What it does
 
 | Phase | Sends | Ends when |
