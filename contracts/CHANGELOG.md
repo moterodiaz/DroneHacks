@@ -2,6 +2,18 @@
 
 Newest entries first. One entry per contract-affecting change, linking the PR.
 
+## 2026-11-07 — autonomous repository decisions and guarded merges
+
+Policy branch `infra/autonomous-pr-lifecycle` (policy PR link added on publication):
+remove per-PR human approval for code, contract, cross-area and guard decisions.
+Require documented reasoning, affected-owner notification, independent exact-head
+review, recorded relevant tests and the trusted guarded squash-merge helper.
+Same-repository team PRs only; no self-sign-off, force pushes or admin bypass.
+Spending, live flight, deployment and access changes remain manual. All physical
+validation, organizer restrictions, immutable sources and secrets protections
+remain unchanged. Existing holds require individual evidence-based reassessment.
+Affected owner: @moterodiaz (all currently assigned areas).
+
 ## 2026-11-07 — reconcile instruction identifiers without merging (PR #5, decision #19)
 
 Maintainer approved the docs-only integration correction in
