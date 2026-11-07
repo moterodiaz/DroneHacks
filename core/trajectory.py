@@ -96,8 +96,9 @@ class Trajectory:
         geometry.append(points[-1])
         geometry = np.asarray(geometry)
         geometry_s = np.concatenate(([0.0], np.cumsum(np.linalg.norm(np.diff(geometry, axis=0), axis=1))))
-        self.s = np.arange(0.0, geometry_s[-1], ds)
-        self.s = np.append(self.s, geometry_s[-1])
+        # Retain every geometry vertex: interpolating only at regular samples
+        # joins different, unchecked chords across the fillet's vertices.
+        self.s = np.unique(np.concatenate((np.arange(0.0, geometry_s[-1], ds), geometry_s)))
         self.points = np.column_stack([np.interp(self.s, geometry_s, geometry[:, axis]) for axis in range(2)])
         self.length = float(self.s[-1])
         tangent = np.gradient(self.points, self.s, axis=0)

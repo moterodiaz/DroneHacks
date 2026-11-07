@@ -425,3 +425,52 @@ def test_fillet_gate_checks_chords_between_arc_samples():
     assert clearance_at(midpoint) < LETHAL_CLEARANCE
     with pytest.raises(ValueError, match="rounded turn"):
         build_trajectory(waypoints, course, clearance_at=clearance_at, ds=0.5)
+
+
+def test_resampling_preserves_safe_fillet_geometry():
+    turn, radius = math.radians(150.0), 0.35
+    outgoing = np.array([math.cos(turn), math.sin(turn)])
+    waypoints = np.array([[-3.0, 0.0], [0.0, 0.0], 3.0 * outgoing])
+    entry = np.array([-radius * math.tan(turn / 2), 0.0])
+    centre = entry + np.array([0.0, radius])
+    fillet = [
+        centre + radius * np.array([
+            math.cos(-math.pi / 2 + turn * j / 3),
+            math.sin(-math.pi / 2 + turn * j / 3),
+        ])
+        for j in range(4)
+    ]
+    chord = fillet[1] - fillet[0]
+    normal = np.array([-chord[1], chord[0]]) / np.linalg.norm(chord)
+    obstacle = fillet[0] + 0.25 * chord + 0.34 * normal
+
+    def clearance_at(p):
+        return float(np.linalg.norm(np.asarray(p) - obstacle)) - 0.01
+
+    def segment_clearance(a, b):
+        delta = b - a
+        t = np.clip(float((obstacle - a) @ delta / (delta @ delta)), 0.0, 1.0)
+        return clearance_at(a + t * delta)
+
+    # Both the input polyline and the generated coarse fillet are safe.
+    assert min(segment_clearance(a, b) for a, b in zip(waypoints, waypoints[1:])) >= 0.32
+    geometry = [waypoints[0], *fillet, waypoints[-1]]
+    assert min(segment_clearance(a, b) for a, b in zip(geometry, geometry[1:])) >= 0.32
+    checked = [*fillet, *((a + b) / 2 for a, b in zip(fillet, fillet[1:]))]
+    assert min(map(clearance_at, checked)) >= 0.32
+    for ds in (0.5, 0.25, 0.125, 0.02):
+        trajectory = build_trajectory(
+            waypoints, synthetic_map(), clearance_at=clearance_at, ds=ds,
+        )
+        # Analytic distance along every delivered segment, not a sampled oracle.
+        assert min(
+            segment_clearance(a, b)
+            for a, b in zip(trajectory.points, trajectory.points[1:])
+        ) >= 0.32
+        if ds == 0.5:
+            for vertex in geometry:
+                assert np.min(np.linalg.norm(trajectory.points - vertex, axis=1)) < 1e-12
+        # Repeated public sampling must trace that same safe geometry.
+        probes = np.linspace(0.0, trajectory.length, 1001)
+        for _ in range(2):
+            assert min(clearance_at(trajectory.position_at(s)) for s in probes) >= 0.32
