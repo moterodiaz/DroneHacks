@@ -75,6 +75,7 @@ follower:
     pose_topic: "/pose_fusion/odometry"
     ready_topic: "/pose_fusion/ready"
     aligned_topic: "/pose_fusion/aligned"           # in flight: hold still while false
+    tracking_topic: "/vo_guard/tracking"            # in flight: hold still from the first withheld frame
     state_topic: "/skybeta/state"
     land_detected_topic: "auto"      # /fmu/out/vehicle_land_detected[_vN], read only
     setpoint_pose_out: "/follower/setpoint/pose"
@@ -89,7 +90,9 @@ follower:
     start_yaw_tolerance_rad: 0.174533   # ... and within 10 deg of the planned heading (nose north)
     start_timeout_s: 20.0
     require_ready: true              # pre-takeoff: wait for /pose_fusion/ready; in flight: hold while not aligned
-    realign_timeout_s: 5.0           # not aligned again within this: land straight down where it is
+    pose_timeout_s: 0.5              # a pose captured longer ago than this is stale
+    pose_gap_s: 0.15                 # no pose for this long (about 4 frames at 30 fps): hold still
+    realign_timeout_s: 5.0           # held still this long: land straight down where it is
     max_yaw_rate_rps: 0.785398       # 45 deg/s
     hold_before_land_s: 2.0
     descent_mps: 0.3

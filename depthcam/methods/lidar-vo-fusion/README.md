@@ -102,7 +102,8 @@ Not done: the optional return flight, and the planner's speed profile (PX4 sets 
   0.5 s behind its receive time or 0.05 s ahead of it (another clock, or stale: the gyro rule
   needs both on one clock), when the tracker reports failure, for a jump over 10 m/s, a spin over
   720°/s, a disagreement with PX4's gyro over 3° in 0.5 s, and during 0.2 s of settling after any
-  break. It reads **no camera images** (dropped): a
+  break. `~/tracking` says, frame by frame, whether it passed the pose, so the follower can hold
+  from the first withheld frame. It reads **no camera images** (dropped): a
   blank view the tracker doesn't report is caught only through the gyro. Passed poses keep
   cuVSLAM's frame, with fixed variances.
 - **`lidar_localizer`** (`pose_fusion/localizer.py`): the bench-tested `course/lidar_localize.py`
@@ -123,9 +124,15 @@ Not done: the optional return flight, and the planner's speed profile (PX4 sets 
     the applied correction is within 2 cm / 0.5° of the estimate.
   - **Frame breaks:** `~/aligned` turns false at every VO gap (cuVSLAM may have re-initialised,
     so its frame may have jumped) and after 2 gated fixes in a row. It is true again once a fix
-    passes the gate and `C_applied` is within 5 cm / 2° of `C`. While it is false the follower
-    holds still with a zero velocity setpoint, which doesn't depend on `C`, so pose_fusion applies
-    the re-learnt `C` at once. If it isn't back within 5 s, the follower lands straight down.
+    passes the gate and `C_applied` is within 5 cm / 2° of `C`. While the follower holds still
+    with a zero velocity setpoint, which doesn't depend on `C`, pose_fusion applies the re-learnt
+    `C` at once.
+- **`follower`, holding still:** in flight it holds with a zero velocity setpoint while the pose
+  can't be flown on. That is from the first frame the Guard withholds (`~/tracking`), while no
+  fresh pose arrives (none for 0.15 s, or the newest captured over 0.5 s ago), and while
+  `~/aligned` is false. A held *pose* setpoint would be the wrong thing: PX4 gets cuVSLAM's poses
+  without our Guard's settling, so its frame can jump while our chain is still blind. If the hold
+  lasts 5 s, it lands straight down.
 - **Rules they keep:** no node writes to `/fmu/in/*`, sets a PX4 parameter, arms, disarms,
   changes mode, or restarts the organisers' processes. Acro is never used (AGENTS.md §3.6).
 
@@ -139,7 +146,7 @@ Not done: the optional return flight, and the planner's speed profile (PX4 sets 
 | Offboard, with the kit's rule modelled (a setpoint under 1 s old at the switch, one attempt per arming) | checks pass: the takeoff pose streams before Offboard and is the first command after it (no jump). Carried 0.6 m off the mark, or turned 30°: nothing sent, Offboard refused, the drone stays on the ground. Lidar not settled at the switch: refused; a switch once ready flies. Moved in the second before the switch: blocked. The mission without this fix never gets Offboard (8 of these tests fail on it) |
 | refresh from a silent follower | never: only while its last pose is under 0.5 s old |
 | re-acquire after a cuVSLAM frame jump of 1.0 m / 20° | no setpoint jump; within 3 cm / 1° after 30 s |
-| a frame jump of 0.6 m / -0.4 m / 15° mid-route, in a 0.5 s Guard break, flown through the whole chain (`tests/test_frame_break.py`) | holds still 0.6 s, then carries on: **worst 10.2 mm off the path**, the same as with no break. Without the hold: 217 mm. With the lidar gone after the break: holds 5 s, then lands straight down |
+| tracking lost 0.5 s mid-route, then a frame jump of 0.6 m / -0.4 m / 15° that PX4 sees at once and our chain 0.2 s later, flown through the whole chain (`tests/test_frame_break.py`) | holds still from the first withheld frame (0.14 s later on the quiet pose stream alone, before the jump); PX4's jump moves the drone 0.8 mm; carries on 1.3 s after the break began: **worst 12.2 mm off the path** (10.2 mm with no break). Without the realign hold: 203 mm. With the lidar gone after the break: holds 5 s, then lands straight down |
 | localiser on the real map, synthetic MS200K | 0 lost; 1.3 mm RMS (idealised) |
 
 The vehicle model ignores PX4's real tracking error, vibration and wind. The real numbers come
@@ -148,9 +155,10 @@ from the bench: lidar against taped marks read 5-12 cm (`course/docs/bench-resul
 ## Before it flies
 
 1. **Run the ROS tests** (`tests/test_ros_nodes.py`) on a ROS 2 Humble host with `px4_msgs`
-   built, or on the drone after `team_build.sh`. They drive all four nodes under `rclpy`, with
-   a pseudo-terminal as the MS200K's port. Nothing here has run under ROS yet. A user-space
-   install on this laptop was blocked as running downloaded code.
+   built, or on the drone after `team_build.sh` (`docs/deploy.md`, "Run the ROS tests"). They
+   drive all four nodes under `rclpy`, with a pseudo-terminal as the MS200K's port. Nothing here
+   has run under ROS yet. A user-space install on this laptop was blocked as running downloaded
+   code.
 2. **On drone 1:**
    - confirm `/dev/ms200` in the container, the past-test mount values, and `rest_height_m`
      (0.07 m);

@@ -9,8 +9,9 @@
 #   1. copies what colcon builds from depthcam/ (the package root) to ~/team_ws/src/dronehacks_lidar:
 #      package.xml, setup.py, setup.cfg, resource/, launch/, routes/, the Python packages setup.py
 #      installs (dronehacks_lidar, pose_fusion, follower, course and its subpackages), the map and
-#      rules JSON, and the parameter file. It leaves out the research code, recordings, CAD files
-#      and the STEP model.
+#      rules JSON, and the parameter file. Plus the ROS tests (tests/test_ros_nodes.py and its
+#      conftest.py), because the kit's container sees only ~/team_ws. It leaves out the research
+#      code, recordings, CAD files and the STEP model.
 #   2. adds pyserial to the team image's Dockerfile (~/team_ws/Dockerfile), if missing
 # then prints the remaining steps. It does not edit /etc/skybeta/drone.env (that needs sudo, and
 # choosing the run's lidar policy is yours). It does not restart the stack either: a restart
@@ -35,7 +36,8 @@ trap 'rm -rf -- "$STAGE"' EXIT
 (
   cd "$SRC"
   printf '%s\n' package.xml setup.py setup.cfg methods/lidar-vo-fusion/config/pose_fusion.example.yaml \
-    course/maps/course_v3_map.json course/maps/course_v3_rules.json
+    course/maps/course_v3_map.json course/maps/course_v3_rules.json \
+    tests/conftest.py tests/test_ros_nodes.py    # the ROS tests, to run in the kit's container
   find resource launch routes -type f -not -path '*/__pycache__/*'
   # the Python packages setup.py installs: each folder with an __init__.py, its .py files only
   find dronehacks_lidar pose_fusion follower course -name __init__.py -not -path '*/__pycache__/*' |

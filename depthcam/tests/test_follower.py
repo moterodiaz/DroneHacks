@@ -284,11 +284,14 @@ def test_losing_offboard_stops_for_good():
     assert follower.update(4.1, True, vehicle.pose(4.1)) is None
 
 
-def test_a_stale_pose_sends_nothing():
+def test_a_stale_pose_in_flight_holds_still_by_velocity():
+    # A held pose setpoint would point PX4 at the wrong place if cuVSLAM's frame jumps meanwhile;
+    # a zero velocity setpoint doesn't depend on any frame
     follower = Follower(synthetic_route(), FollowerConfig(rest_height_m=REST))
     vehicle = Vehicle()
     fly(follower, vehicle, 4.0)
-    assert follower.update(4.0, True, Pose(0.0, vehicle.x, vehicle.y, vehicle.z, vehicle.yaw)) is None
+    cmd = follower.update(4.0, True, Pose(0.0, vehicle.x, vehicle.y, vehicle.z, vehicle.yaw))
+    assert cmd.kind == "twist" and (cmd.vx, cmd.vy, cmd.vz, cmd.yaw_rate) == (0.0, 0.0, 0.0, 0.0)
     assert "no fresh pose" in follower.reason
 
 

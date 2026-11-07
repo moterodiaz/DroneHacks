@@ -4,6 +4,7 @@
     /pose_fusion/odometry (true pose) ──┤
     /pose_fusion/ready (Bool) ──────────┤ follower ─► /follower/setpoint/{pose,twist} ─► pose_fusion ─► kit
     /pose_fusion/aligned (Bool) ────────┤
+    /vo_guard/tracking (Bool) ──────────┤
     /fmu/out/vehicle_land_detected ─────┘   (read only)
 
 The route is a ``dronehacks-lidar-route/1`` file (``follower.route``), planned from the STEP-model
@@ -22,8 +23,11 @@ does the work:
 * **Taking off:** it takes off itself.
 * **Following:** it follows the route without leaving it by more than ``max_cut_m``, holding the
   planned heading.
-* **Realigning:** while pose_fusion's ``~/aligned`` is false (a cuVSLAM frame break), it holds
-  still with a zero velocity setpoint. After ``realign_timeout_s`` it lands where it is.
+* **Holding still:** in flight, it holds still with a zero velocity setpoint while the pose
+  can't be flown on. That is while no fresh pose has arrived (captured under ``pose_timeout_s``
+  ago, the stream under ``pose_gap_s`` quiet), while the Guard is withholding (``~/tracking``),
+  or while pose_fusion's ``~/aligned`` is false (a cuVSLAM frame jump). After
+  ``realign_timeout_s`` it lands where it is.
 * **Landing:** it holds over the pad, then lands with a velocity setpoint. PX4 disarms itself
   after ``COM_DISARM_LAND``.
 * **Stopping:** it stops for good when Offboard ends.
@@ -40,6 +44,7 @@ Parameters:
     pose_topic          the true pose                                         /pose_fusion/odometry
     ready_topic         pose_fusion's readiness (before takeoff)              /pose_fusion/ready
     aligned_topic       pose_fusion's frames agree (in flight)                /pose_fusion/aligned
+    tracking_topic      the Guard is passing poses (in flight)                /vo_guard/tracking
     state_topic         the kit's state JSON                                  /skybeta/state
     land_detected_topic PX4's land detector ("" = off; "auto" = resolved)    auto
     setpoint_pose_out   where pose setpoints go (pose_fusion's input)         /follower/setpoint/pose
@@ -70,6 +75,7 @@ from std_msgs.msg import Bool, String
 from follower.mission import Command, Follower, FollowerConfig, Pose
 from follower.route import load_route
 from pose_fusion.course_files import launch_mark_from_files
+from pose_fusion.ros_io import stamp_to_s
 from pose_fusion.se2 import quat_yaw
 
 from .params import declare, number
@@ -90,6 +96,7 @@ class FollowerNode(Node):
         self.declare_parameter("pose_topic", "/pose_fusion/odometry")
         self.declare_parameter("ready_topic", "/pose_fusion/ready")
         self.declare_parameter("aligned_topic", "/pose_fusion/aligned")
+        self.declare_parameter("tracking_topic", "/vo_guard/tracking")
         self.declare_parameter("state_topic", "/skybeta/state")
         self.declare_parameter("land_detected_topic", "auto")
         self.declare_parameter("setpoint_pose_out", "/follower/setpoint/pose")
@@ -134,13 +141,15 @@ class FollowerNode(Node):
         self._ready_t: Optional[float] = None
         self._aligned = False
         self._aligned_t: Optional[float] = None
+        self._tracking = True                  # until the Guard says otherwise; a silent Guard also stops the pose
         self._sent = {"pose": 0, "twist": 0}
 
         self._pose_pub = self.create_publisher(PoseStamped, str(self._param("setpoint_pose_out")), QUEUE_DEPTH)
         self._twist_pub = self.create_publisher(TwistStamped, str(self._param("setpoint_twist_out")), QUEUE_DEPTH)
         self._status_pub = self.create_publisher(String, "~/status", QUEUE_DEPTH)
-        # aligned before the pose: pose_fusion publishes it first, and when both wait, rclpy runs
-        # the callbacks in the order the subscriptions were made
+        # tracking and aligned before the pose: each is published before the pose it describes, and
+        # when several wait, rclpy runs the callbacks in the order the subscriptions were made
+        self.create_subscription(Bool, str(self._param("tracking_topic")), self._on_tracking, QUEUE_DEPTH)
         self.create_subscription(Bool, str(self._param("aligned_topic")), self._on_aligned, QUEUE_DEPTH)
         self.create_subscription(Odometry, str(self._param("pose_topic")), self._on_pose, QUEUE_DEPTH)
         self.create_subscription(String, str(self._param("state_topic")), self._on_state, QUEUE_DEPTH)
@@ -175,10 +184,16 @@ class FollowerNode(Node):
     # ------------------------------------------------------------------ inputs
 
     def _on_pose(self, msg: Odometry) -> None:
-        # Timed on receipt, on the clock the tick uses: a header stamp may be on another clock
+        # Its age counts from capture (the header stamp, which the Guard has checked is on this
+        # clock), so a pose delayed after the Guard still goes stale. A stamp ahead of the clock is
+        # taken as now, so it can't stay fresh past its arrival.
+        rx = self._now_s()
         p, q = msg.pose.pose.position, msg.pose.pose.orientation
-        self._pose = Pose(self._now_s(), float(p.x), float(p.y), float(p.z),
-                          quat_yaw((float(q.x), float(q.y), float(q.z), float(q.w))))
+        self._pose = Pose(min(stamp_to_s(msg.header.stamp), rx), float(p.x), float(p.y), float(p.z),
+                          quat_yaw((float(q.x), float(q.y), float(q.z), float(q.w))), received=rx)
+
+    def _on_tracking(self, msg: Bool) -> None:
+        self._tracking = bool(msg.data)
 
     def _on_state(self, msg: String) -> None:
         try:
@@ -208,7 +223,8 @@ class FollowerNode(Node):
         ready = self._ready and self._ready_t is not None and now - self._ready_t <= self._state_timeout
         aligned = self._aligned and self._aligned_t is not None and now - self._aligned_t <= self._state_timeout
         landed = self._landed if self._landed_t is not None and now - self._landed_t <= self._land_timeout else None
-        cmd = self.mission.update(now, self._offboard and fresh_state, self._pose, landed, ready, aligned)
+        cmd = self.mission.update(now, self._offboard and fresh_state, self._pose, landed, ready, aligned,
+                                  self._tracking)
         if cmd is not None:
             self._publish(cmd)
 
@@ -236,7 +252,7 @@ class FollowerNode(Node):
         status = {"state": m.state, "route": m.route.name, "progress_m": round(float(m.s[m.index]), 3),
                   "length_m": round(m.route.length_m, 3), "crossed": [name for name, _ in m.crossed],
                   "reason": m.reason, "offboard": self._offboard, "ready": self._ready, "aligned": self._aligned,
-                  "landed": self._landed, "realigns": m.realigns, "sent": dict(self._sent)}
+                  "tracking": self._tracking, "landed": self._landed, "holds": m.holds, "sent": dict(self._sent)}
         self._status_pub.publish(String(data=json.dumps(status)))
 
 

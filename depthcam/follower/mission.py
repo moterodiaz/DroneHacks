@@ -35,18 +35,29 @@ normally passes on its first tick. It can fail only if the checks stopped passin
 before the switch. If it still fails at the timeout, it goes to ``BLOCKED`` and sends nothing: the
 interface holds the last takeoff pose it was sent, and the pilot takes over.
 
-Realigning (frame breaks)
--------------------------
-When cuVSLAM re-initialises, its frame jumps, and until pose_fusion re-learns its correction the
-true pose and the corrected setpoints are wrong by that jump. pose_fusion then reports
-``aligned`` false (``pose_fusion.fusion.PoseFusion.aligned``). While it does, in ``TAKEOFF``,
-``FOLLOW``, ``HOLD`` or ``LAND``, and when ``require_ready``, the follower **holds still with a
-zero velocity setpoint**, which doesn't depend on the correction. It also makes no route progress.
-When ``aligned`` is back it carries on from the corrected pose. A carrot taken off the path
-steers straight back to it. If ``aligned`` isn't back within ``realign_timeout_s``, it gives
-up the route and goes to ``LAND_HERE``. That is a straight-down velocity descent, ignoring the
-pose. Under the forbidden policy ``aligned`` is always true: without the lidar, a frame break
-can't be seen.
+Holding still (tracking breaks, frame breaks)
+---------------------------------------------
+In ``TAKEOFF``, ``FOLLOW``, ``HOLD`` and ``LAND`` the follower **holds still with a zero
+velocity setpoint**, and makes no route progress, while the pose can't be flown on:
+
+* **No fresh pose:** none has arrived for ``pose_gap_s`` (0.15 s, about 4 frames), or the
+  newest was captured more than ``pose_timeout_s`` ago (it waited somewhere on the way).
+* **The Guard is withholding** (``tracking`` false): from the first withheld frame, before the
+  pose stream even goes quiet.
+* **The frames disagree** (``aligned`` false, when ``require_ready``): cuVSLAM re-initialised,
+  its frame jumped, and pose_fusion hasn't re-learnt its correction yet
+  (``pose_fusion.fusion.PoseFusion.aligned``).
+
+A zero velocity doesn't depend on any frame. That matters because PX4 gets cuVSLAM's poses from
+the organisers' bridge, without our Guard's settling time. So when cuVSLAM resumes in a jumped
+frame, PX4's estimate jumps before our chain sees the new pose. A held pose setpoint would then
+point PX4 at the wrong place, but a zero velocity keeps the drone where it is.
+
+When the pose can be flown on again, it carries on from the corrected pose. A carrot taken off
+the path steers straight back to it. If that takes longer than ``realign_timeout_s``, it gives up
+the route and goes to ``LAND_HERE``. That is a straight-down velocity descent, ignoring the pose.
+Under the forbidden policy ``aligned`` is always true: without the lidar, a frame jump can't be
+measured, only held through.
 
 Following
 ---------
@@ -91,8 +102,8 @@ LAND_HERE = "LAND_HERE"
 LANDED = "LANDED"
 STOPPED = "STOPPED"
 
-#: States that hold still while pose_fusion is not aligned.
-REALIGN_STATES = (TAKEOFF, FOLLOW, HOLD, LAND)
+#: Flight states: the follower holds still in them while the pose can't be flown on.
+FLIGHT_STATES = (TAKEOFF, FOLLOW, HOLD, LAND)
 
 
 def _wrap(a: float) -> float:
@@ -119,7 +130,8 @@ class FollowerConfig:
     descent_mps: float = 0.3
     land_xy_gain: float = 1.0                 # 1/s: horizontal correction over the pad while descending
     land_xy_max_mps: float = 0.2
-    pose_timeout_s: float = 0.5
+    pose_timeout_s: float = 0.5               # a pose captured longer ago than this is stale
+    pose_gap_s: float = 0.15                  # no pose arriving for this long: the stream stopped
     realign_timeout_s: float = 5.0
     land: bool = True
 
@@ -137,11 +149,15 @@ class FollowerConfig:
 
 @dataclass(frozen=True)
 class Pose:
+    """``t``: when it was captured (its header stamp, never later than its arrival).
+    ``received``: when it arrived, on the follower's clock (None: take ``t``)."""
+
     t: float
     x: float
     y: float
     z: float
     yaw: float
+    received: Optional[float] = None
 
 
 @dataclass(frozen=True)
@@ -184,15 +200,16 @@ class Follower:
         self._yaw_cmd: Optional[float] = None
         self._last_t: Optional[float] = None
         self._hold_since: Optional[float] = None
-        self._realign_since: Optional[float] = None
-        self.realigns = 0                                         # holds for pose_fusion, this run
+        self._still_since: Optional[float] = None
+        self.holds = 0                                            # times it held still in flight, this run
 
     # ------------------------------------------------------------------ the tick
 
     def update(self, t: float, offboard_active: bool, pose: Optional[Pose], landed: Optional[bool] = None,
-               ready: bool = True, aligned: bool = True) -> Optional[Command]:
+               ready: bool = True, aligned: bool = True, tracking: bool = True) -> Optional[Command]:
         """One tick. *ready*: pose_fusion has settled (before takeoff). *aligned*: its correction
-        can be flown on (in flight). *landed*: PX4's land detector, None if unknown or stale."""
+        can be flown on (in flight). *tracking*: the Guard is passing poses. *landed*: PX4's land
+        detector, None if unknown or stale."""
         if self.state in (STOPPED, BLOCKED):
             return None
         if self._was_offboard and not offboard_active:
@@ -209,15 +226,21 @@ class Follower:
             self._precheck_since = t
         if self.state == LAND_HERE:                     # straight down: it needs no pose
             return self._land_here(t, landed)
-        if pose is None or t - pose.t > self.config.pose_timeout_s:
-            self.reason = "no fresh pose: holding (sending nothing)"
+        fresh = self.fresh(t, pose)
+        if self.state in FLIGHT_STATES:
+            if not fresh:
+                return self._hold_still(t, "no fresh pose")
+            if not tracking:
+                return self._hold_still(t, "the Guard is withholding cuVSLAM's poses")
+            if self.config.require_ready and not aligned:
+                return self._hold_still(t, "pose_fusion is realigning its correction")
+        if not fresh:
+            self.reason = "no fresh pose: sending nothing"
             if self.state == PRECHECK:
                 return self._precheck_timeout(t, "no fresh pose")
-            return None                                 # the interface holds the last pose; twists expire to a hold
-        if self.state in REALIGN_STATES and self.config.require_ready and not aligned:
-            return self._realign(t)
-        if self._realign_since is not None:
-            self._realign_since = None
+            return None                                 # LANDED: PX4 disarms on its own
+        if self._still_since is not None:
+            self._still_since = None
             self.reason = ""
         handler = {PRECHECK: self._precheck, TAKEOFF: self._takeoff, FOLLOW: self._follow, HOLD: self._hold,
                    LAND: self._land, LANDED: self._landed}[self.state]
@@ -235,7 +258,7 @@ class Follower:
         ``_takeoff`` sends on its first tick (here, at the planned height, nose as it is), so the
         vehicle sees no jump when Offboard starts.
         """
-        if pose is None or t - pose.t > self.config.pose_timeout_s:
+        if not self.fresh(t, pose):
             self.reason = "waiting for Offboard, sending nothing: no fresh pose"
             return None
         problems = self._start_problems(pose, ready)
@@ -326,20 +349,26 @@ class Follower:
         # Keep pressing down gently: PX4 disarms itself (COM_DISARM_LAND), which ends Offboard -> STOPPED
         return self._descend(pose, 0.3 * self.config.descent_mps)
 
-    def _realign(self, t: float) -> Command:
-        """Hold still by velocity while pose_fusion realigns; land here if it takes too long."""
+    def fresh(self, t: float, pose: Optional[Pose]) -> bool:
+        """Whether *pose* can be flown on at *t*: captured under ``pose_timeout_s`` ago, and the
+        stream still arriving (the newest under ``pose_gap_s`` old)."""
+        if pose is None or t - pose.t > self.config.pose_timeout_s:
+            return False
+        return pose.received is None or t - pose.received <= self.config.pose_gap_s
+
+    def _hold_still(self, t: float, why: str) -> Command:
+        """Hold still by velocity, which needs no frame; land here if it lasts too long."""
         cfg = self.config
-        if self._realign_since is None:
-            self._realign_since = t
-            self.realigns += 1
+        if self._still_since is None:
+            self._still_since = t
+            self.holds += 1
         self._hold_since = None                         # the hold over the pad starts again afterwards
-        waited = t - self._realign_since
+        waited = t - self._still_since
         if waited >= cfg.realign_timeout_s:
             self.state = LAND_HERE
-            self.reason = "pose_fusion did not realign within {:g} s: landing here, straight down".format(
-                cfg.realign_timeout_s)
+            self.reason = "held still {:g} s ({}): landing here, straight down".format(cfg.realign_timeout_s, why)
             return self._land_here(t, None)
-        self.reason = "holding still: pose_fusion is realigning its correction ({:.1f} s)".format(waited)
+        self.reason = "holding still: {} ({:.1f} s)".format(why, waited)
         return Command("twist")
 
     def _land_here(self, t: float, landed: Optional[bool]) -> Command:

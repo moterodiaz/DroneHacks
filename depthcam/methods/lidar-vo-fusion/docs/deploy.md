@@ -18,7 +18,24 @@ bash depthcam/deploy/install_on_drone.sh    # copies the package's build inputs 
 The script refuses to run on any host but `skybeta-01`. `depthcam/` is the package root. The
 script copies only what colcon builds from it: `package.xml`, `setup.py`, `setup.cfg`,
 `resource/`, `launch/`, `routes/`, the Python packages, the map and rules JSON, and the config.
-The research code, recordings, CAD files and the STEP model stay off the drone.
+It also copies the ROS tests, because the kit's container sees only `~/team_ws`. The research
+code, recordings, CAD files and the STEP model stay off the drone.
+
+### Run the ROS tests (once, after the first build)
+
+In the kit's container, with the drone disarmed and the props off:
+
+```bash
+~/skybeta/host/run.sh shell
+source /root/team_ws/install/setup.bash
+cd /root/team_ws/src/dronehacks_lidar
+ROS_DOMAIN_ID=101 python3 -m pytest tests/test_ros_nodes.py -q
+```
+
+The tests publish setpoints on `/skybeta/setpoint/pose`. `ROS_DOMAIN_ID=101` keeps them away
+from the running stack (domain 1), and the kit's loopback-only DDS keeps them on this Jetson. The
+tests refuse to run in the kit's container if the domain is the drone's own, or DDS isn't
+loopback-only.
 The stack's `competitor` window builds the workspace with `team_build.sh` when the stack starts.
 Don't put `px4_msgs` in the workspace, because the image carries the matching one.
 
@@ -81,10 +98,12 @@ To replan after a change to the map or the rules, run `python -m follower.make_r
      last takeoff pose, and the pilot takes over.
 5. **The run:** CP1 → CP4, hold over the pad, land by velocity setpoint. PX4 disarms 2 s after
    touchdown (`COM_DISARM_LAND`). `/follower/status` lists the checkpoints crossed.
-   - **If cuVSLAM breaks and re-initialises,** `/pose_fusion/aligned` goes false. The follower
-     holds still (zero velocity) until the lidar has realigned the correction, then carries on.
-     If that takes over 5 s (`realign_timeout_s`), it lands straight down where it is. Under the
-     forbidden policy a frame break can't be seen.
+   - **If cuVSLAM loses tracking,** the follower holds still (zero velocity) from the first frame
+     the Guard withholds (`/vo_guard/tracking`), and while no fresh pose arrives. If cuVSLAM
+     re-initialises in a jumped frame, `/pose_fusion/aligned` stays false until the lidar has
+     realigned the correction. Then the follower carries on. If the hold lasts 5 s
+     (`realign_timeout_s`), it lands straight down where it is. Under the forbidden policy a frame
+     jump can't be measured: it holds through the break, then flies on in the new frame.
 
 By hand instead of the `competitor` window: stop what the window runs (attach, select it,
 Ctrl-C; two flight interfaces fight), then

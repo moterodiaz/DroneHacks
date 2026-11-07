@@ -5,6 +5,17 @@ px4_msgs built, from ``depthcam/``:
 
     python3 -m pytest tests/test_ros_nodes.py -q
 
+On drone 1, in the kit's container (``~/skybeta/host/run.sh shell``), after ``team_build.sh``:
+
+    source /root/team_ws/install/setup.bash
+    cd /root/team_ws/src/dronehacks_lidar
+    ROS_DOMAIN_ID=101 python3 -m pytest tests/test_ros_nodes.py -q
+
+These tests publish setpoints on ``/skybeta/setpoint/pose``. So in the kit's container they refuse
+to run unless DDS is loopback-only (``SKYBETA_DDS_SCOPE=local``, the kit's default) and
+``ROS_DOMAIN_ID`` differs from the drone's own (``DRONE_ID``). That way the running stack's
+flight interface never sees them.
+
 What each test drives:
 
 * the Guard: a cuVSLAM odometry stream with one jump, and one stamped on another clock;
@@ -35,6 +46,15 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+
+if "SKYBETA_DDS_SCOPE" in os.environ:                # in the kit's container, on a drone
+    _scope, _domain = os.environ.get("SKYBETA_DDS_SCOPE"), os.environ.get("ROS_DOMAIN_ID", "")
+    if _scope != "local" or not _domain or _domain == os.environ.get("DRONE_ID", ""):
+        raise RuntimeError(
+            "refusing to run: these tests publish /skybeta/setpoint/pose. Run them on loopback DDS "
+            "(SKYBETA_DDS_SCOPE=local, now {!r}) and a domain other than the drone's (ROS_DOMAIN_ID={!r}, "
+            "DRONE_ID={!r}), e.g.  ROS_DOMAIN_ID=101 python3 -m pytest tests/test_ros_nodes.py -q".format(
+                _scope, _domain, os.environ.get("DRONE_ID")))
 
 rclpy = pytest.importorskip("rclpy")
 px4_msgs = pytest.importorskip("px4_msgs.msg")
@@ -102,6 +122,7 @@ def test_guard_withholds_a_jump_and_settles():
     test = Node("test_guard")
     pub = test.create_publisher(Odometry, "/visual_slam/tracking/odometry", 10)
     out = Collector(test, Odometry, "/vo_guard/odometry")
+    tracking = Collector(test, Bool, "/vo_guard/tracking")
     ex = SingleThreadedExecutor()
     ex.add_node(guard)
     ex.add_node(test)
@@ -116,6 +137,10 @@ def test_guard_withholds_a_jump_and_settles():
         assert 4 <= guard.guard.withheld["settling"] <= 7        # 0.2 s of poses at 30 Hz, less any scheduling delay
         assert len(out.msgs) == 40 - 1 - guard.guard.withheld["settling"]
         assert out.msgs[0].pose.covariance[0] == pytest.approx(0.01)
+        # ~/tracking: one Bool per pose judged, false from the jump through the settling
+        spin_until(ex, lambda: len(tracking.msgs) >= 40, 2.0)
+        assert [m.data for m in tracking.msgs].count(False) == 1 + guard.guard.withheld["settling"]
+        assert tracking.msgs[19].data and not tracking.msgs[20].data and tracking.msgs[-1].data
     finally:
         guard.destroy_node()
         test.destroy_node()
@@ -395,7 +420,7 @@ def test_follower_takes_off_on_offboard_and_stops_when_it_ends():
         assert spin_until(ex, lambda: len(twists.msgs) >= 5, 3.0)
         tw = twists.msgs[-1].twist
         assert (tw.linear.x, tw.linear.y, tw.linear.z, tw.angular.z) == (0.0, 0.0, 0.0, 0.0)
-        assert follower.mission.realigns == 1
+        assert follower.mission.holds == 1
         aligned["on"] = True
         n = len(sps.msgs)
         assert spin_until(ex, lambda: len(sps.msgs) >= n + 5, 3.0)          # back to the takeoff pose
