@@ -153,6 +153,8 @@ def test_wire_rejects_rubbish() -> None:
              (bridge._HEADER.pack(b"OAKB", bridge.MSG_FRAME, 5) + bridge._FRAME_HEAD.pack(0, 0, 640, 400), "bad frame header"),
              (bridge._HEADER.pack(b"OAKB", bridge.MSG_IMU, 57) + bytes(57), "bad IMU payload"),
              (bridge._HEADER.pack(b"OAKB", 77, 0), "unknown message type"),
+             # a peer asking the reader to allocate a terabyte: refused before reading anything
+             (bridge._HEADER.pack(b"OAKB", bridge.MSG_END, 1 << 40), "END carries no payload"),
              (bridge._HEADER.pack(b"OAKB", bridge.MSG_POSE, 4) + b"{{{{", "not JSON"),
              (bridge._HEADER.pack(b"OAKB", bridge.MSG_POSE, 400) + b"{}", "closed"),
              (b"", "closed"))

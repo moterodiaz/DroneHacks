@@ -5,7 +5,9 @@
     /fmu/out/vehicle_odometry ──────┘   (read only: PX4's gyro)
 
 It republishes the organisers' cuVSLAM poses that pass every rule in ``pose_fusion.guard``:
-tracker failed, jump, spin, gyro disagreement, and settling after a break. Each passed pose
+header stamp off this node's clock, tracker failed, jump, spin, gyro disagreement, and settling
+after a break. The gyro rule compares PX4's rates, timed on receipt, with cuVSLAM's header
+stamps, so the clock rule checks every stamp against its own receive time first. Each passed pose
 gets fixed variances. The pose stays in cuVSLAM's ``odom`` frame, which is also PX4's.
 
 It reads no camera images: the 655 KB frames exceed Fast DDS's default shared-memory segment,
@@ -39,6 +41,7 @@ from std_msgs.msg import String
 from pose_fusion.guard import Guard, GuardConfig, fixed_pose_covariance
 from pose_fusion.ros_io import stamp_to_s
 
+from .params import declare, number
 from .px4_topics import fmu_out
 
 QUEUE_DEPTH = 10
@@ -55,19 +58,19 @@ class VoGuardNode(Node):
         self.declare_parameter("output_topic", "~/odometry")
         self.declare_parameter("status_topic", "/visual_slam/status")
         self.declare_parameter("px4_odometry_topic", "auto")
-        self.declare_parameter("gyro_latency_s", 0.005)
+        declare(self, "gyro_latency_s", 0.005)
         defaults = GuardConfig()
         for f in fields(GuardConfig):
-            self.declare_parameter(f.name, float(getattr(defaults, f.name)))
+            declare(self, f.name, float(getattr(defaults, f.name)))
         try:
-            config = GuardConfig(**{f.name: float(self.get_parameter(f.name).value) for f in fields(GuardConfig)})
+            config = GuardConfig(**{f.name: number(self, f.name) for f in fields(GuardConfig)})
+            self._gyro_latency = number(self, "gyro_latency_s")
         except (TypeError, ValueError) as exc:
             raise ConfigError(str(exc)) from exc
         odom_in = str(self.get_parameter("odom_in").value)
         if not odom_in:
             raise ConfigError("odom_in is required")
         self.guard = Guard(config)
-        self._gyro_latency = float(self.get_parameter("gyro_latency_s").value)
         self._covariance = fixed_pose_covariance()
         self._status_rule = "on"
 
@@ -110,7 +113,8 @@ class VoGuardNode(Node):
 
     def _on_odom(self, msg: Odometry) -> None:
         p, q = msg.pose.pose.position, msg.pose.pose.orientation
-        verdict = self.guard.judge(stamp_to_s(msg.header.stamp), (p.x, p.y, p.z), (q.x, q.y, q.z, q.w))
+        verdict = self.guard.judge(stamp_to_s(msg.header.stamp), (p.x, p.y, p.z), (q.x, q.y, q.z, q.w),
+                                   received=self._now_s())
         if not verdict.publish:
             return
         out = Odometry()
@@ -123,7 +127,8 @@ class VoGuardNode(Node):
 
     def _publish_status(self) -> None:
         g = self.guard
-        status = {"published": g.published, "withheld": dict(g.withheld), "status_rule": self._status_rule}
+        status = {"published": g.published, "withheld": dict(g.withheld), "status_rule": self._status_rule,
+                  "stamp_lag_s": g.last_stamp_lag_s}
         self._status_pub.publish(String(data=json.dumps(status)))
 
 

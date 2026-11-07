@@ -17,6 +17,12 @@ Rules (contracts/ros-graph.md, "Guard (ours) - withhold conditions")
 ---------------------------------------------------------------------
 A pose is withheld, in this order:
 
+0. ``clock``: when the node passes the receive time, a header stamp more than
+   ``max_stamp_lag_s`` (0.5 s) behind it or ``max_stamp_lead_s`` (0.05 s) ahead of it. The gyro
+   rule lines PX4's rates (stamped on receipt) up with cuVSLAM's header stamps, so it works only
+   when both are on the same clock. A stamp that far off means they aren't, or the pose is stale.
+   This fails closed: with no guarded pose the follower never streams, and the kit refuses
+   Offboard.
 1. ``failed``: cuVSLAM's own ``vo_state`` is FAILED.
 2. ``jump`` / ``spin``: the step from the previous pose, withheld or not, implies more than
    10 m/s or 720 deg/s.
@@ -68,6 +74,10 @@ DEFAULT_MAX_GYRO_DISAGREEMENT_DEG = 3.0
 DEFAULT_GYRO_WINDOW_S = 0.5
 #: Seconds of good poses after a break before they are trusted again.
 DEFAULT_SETTLE_S = 0.2
+#: Furthest a pose's header stamp may lag its receive time: cuVSLAM's latency is tens of ms.
+DEFAULT_MAX_STAMP_LAG_S = 0.5
+#: Furthest a header stamp may run ahead of its receive time (clock jitter only).
+DEFAULT_MAX_STAMP_LEAD_S = 0.05
 #: Variances of a passed pose: position (m^2) and orientation as roll, pitch, yaw (rad^2). Sigma
 #: 0.1 m and 0.1 rad, EKF2's own EVP and EVA noise defaults, with height and yaw looser.
 DEFAULT_POSITION_VARIANCE_M2 = (0.01, 0.01, 0.02)
@@ -113,6 +123,8 @@ class GuardConfig:
     max_gyro_disagreement_deg: float = DEFAULT_MAX_GYRO_DISAGREEMENT_DEG
     gyro_window_s: float = DEFAULT_GYRO_WINDOW_S
     settle_s: float = DEFAULT_SETTLE_S
+    max_stamp_lag_s: float = DEFAULT_MAX_STAMP_LAG_S
+    max_stamp_lead_s: float = DEFAULT_MAX_STAMP_LEAD_S
 
     def __post_init__(self) -> None:
         for f in fields(self):
@@ -124,7 +136,7 @@ class GuardConfig:
 @dataclass(frozen=True)
 class Verdict:
     publish: bool
-    reason: Optional[str] = None       # failed | jump | spin | gyro | settling
+    reason: Optional[str] = None       # clock | failed | jump | spin | gyro | settling
     detail: str = ""
     after_break: bool = False          # the first pose published after a break
 
@@ -144,6 +156,7 @@ class Guard:
         self._gyro: Deque[Tuple[float, np.ndarray]] = collections.deque()           # (t, body FLU rate)
         self._in_break = False
         self._settle_start: Optional[float] = None
+        self.last_stamp_lag_s: Optional[float] = None    # receive time minus header stamp, for the status
 
     # ------------------------------------------------------------------ inputs
 
@@ -160,11 +173,24 @@ class Guard:
 
     # ------------------------------------------------------------------ the verdict
 
-    def judge(self, t: float, position: Sequence[float], q_xyzw: Sequence[float]) -> Verdict:
-        """Whether the pose at *t* (``odom`` frame) may be used."""
+    def judge(self, t: float, position: Sequence[float], q_xyzw: Sequence[float],
+              received: Optional[float] = None) -> Verdict:
+        """Whether the pose stamped *t* (``odom`` frame) may be used.
+
+        *received* is when it arrived, on the clock the :meth:`on_gyro` times use. Without it the
+        clock rule is skipped (offline replays).
+        """
         p = np.asarray(position, dtype=float)
         if not (np.all(np.isfinite(p)) and all(math.isfinite(float(v)) for v in q_xyzw) and math.isfinite(t)):
             return self._withhold(t, None, None, ("jump", "non-finite pose"))
+        if received is not None:
+            lag = float(received) - t
+            self.last_stamp_lag_s = lag
+            if not (-self.config.max_stamp_lead_s <= lag <= self.config.max_stamp_lag_s):
+                return self._withhold(t, None, None, ("clock", "header stamp {:+.3f} s from its receive time "
+                                                      "(allowed -{:g} to +{:g} s): another clock, or stale".format(
+                                                          lag, self.config.max_stamp_lead_s,
+                                                          self.config.max_stamp_lag_s)))
         try:
             r = quat_xyzw_to_matrix(q_xyzw)
         except ValueError:

@@ -314,3 +314,28 @@ def test_cruise_must_be_above_the_rest_height():
 def test_course_points_use_the_fusions_transform():
     p = course_pose_to_tracker(MARK.east, MARK.north + 1.0, 0.0, MARK)
     assert (p.x, p.y) == pytest.approx((1.0, 0.0))
+
+
+# ---------------------------------------------------------------------------------------------- route provenance
+
+def test_a_route_is_refused_with_other_map_or_rules(tmp_path):
+    route = load_route(ROUTES["window"], MARK, MAP, RULES)            # the shipped files: accepted
+    assert len(route.path) > 2
+    other_map = tmp_path / "map.json"
+    other_map.write_bytes(MAP.read_bytes() + b" ")
+    with pytest.raises(ValueError, match="different map file"):
+        load_route(ROUTES["window"], MARK, other_map, RULES)
+    other_rules = tmp_path / "rules.json"
+    other_rules.write_bytes(RULES.read_bytes().replace(b"\n", b"\n\n", 1))
+    with pytest.raises(ValueError, match="different rules file"):
+        load_route(ROUTES["window"], MARK, MAP, other_rules)
+
+
+def test_a_route_without_hashes_is_refused_when_checked(tmp_path):
+    data = json.loads(ROUTES["window"].read_text(encoding="utf-8"))
+    del data["map_sha256"]
+    stripped = tmp_path / "route.json"
+    stripped.write_text(json.dumps(data), encoding="utf-8")
+    with pytest.raises(ValueError, match="records map_sha256 None"):
+        load_route(stripped, MARK, MAP, RULES)
+    assert len(load_route(stripped, MARK).path) > 2                    # unchecked when no files are given

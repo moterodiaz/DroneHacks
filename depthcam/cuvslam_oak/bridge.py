@@ -167,8 +167,8 @@ def recv_message(sock: socket.socket) -> Tuple[int, Any]:
             records.append((values[0], values[1:4], values[4:7]))
         return mtype, records
     if mtype == MSG_END:
-        if length:
-            _recv_exact(sock, length)
+        if length:                                     # never read it: a peer could ask for any size
+            raise BridgeError("END carries no payload (got a length of {})".format(length))
         return mtype, None
     if mtype not in _NAMES:
         raise BridgeError("unknown message type {}".format(mtype))

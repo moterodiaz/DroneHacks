@@ -6,7 +6,11 @@
 #
 # It refuses to run anywhere but drone 1 (hostname skybeta-01). Logging into or deploying to another
 # team's drone gets a team disqualified (AGENTS.md §1). It:
-#   1. copies depthcam/ (the package root) to ~/team_ws/src/dronehacks_lidar
+#   1. copies what colcon builds from depthcam/ (the package root) to ~/team_ws/src/dronehacks_lidar:
+#      package.xml, setup.py, setup.cfg, resource/, launch/, routes/, the Python packages setup.py
+#      installs (dronehacks_lidar, pose_fusion, follower, course and its subpackages), the map and
+#      rules JSON, and the parameter file. It leaves out the research code, recordings, CAD files
+#      and the STEP model.
 #   2. adds pyserial to the team image's Dockerfile (~/team_ws/Dockerfile), if missing
 # then prints the remaining steps. It does not edit /etc/skybeta/drone.env (that needs sudo, and
 # choosing the run's lidar policy is yours). It does not restart the stack either: a restart
@@ -25,10 +29,22 @@ SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DEST="$HOME/team_ws/src/dronehacks_lidar"
 [ -f "$SRC/package.xml" ] || { echo "install_on_drone: $SRC has no package.xml" >&2; exit 2; }
 
-echo "[1/2] $SRC -> $DEST"
-mkdir -p "$DEST"
-rsync -a --delete --exclude recordings/ --exclude snapshots/ --exclude __pycache__/ --exclude .pytest_cache/ \
-      "$SRC/" "$DEST/"
+echo "[1/2] $SRC -> $DEST (the package's build inputs only)"
+STAGE="$(mktemp -d)"
+trap 'rm -rf -- "$STAGE"' EXIT
+(
+  cd "$SRC"
+  printf '%s\n' package.xml setup.py setup.cfg methods/lidar-vo-fusion/config/pose_fusion.example.yaml \
+    course/maps/course_v3_map.json course/maps/course_v3_rules.json
+  find resource launch routes -type f -not -path '*/__pycache__/*'
+  # the Python packages setup.py installs: each folder with an __init__.py, its .py files only
+  find dronehacks_lidar pose_fusion follower course -name __init__.py -not -path '*/__pycache__/*' |
+    while read -r init; do find "$(dirname "$init")" -maxdepth 1 -name '*.py'; done
+) > "$STAGE/files.txt"
+mkdir -p "$STAGE/pkg" "$DEST"
+rsync -a --files-from="$STAGE/files.txt" "$SRC/" "$STAGE/pkg/"
+rsync -a --delete "$STAGE/pkg/" "$DEST/"
+echo "  $(wc -l < "$STAGE/files.txt") files"
 
 DOCKERFILE="$HOME/team_ws/Dockerfile"
 echo "[2/2] pyserial in $DOCKERFILE"

@@ -14,10 +14,10 @@ in `docs/deploy.md`.
 
 | Node (`ros2 run dronehacks_lidar …`) | Does | Lidar |
 |---|---|---|
-| `vo_guard` | withholds cuVSLAM poses that can't be trusted (tracker failed, jump, spin, gyro disagreement, settling) | no, runs in every run |
+| `vo_guard` | withholds cuVSLAM poses that can't be trusted (stamp off the clock, tracker failed, jump, spin, gyro disagreement, settling) | no, runs in every run |
 | `lidar_localizer` | matches each MS200K revolution to the course map → body pose + covariance | only in allowed runs |
-| `pose_fusion` | estimates the drift `C` (truth ≈ `C ∘ odom`), publishes the true pose and `~/ready`, sends `C⁻¹ ∘ setpoint` to the kit | uses `lidar_localizer` when allowed |
-| `follower` | flies the route: checks the start, takes off, follows CP1 → CP4, holds over the pad, lands | no |
+| `pose_fusion` | estimates the drift `C` (truth ≈ `C ∘ odom`), publishes the true pose, `~/ready` and `~/aligned`, sends `C⁻¹ ∘ setpoint` to the kit | uses `lidar_localizer` when allowed |
+| `follower` | flies the route: checks the start, takes off, follows CP1 → CP4, holds over the pad, lands; holds still while `~/aligned` is false | no |
 
 `launch/lidar_nav.launch.py` starts the kit's `flight_interface` exactly as the kit's example
 does, then these four.
@@ -98,9 +98,11 @@ Not done: the optional return flight, and the planner's speed profile (PX4 sets 
 
 ## vo_guard, lidar_localizer, pose_fusion
 
-- **`vo_guard`** (`pose_fusion/guard.py`): withholds a pose when the tracker reports failure,
-  for a jump over 10 m/s, a spin over 720°/s, a disagreement with PX4's gyro over 3° in 0.5 s,
-  and during 0.2 s of settling after any break. It reads **no camera images** (dropped): a
+- **`vo_guard`** (`pose_fusion/guard.py`): withholds a pose whose header stamp is more than
+  0.5 s behind its receive time or 0.05 s ahead of it (another clock, or stale: the gyro rule
+  needs both on one clock), when the tracker reports failure, for a jump over 10 m/s, a spin over
+  720°/s, a disagreement with PX4's gyro over 3° in 0.5 s, and during 0.2 s of settling after any
+  break. It reads **no camera images** (dropped): a
   blank view the tracker doesn't report is caught only through the gyro. Passed poses keep
   cuVSLAM's frame, with fixed variances.
 - **`lidar_localizer`** (`pose_fusion/localizer.py`): the bench-tested `course/lidar_localize.py`
@@ -119,6 +121,11 @@ Not done: the optional return flight, and the planner's speed profile (PX4 sets 
     follower would look live to the kit's Offboard rule.
   - **Ready:** `~/ready` is true when at least 10 fixes have fused, the last within 0.5 s, and
     the applied correction is within 2 cm / 0.5° of the estimate.
+  - **Frame breaks:** `~/aligned` turns false at every VO gap (cuVSLAM may have re-initialised,
+    so its frame may have jumped) and after 2 gated fixes in a row. It is true again once a fix
+    passes the gate and `C_applied` is within 5 cm / 2° of `C`. While it is false the follower
+    holds still with a zero velocity setpoint, which doesn't depend on `C`, so pose_fusion applies
+    the re-learnt `C` at once. If it isn't back within 5 s, the follower lands straight down.
 - **Rules they keep:** no node writes to `/fmu/in/*`, sets a PX4 parameter, arms, disarms,
   changes mode, or restarts the organisers' processes. Acro is never used (AGENTS.md §3.6).
 
@@ -132,6 +139,7 @@ Not done: the optional return flight, and the planner's speed profile (PX4 sets 
 | Offboard, with the kit's rule modelled (a setpoint under 1 s old at the switch, one attempt per arming) | checks pass: the takeoff pose streams before Offboard and is the first command after it (no jump). Carried 0.6 m off the mark, or turned 30°: nothing sent, Offboard refused, the drone stays on the ground. Lidar not settled at the switch: refused; a switch once ready flies. Moved in the second before the switch: blocked. The mission without this fix never gets Offboard (8 of these tests fail on it) |
 | refresh from a silent follower | never: only while its last pose is under 0.5 s old |
 | re-acquire after a cuVSLAM frame jump of 1.0 m / 20° | no setpoint jump; within 3 cm / 1° after 30 s |
+| a frame jump of 0.6 m / -0.4 m / 15° mid-route, in a 0.5 s Guard break, flown through the whole chain (`tests/test_frame_break.py`) | holds still 0.6 s, then carries on: **worst 10.2 mm off the path**, the same as with no break. Without the hold: 217 mm. With the lidar gone after the break: holds 5 s, then lands straight down |
 | localiser on the real map, synthetic MS200K | 0 lost; 1.3 mm RMS (idealised) |
 
 The vehicle model ignores PX4's real tracking error, vibration and wind. The real numbers come

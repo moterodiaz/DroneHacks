@@ -21,7 +21,8 @@ The format (course frame, ``(east, north)`` metres, as the planner works):
 * ``gates``: the checkpoints crossed, as path indices;
 * ``start``, ``goal``: the launch mark and the pad centre; ``drone``, ``min_room_m``: the
   footprint and margin it was planned with, and the tightest room left beyond that margin;
-* ``map_sha256``, ``rules_sha256``: the files it came from.
+* ``map_sha256``, ``rules_sha256``: the files it came from (:func:`file_sha256`). Given the map
+  and rules it will fly with, :func:`load_route` refuses a route planned from different ones.
 
 The follower converts it to the tracker frame of contracts/frames.md (launch-mark origin,
 x = north, y = west) with ``pose_fusion.frames.course_pose_to_tracker``, the same transform the
@@ -30,6 +31,7 @@ fusion uses. The tracker yaw is ``yaw_deg - 90``.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import math
 from dataclasses import dataclass, field
@@ -95,9 +97,36 @@ def route_from_dict(data: Dict[str, Any], mark: LaunchMark) -> Route:
                  {k: data[k] for k in ("map_sha256", "rules_sha256", "generated", "planner_finish_s") if k in data})
 
 
-def load_route(path: Union[str, Path], mark: LaunchMark) -> Route:
+def file_sha256(path: Union[str, Path]) -> str:
+    """SHA-256 of the file with LF line ends, as git stores it, so a Windows checkout gives the same value."""
+    return hashlib.sha256(Path(path).read_bytes().replace(b"\r\n", b"\n")).hexdigest()
+
+
+def check_sources(data: Dict[str, Any], map_file: Union[str, Path, None] = None,
+                  rules_file: Union[str, Path, None] = None) -> None:
+    """Raise ValueError unless the route *data* records the hashes of *map_file* and *rules_file*.
+
+    The planner checked the route's clearances against one map and one set of checkpoints. A route
+    from other files may cross an obstacle or miss a gate.
+    """
+    for key, source in (("map_sha256", map_file), ("rules_sha256", rules_file)):
+        if source is None:
+            continue
+        recorded = data.get(key) if isinstance(data, dict) else None
+        actual = file_sha256(source)
+        if recorded != actual:
+            raise ValueError("the route was planned from a different {} file: it records {} {}, but {} is {}. "
+                             "Re-plan it with follower.make_route".format(key[:-len("_sha256")], key, recorded,
+                                                                        source, actual))
+
+
+def load_route(path: Union[str, Path], mark: LaunchMark, map_file: Union[str, Path, None] = None,
+               rules_file: Union[str, Path, None] = None) -> Route:
+    """Read a route file. With *map_file* / *rules_file*, refuse it unless it was planned from them."""
     with Path(path).open("r", encoding="utf-8") as fh:
-        return route_from_dict(json.load(fh), mark)
+        data = json.load(fh)
+    check_sources(data, map_file, rules_file)
+    return route_from_dict(data, mark)
 
 
 def plan_to_dict(plan: Any, route: str, map_sha256: str, rules_sha256: str, generated: str) -> Dict[str, Any]:

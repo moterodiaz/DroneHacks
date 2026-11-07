@@ -3,10 +3,13 @@
     /skybeta/state (JSON) ──────────────┐
     /pose_fusion/odometry (true pose) ──┤
     /pose_fusion/ready (Bool) ──────────┤ follower ─► /follower/setpoint/{pose,twist} ─► pose_fusion ─► kit
+    /pose_fusion/aligned (Bool) ────────┤
     /fmu/out/vehicle_land_detected ─────┘   (read only)
 
 The route is a ``dronehacks-lidar-route/1`` file (``follower.route``), planned from the STEP-model
-map and the ground-truth checkpoints by ``follower.make_route``. The package ships
+map and the ground-truth checkpoints by ``follower.make_route``. It must record the hashes of
+``map_file`` and ``rules_file``: a route planned from other course files is refused at start.
+The package ships
 ``routes/course_v3_window.json`` and ``routes/course_v3_gate_b.json``. ``follower.mission.Follower``
 does the work:
 
@@ -19,6 +22,8 @@ does the work:
 * **Taking off:** it takes off itself.
 * **Following:** it follows the route without leaving it by more than ``max_cut_m``, holding the
   planned heading.
+* **Realigning:** while pose_fusion's ``~/aligned`` is false (a cuVSLAM frame break), it holds
+  still with a zero velocity setpoint. After ``realign_timeout_s`` it lands where it is.
 * **Landing:** it holds over the pad, then lands with a velocity setpoint. PX4 disarms itself
   after ``COM_DISARM_LAND``.
 * **Stopping:** it stops for good when Offboard ends.
@@ -33,14 +38,17 @@ Parameters:
     map_file, rules_file  the launch mark (the rules' start marking, in the map)   required
     rest_height_m       body centre above the floor when landed               required
     pose_topic          the true pose                                         /pose_fusion/odometry
-    ready_topic         pose_fusion's readiness                               /pose_fusion/ready
+    ready_topic         pose_fusion's readiness (before takeoff)              /pose_fusion/ready
+    aligned_topic       pose_fusion's frames agree (in flight)                /pose_fusion/aligned
     state_topic         the kit's state JSON                                  /skybeta/state
     land_detected_topic PX4's land detector ("" = off; "auto" = resolved)    auto
     setpoint_pose_out   where pose setpoints go (pose_fusion's input)         /follower/setpoint/pose
     setpoint_twist_out  where twist setpoints go                              /follower/setpoint/twist
     frame_id            header.frame_id of the setpoints                      odom
     rate_hz             setpoint rate                                         50.0
-    state_timeout_s     /skybeta/state older than this counts as no Offboard  1.0
+    state_timeout_s     /skybeta/state older than this counts as no Offboard;
+                        ready/aligned older than this count as false           1.0
+    land_timeout_s      a land-detector message older than this counts as unknown   2.0
     <FollowerConfig field>  any other field of follower.mission.FollowerConfig
 """
 
@@ -62,9 +70,9 @@ from std_msgs.msg import Bool, String
 from follower.mission import Command, Follower, FollowerConfig, Pose
 from follower.route import load_route
 from pose_fusion.course_files import launch_mark_from_files
-from pose_fusion.ros_io import stamp_to_s
 from pose_fusion.se2 import quat_yaw
 
+from .params import declare, number
 from .px4_topics import fmu_out
 
 QUEUE_DEPTH = 10
@@ -81,47 +89,59 @@ class FollowerNode(Node):
             self.declare_parameter(name, "")
         self.declare_parameter("pose_topic", "/pose_fusion/odometry")
         self.declare_parameter("ready_topic", "/pose_fusion/ready")
+        self.declare_parameter("aligned_topic", "/pose_fusion/aligned")
         self.declare_parameter("state_topic", "/skybeta/state")
         self.declare_parameter("land_detected_topic", "auto")
         self.declare_parameter("setpoint_pose_out", "/follower/setpoint/pose")
         self.declare_parameter("setpoint_twist_out", "/follower/setpoint/twist")
         self.declare_parameter("frame_id", "odom")
-        self.declare_parameter("rate_hz", 50.0)
-        self.declare_parameter("state_timeout_s", 1.0)
-        self.declare_parameter("rest_height_m", float("nan"))
+        declare(self, "rate_hz", 50.0)
+        declare(self, "state_timeout_s", 1.0)
+        declare(self, "land_timeout_s", 2.0)
+        declare(self, "rest_height_m", float("nan"))
         cfg_fields = [f for f in fields(FollowerConfig) if f.name != "rest_height_m"]
         defaults = FollowerConfig(rest_height_m=0.0)
         for f in cfg_fields:
-            self.declare_parameter(f.name, getattr(defaults, f.name))
+            declare(self, f.name, getattr(defaults, f.name))
 
         try:
             route_file = self._required_str("route_file")
-            mark = launch_mark_from_files(self._required_str("map_file"), self._required_str("rules_file"))
-            route = load_route(route_file, mark)
-            rest = float(self._param("rest_height_m"))
+            map_file, rules_file = self._required_str("map_file"), self._required_str("rules_file")
+            mark = launch_mark_from_files(map_file, rules_file)
+            route = load_route(route_file, mark, map_file, rules_file)
+            rest = number(self, "rest_height_m")
             if not math.isfinite(rest):
                 raise ValueError("parameter rest_height_m is required: measure it (it has no default)")
-            config = FollowerConfig(rest_height_m=rest, **{f.name: self._param(f.name) for f in cfg_fields})
+            config = FollowerConfig(rest_height_m=rest, **{
+                f.name: self._param(f.name) if isinstance(getattr(defaults, f.name), bool) else number(self, f.name)
+                for f in cfg_fields})
             self.mission = Follower(route, config)
+            rate = number(self, "rate_hz")
+            self._state_timeout = number(self, "state_timeout_s")
+            self._land_timeout = number(self, "land_timeout_s")
         except (OSError, KeyError, TypeError, ValueError) as exc:
             raise ConfigError(str(exc)) from exc
-        rate = float(self._param("rate_hz"))
         if not (math.isfinite(rate) and rate > 0.0):
             raise ConfigError("rate_hz must be > 0")
-        self._state_timeout = float(self._param("state_timeout_s"))
         self._frame_id = str(self._param("frame_id"))
 
         self._pose: Optional[Pose] = None
         self._offboard = False
         self._state_t: Optional[float] = None
         self._landed: Optional[bool] = None
+        self._landed_t: Optional[float] = None
         self._ready = False
         self._ready_t: Optional[float] = None
+        self._aligned = False
+        self._aligned_t: Optional[float] = None
         self._sent = {"pose": 0, "twist": 0}
 
         self._pose_pub = self.create_publisher(PoseStamped, str(self._param("setpoint_pose_out")), QUEUE_DEPTH)
         self._twist_pub = self.create_publisher(TwistStamped, str(self._param("setpoint_twist_out")), QUEUE_DEPTH)
         self._status_pub = self.create_publisher(String, "~/status", QUEUE_DEPTH)
+        # aligned before the pose: pose_fusion publishes it first, and when both wait, rclpy runs
+        # the callbacks in the order the subscriptions were made
+        self.create_subscription(Bool, str(self._param("aligned_topic")), self._on_aligned, QUEUE_DEPTH)
         self.create_subscription(Odometry, str(self._param("pose_topic")), self._on_pose, QUEUE_DEPTH)
         self.create_subscription(String, str(self._param("state_topic")), self._on_state, QUEUE_DEPTH)
         self.create_subscription(Bool, str(self._param("ready_topic")), self._on_ready, QUEUE_DEPTH)
@@ -155,8 +175,9 @@ class FollowerNode(Node):
     # ------------------------------------------------------------------ inputs
 
     def _on_pose(self, msg: Odometry) -> None:
+        # Timed on receipt, on the clock the tick uses: a header stamp may be on another clock
         p, q = msg.pose.pose.position, msg.pose.pose.orientation
-        self._pose = Pose(stamp_to_s(msg.header.stamp), float(p.x), float(p.y), float(p.z),
+        self._pose = Pose(self._now_s(), float(p.x), float(p.y), float(p.z),
                           quat_yaw((float(q.x), float(q.y), float(q.z), float(q.w))))
 
     def _on_state(self, msg: String) -> None:
@@ -169,10 +190,15 @@ class FollowerNode(Node):
 
     def _on_land(self, msg: Any) -> None:
         self._landed = bool(msg.landed)
+        self._landed_t = self._now_s()
 
     def _on_ready(self, msg: Bool) -> None:
         self._ready = bool(msg.data)
         self._ready_t = self._now_s()
+
+    def _on_aligned(self, msg: Bool) -> None:
+        self._aligned = bool(msg.data)
+        self._aligned_t = self._now_s()
 
     # ------------------------------------------------------------------ the tick
 
@@ -180,7 +206,9 @@ class FollowerNode(Node):
         now = self._now_s()
         fresh_state = self._state_t is not None and now - self._state_t <= self._state_timeout
         ready = self._ready and self._ready_t is not None and now - self._ready_t <= self._state_timeout
-        cmd = self.mission.update(now, self._offboard and fresh_state, self._pose, self._landed, ready)
+        aligned = self._aligned and self._aligned_t is not None and now - self._aligned_t <= self._state_timeout
+        landed = self._landed if self._landed_t is not None and now - self._landed_t <= self._land_timeout else None
+        cmd = self.mission.update(now, self._offboard and fresh_state, self._pose, landed, ready, aligned)
         if cmd is not None:
             self._publish(cmd)
 
@@ -207,8 +235,8 @@ class FollowerNode(Node):
         m = self.mission
         status = {"state": m.state, "route": m.route.name, "progress_m": round(float(m.s[m.index]), 3),
                   "length_m": round(m.route.length_m, 3), "crossed": [name for name, _ in m.crossed],
-                  "reason": m.reason, "offboard": self._offboard, "ready": self._ready, "landed": self._landed,
-                  "sent": dict(self._sent)}
+                  "reason": m.reason, "offboard": self._offboard, "ready": self._ready, "aligned": self._aligned,
+                  "landed": self._landed, "realigns": m.realigns, "sent": dict(self._sent)}
         self._status_pub.publish(String(data=json.dumps(status)))
 
 

@@ -23,6 +23,12 @@ setpoint under 1 s old. ``~/ready`` (std_msgs/Bool, 10 Hz) says whether
 the correction has settled; it is always true when the lidar is forbidden. The follower waits
 for it before taking off.
 
+``~/aligned`` (std_msgs/Bool, with every pose and at 10 Hz) says whether the corrected pose and
+setpoints can be flown on (``PoseFusion.aligned``). It turns false at a cuVSLAM frame break, and
+the follower holds still with a zero velocity setpoint until it is back. A zero velocity doesn't
+depend on the correction, so while the follower sends one, this node applies the new correction
+at once instead of at the slew limits. It is published before each pose.
+
 It never writes to ``/fmu/in/*``, never sets a PX4 parameter, and never arms or changes mode
 (contracts/px4.md). The follower's setpoints reach the kit only through this node, so run it in
 every run.
@@ -78,6 +84,8 @@ from pose_fusion.ros_io import (LidarInputError, fill_pose, fill_pose_setpoint, 
 from pose_fusion.se2 import IDENTITY, Pose2
 from pose_fusion.setpoints import refresh_due, to_odom_pose, to_odom_twist
 
+from .params import declare, number
+
 QUEUE_DEPTH = 10
 
 
@@ -104,13 +112,13 @@ class PoseFusionNode(Node):
             self.declare_parameter(name, "")
         self.declare_parameter("setpoint_pose_out", "/skybeta/setpoint/pose")
         self.declare_parameter("setpoint_twist_out", "/skybeta/setpoint/twist")
-        self.declare_parameter("refresh_hz", 10.0)
-        self.declare_parameter("refresh_max_age_s", 0.5)
-        self.declare_parameter("launch_mark_east", float("nan"))
-        self.declare_parameter("launch_mark_north", float("nan"))
+        declare(self, "refresh_hz", 10.0)
+        declare(self, "refresh_max_age_s", 0.5)
+        declare(self, "launch_mark_east", float("nan"))
+        declare(self, "launch_mark_north", float("nan"))
         defaults = FusionConfig()
         for f in fields(FusionConfig):
-            self.declare_parameter(f.name, getattr(defaults, f.name))
+            declare(self, f.name, getattr(defaults, f.name))
 
         # Validate everything before creating any publisher or subscription.
         try:
@@ -122,15 +130,18 @@ class PoseFusionNode(Node):
                    "setpoint_pose_out", "setpoint_twist_out")}
         if len(set(topics.values())) != len(topics):
             raise ConfigError("every topic must be different: {}".format(topics))
-        refresh_hz = float(self._param("refresh_hz"))
+        try:
+            refresh_hz = number(self, "refresh_hz")
+            self._refresh_max_age = number(self, "refresh_max_age_s")
+        except ValueError as exc:
+            raise ConfigError(str(exc)) from exc
         if not (math.isfinite(refresh_hz) and refresh_hz > 0.0):
             raise ConfigError("refresh_hz must be > 0")
-        self._refresh_max_age = float(self._param("refresh_max_age_s"))
         if not (math.isfinite(self._refresh_max_age) and self._refresh_max_age > 0.0):
             raise ConfigError("refresh_max_age_s must be > 0")
 
         self.counts = {"relayed_odom": 0, "bad_vo": 0, "lidar_rejected": 0, "pose_setpoints": 0,
-                       "twist_setpoints": 0, "refreshed": 0}
+                       "twist_setpoints": 0, "refreshed": 0, "snapped": 0}
         lidar_topic = ""
         self._lidar_frame_id = ""
         if self.policy is LidarPolicy.ALLOWED:
@@ -138,7 +149,8 @@ class PoseFusionNode(Node):
             self._lidar_frame_id = self._required_str("lidar_frame_id")
             try:
                 self._mark = self._launch_mark()
-                config = FusionConfig(**{f.name: self._param(f.name) for f in fields(FusionConfig)})
+                config = FusionConfig(**{f.name: self._config_value(f.name, getattr(FusionConfig(), f.name))
+                                         for f in fields(FusionConfig)})
             except (OSError, KeyError, TypeError, ValueError) as exc:
                 raise ConfigError(str(exc)) from exc
             self.fusion = PoseFusion(self.policy, config)
@@ -152,6 +164,7 @@ class PoseFusionNode(Node):
         self._last_pose_rx: Optional[float] = None           # when it arrived (this node's clock)
         self._last_kind = ""                                  # "pose" or "twist": what the follower sent last
         self._sent_with = IDENTITY                            # the correction the last pose setpoint used
+        self._still_rx: Optional[float] = None                # when the follower last sent a zero twist
 
         latched = QoSProfile(depth=1, history=HistoryPolicy.KEEP_LAST,
                              reliability=ReliabilityPolicy.RELIABLE, durability=DurabilityPolicy.TRANSIENT_LOCAL)
@@ -167,9 +180,10 @@ class PoseFusionNode(Node):
         self.create_subscription(PoseStamped, topics["setpoint_pose_in"], self._on_pose_setpoint, QUEUE_DEPTH)
         self.create_subscription(TwistStamped, topics["setpoint_twist_in"], self._on_twist_setpoint, QUEUE_DEPTH)
         self._ready_pub = self.create_publisher(Bool, "~/ready", QUEUE_DEPTH)
+        self._aligned_pub = self.create_publisher(Bool, "~/aligned", QUEUE_DEPTH)
         self._policy_pub.publish(String(data=self.policy.value))
         self.create_timer(1.0, self._publish_status)
-        self.create_timer(0.1, lambda: self._ready_pub.publish(Bool(data=bool(self.fusion.settled()))))
+        self.create_timer(0.1, self._publish_flags)
         self.get_logger().info("lidar_policy={} {}{}".format(
             self.policy.value, topics,
             " lidar={} frame={}".format(lidar_topic, self._lidar_frame_id) if lidar_topic else ""))
@@ -186,7 +200,11 @@ class PoseFusionNode(Node):
             if not (map_file and rules_file):
                 raise ConfigError("map_file and rules_file go together")
             return launch_mark_from_files(map_file, rules_file)
-        return LaunchMark(self._param("launch_mark_east"), self._param("launch_mark_north"))
+        return LaunchMark(number(self, "launch_mark_east"), number(self, "launch_mark_north"))
+
+    def _config_value(self, name: str, default: Any) -> Any:
+        """A FusionConfig field: booleans as given (strictly typed), numbers as floats."""
+        return self._param(name) if isinstance(default, bool) else number(self, name)
 
     def _required_str(self, name: str) -> str:
         value = self._param(name)
@@ -195,6 +213,15 @@ class PoseFusionNode(Node):
         return value
 
     # ------------------------------------------------------------------ the drone's pose
+
+    def _publish_flags(self) -> None:
+        self._ready_pub.publish(Bool(data=bool(self.fusion.settled())))
+        self._aligned_pub.publish(Bool(data=bool(self.fusion.aligned())))
+
+    def _follower_still(self) -> bool:
+        """The follower's last setpoint was a zero twist, still fresh: nothing PX4 gets depends on C."""
+        return (self._last_kind == "twist" and self._still_rx is not None
+                and self._now_s() - self._still_rx <= self._refresh_max_age)
 
     def _on_odom(self, msg: Odometry) -> None:
         if self.policy is LidarPolicy.FORBIDDEN:
@@ -206,9 +233,13 @@ class PoseFusionNode(Node):
             self.counts["bad_vo"] += 1
             self.get_logger().warning("non-finite Guard pose dropped", throttle_duration_sec=5.0)
             return
+        if not self.fusion.aligned() and self._follower_still():
+            self.counts["snapped"] += 1
+            self.fusion.snap_to_estimate()
         fused = self.fusion.add_vo(sample)
         if fused is None:
             return
+        self._aligned_pub.publish(Bool(data=bool(self.fusion.aligned())))   # before the pose it applies to
         out = Odometry()
         out.header = msg.header
         out.child_frame_id = msg.child_frame_id
@@ -254,6 +285,9 @@ class PoseFusionNode(Node):
     def _on_twist_setpoint(self, msg: TwistStamped) -> None:
         self.counts["twist_setpoints"] += 1
         self._last_kind = "twist"
+        lin, ang = msg.twist.linear, msg.twist.angular
+        still = all(float(v) == 0.0 for v in (lin.x, lin.y, lin.z, ang.x, ang.y, ang.z))
+        self._still_rx = self._now_s() if still else None
         if self.policy is LidarPolicy.FORBIDDEN:
             self._twist_pub.publish(msg)
             return

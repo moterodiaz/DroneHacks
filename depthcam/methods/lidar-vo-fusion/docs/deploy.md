@@ -11,12 +11,14 @@ scripts' LF line endings):
 
 ```bash
 ~/skybeta/host/run.sh build --init          # first time only: writes ~/team_ws/Dockerfile
-bash depthcam/deploy/install_on_drone.sh    # copies the package to ~/team_ws/src/dronehacks_lidar, adds pyserial
+bash depthcam/deploy/install_on_drone.sh    # copies the package's build inputs to ~/team_ws/src/dronehacks_lidar, adds pyserial
 ~/skybeta/host/run.sh build                 # the team image, with pyserial
 ```
 
-The script refuses to run on any host but `skybeta-01`. `depthcam/` is the package root:
-`package.xml`, `setup.py`, `launch/`, the Python packages, the map, the routes and the config.
+The script refuses to run on any host but `skybeta-01`. `depthcam/` is the package root. The
+script copies only what colcon builds from it: `package.xml`, `setup.py`, `setup.cfg`,
+`resource/`, `launch/`, `routes/`, the Python packages, the map and rules JSON, and the config.
+The research code, recordings, CAD files and the STEP model stay off the drone.
 The stack's `competitor` window builds the workspace with `team_build.sh` when the stack starts.
 Don't put `px4_msgs` in the workspace, because the image carries the matching one.
 
@@ -79,6 +81,10 @@ To replan after a change to the map or the rules, run `python -m follower.make_r
      last takeoff pose, and the pilot takes over.
 5. **The run:** CP1 → CP4, hold over the pad, land by velocity setpoint. PX4 disarms 2 s after
    touchdown (`COM_DISARM_LAND`). `/follower/status` lists the checkpoints crossed.
+   - **If cuVSLAM breaks and re-initialises,** `/pose_fusion/aligned` goes false. The follower
+     holds still (zero velocity) until the lidar has realigned the correction, then carries on.
+     If that takes over 5 s (`realign_timeout_s`), it lands straight down where it is. Under the
+     forbidden policy a frame break can't be seen.
 
 By hand instead of the `competitor` window: stop what the window runs (attach, select it,
 Ctrl-C; two flight interfaces fight), then
@@ -86,6 +92,9 @@ Ctrl-C; two flight interfaces fight), then
 
 ## Before the first flight with the props on
 
+- Clocks: `/vo_guard/status` must show `stamp_lag_s` between 0 and 0.5 s, and nothing
+  withheld as `clock`. If every pose is withheld as `clock`, cuVSLAM's stamps aren't on the
+  ROS clock, and nothing downstream will fly.
 - Carry test: carry the drone by hand from the launch mark. `/pose_fusion/odometry` must follow
   it in the tracker frame (x = north, y = west).
 - Props off, on the mark and ready: before arming, `/skybeta/setpoint/pose` must already carry the

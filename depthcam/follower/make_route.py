@@ -16,18 +16,12 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
-import hashlib
 import json
 import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 ROUTES = ("window", "gate_b")
-
-
-def sha256(path: Path) -> str:
-    # Hash with LF line ends, as git stores the file, so a Windows checkout gives the same value
-    return hashlib.sha256(path.read_bytes().replace(b"\r\n", b"\n")).hexdigest()
 
 
 def main(argv=None) -> int:
@@ -46,7 +40,7 @@ def main(argv=None) -> int:
     from course.planner.plan import PlanConfig, plan_course
     from course.planner.route import PlanError
 
-    from .route import plan_to_dict
+    from .route import file_sha256, plan_to_dict
 
     cmap = CourseMap.load(args.map)
     rules = json.loads(args.rules.read_text(encoding="utf-8"))
@@ -60,7 +54,7 @@ def main(argv=None) -> int:
             print("{}: could not be planned: {}".format(route, exc), file=sys.stderr)
             status = 1
             continue
-        data = plan_to_dict(plan, route, sha256(args.map), sha256(args.rules), generated)
+        data = plan_to_dict(plan, route, file_sha256(args.map), file_sha256(args.rules), generated)
         if args.out is not None and len(routes) == 1 and args.out.suffix == ".json":
             out = args.out
         else:

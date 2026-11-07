@@ -62,6 +62,7 @@ from pose_fusion.localizer import SLICE_HEIGHTS, LidarLocalizer, LocalizerConfig
 from pose_fusion.policy import LidarPolicy, parse_lidar_policy
 from pose_fusion.ros_io import fill_pose_with_covariance, s_to_stamp
 
+from .params import declare, number, numbers
 from .px4_topics import fmu_out
 
 QUEUE_DEPTH = 10
@@ -82,20 +83,20 @@ class LidarLocalizerNode(Node):
         for name in ("port", "map_file", "rules_file"):
             self.declare_parameter(name, "")
         for name in ("yaw_offset_deg", "mount_x", "mount_y", "mount_z", "rest_height_m"):
-            self.declare_parameter(name, float("nan"))
+            declare(self, name, float("nan"))
         self.declare_parameter("clockwise", True)
-        self.declare_parameter("range_min_m", 0.25)
-        self.declare_parameter("latency_s", 0.005)
-        self.declare_parameter("baud", int(ms200.BAUD))
+        declare(self, "range_min_m", 0.25)
+        declare(self, "latency_s", 0.005)
+        declare(self, "baud", int(ms200.BAUD))
         self.declare_parameter("frame_id", "course")
         self.declare_parameter("output_topic", "~/pose")
         self.declare_parameter("px4_odometry_topic", "auto")
-        self.declare_parameter("cov_scale", 100.0)
-        self.declare_parameter("max_variance", 1.0e4)
-        self.declare_parameter("max_px4_age_s", 0.3)
-        self.declare_parameter("startup_good", 3)
-        self.declare_parameter("iterations", 8)
-        self.declare_parameter("slice_heights", [float(z) for z in SLICE_HEIGHTS])
+        declare(self, "cov_scale", 100.0)
+        declare(self, "max_variance", 1.0e4)
+        declare(self, "max_px4_age_s", 0.3)
+        declare(self, "startup_good", 3)
+        declare(self, "iterations", 8)
+        declare(self, "slice_heights", [float(z) for z in SLICE_HEIGHTS])
 
         # Validate everything, and build the map slices, before touching the port or the graph.
         port = self._required_str("port")
@@ -107,19 +108,20 @@ class LidarLocalizerNode(Node):
                 mount_xyz=(self._required_float("mount_x"), self._required_float("mount_y"),
                            self._required_float("mount_z")),
                 rest_height_m=self._required_float("rest_height_m"),
-                cov_scale=float(self._param("cov_scale")), max_variance=float(self._param("max_variance")),
-                max_px4_age_s=float(self._param("max_px4_age_s")), startup_good=int(self._param("startup_good")),
-                iterations=int(self._param("iterations")),
-                slice_heights=tuple(float(z) for z in self._param("slice_heights")))
+                cov_scale=number(self, "cov_scale"), max_variance=number(self, "max_variance"),
+                max_px4_age_s=number(self, "max_px4_age_s"), startup_good=self._whole("startup_good"),
+                iterations=self._whole("iterations"),
+                slice_heights=tuple(numbers(self, "slice_heights")))
+            range_min, latency, baud = number(self, "range_min_m"), number(self, "latency_s"), self._whole("baud")
         except (OSError, KeyError, TypeError, ValueError) as exc:
             raise ConfigError(str(exc)) from exc
         yaw_offset = self._required_float("yaw_offset_deg")
         self.get_logger().info("building map slices from {} (start mark {:.4f}, {:.4f})".format(map_file, *start))
         self.localizer = LidarLocalizer(cmap, start, config)
         self._asm = ms200.Assembler(clockwise=bool(self._param("clockwise")), yaw_offset_deg=yaw_offset,
-                                    range_min=float(self._param("range_min_m")), latency_s=float(self._param("latency_s")))
+                                    range_min=range_min, latency_s=latency)
         try:
-            self._ser = ms200.open_port(port, int(self._param("baud")))
+            self._ser = ms200.open_port(port, baud)
         except (OSError, RuntimeError) as exc:
             raise ConfigError("cannot open the lidar on {}: {}".format(port, exc)) from exc
 
@@ -161,9 +163,15 @@ class LidarLocalizerNode(Node):
 
     def _required_float(self, name: str) -> float:
         value = self._param(name)
-        if not isinstance(value, (int, float)) or not math.isfinite(float(value)):
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(float(value)):
             raise ConfigError("parameter {} is required: measure it (it has no default)".format(name))
         return float(value)
+
+    def _whole(self, name: str) -> int:
+        value = number(self, name)
+        if not value.is_integer():
+            raise ValueError("parameter {} must be a whole number (got {!r})".format(name, value))
+        return int(value)
 
     def _now_s(self) -> float:
         return self.get_clock().now().nanoseconds * 1e-9

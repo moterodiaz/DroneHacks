@@ -7,17 +7,18 @@ px4_msgs built, from ``depthcam/``:
 
 What each test drives:
 
-* the Guard: a cuVSLAM odometry stream with one jump;
+* the Guard: a cuVSLAM odometry stream with one jump, and one stamped on another clock;
 * the fusion, forbidden: odometry and setpoints must come out unchanged;
 * the fusion, allowed: lidar fixes that say the drone is 0.2 m further north than cuVSLAM thinks.
-  The follower's setpoint must reach /skybeta/setpoint/pose shifted back by 0.2 m;
+  The follower's setpoint must reach /skybeta/setpoint/pose shifted back by 0.2 m. After a VO
+  gap, ~/aligned must turn false;
 * the localiser: a pseudo-terminal stands in for the MS200K's USB serial port, fed a synthetic
   byte stream of the course scanned from the launch mark, plus a fake PX4 VehicleOdometry. Its
   pose must land on the launch mark;
 * the follower, on the shipped window route, on the launch mark with pose_fusion ready: before
   Offboard it must stream the takeoff pose (the kit enters Offboard only on a setpoint under 1 s
-  old). Once /skybeta/state says Offboard it climbs to the route height, then stops when Offboard
-  ends.
+  old). Once /skybeta/state says Offboard it climbs to the route height. While
+  /pose_fusion/aligned is false it holds with a zero twist. It stops when Offboard ends.
 
 Course positions come from the map and rules files (AGENTS.md §3.7).
 """
@@ -38,12 +39,12 @@ import pytest
 rclpy = pytest.importorskip("rclpy")
 px4_msgs = pytest.importorskip("px4_msgs.msg")
 
-from geometry_msgs.msg import PoseStamped, PoseWithCovarianceStamped  # noqa: E402
+from geometry_msgs.msg import PoseStamped, PoseWithCovarianceStamped, TwistStamped  # noqa: E402
 from nav_msgs.msg import Odometry  # noqa: E402
 from rclpy.executors import SingleThreadedExecutor  # noqa: E402
 from rclpy.node import Node  # noqa: E402
 from rclpy.parameter import Parameter  # noqa: E402
-from std_msgs.msg import String  # noqa: E402
+from std_msgs.msg import Bool, String  # noqa: E402
 
 from pose_fusion.course_files import launch_mark_from_files, load_course_map  # noqa: E402
 from pose_fusion.policy import LidarPolicy  # noqa: E402
@@ -106,17 +107,40 @@ def test_guard_withholds_a_jump_and_settles():
     ex.add_node(test)
     try:
         assert spin_until(ex, lambda: pub.get_subscription_count() > 0, 5.0)
-        t0 = test.get_clock().now()
         for i in range(40):
             jump = 0.5 if i >= 20 else 0.0                       # 0.5 m in one frame at i = 20
-            stamp = t0 + rclpy.duration.Duration(nanoseconds=int(i * 1e9 / 30))
-            pub.publish(odom(test, 0.5 * i / 30 + jump, 0.0, 0.8, t=stamp))
-            spin_until(ex, lambda: False, 0.005)
+            pub.publish(odom(test, 0.5 * i / 30 + jump, 0.0, 0.8))   # stamped now, so the clock rule passes it
+            spin_until(ex, lambda: False, 1.0 / 30.0)            # in real time: about 30 Hz
         spin_until(ex, lambda: len(out.msgs) >= 30, 2.0)
-        assert guard.guard.withheld["jump"] == 1
-        assert 6 <= guard.guard.withheld["settling"] <= 7
+        assert guard.guard.withheld["jump"] == 1 and guard.guard.withheld["clock"] == 0
+        assert 4 <= guard.guard.withheld["settling"] <= 7        # 0.2 s of poses at 30 Hz, less any scheduling delay
         assert len(out.msgs) == 40 - 1 - guard.guard.withheld["settling"]
         assert out.msgs[0].pose.covariance[0] == pytest.approx(0.01)
+    finally:
+        guard.destroy_node()
+        test.destroy_node()
+
+
+def test_guard_withholds_poses_stamped_on_another_clock():
+    from dronehacks_lidar.vo_guard_node import VoGuardNode
+
+    guard = VoGuardNode(parameter_overrides=params(px4_odometry_topic="", status_topic=""))
+    test = Node("test_guard_clock")
+    pub = test.create_publisher(Odometry, "/visual_slam/tracking/odometry", 10)
+    out = Collector(test, Odometry, "/vo_guard/odometry")
+    ex = SingleThreadedExecutor()
+    ex.add_node(guard)
+    ex.add_node(test)
+    try:
+        assert spin_until(ex, lambda: pub.get_subscription_count() > 0, 5.0)
+        old = test.get_clock().now() - rclpy.duration.Duration(seconds=100)
+        for i in range(10):
+            stamp = old + rclpy.duration.Duration(nanoseconds=int(i * 1e9 / 30))
+            pub.publish(odom(test, 0.5 * i / 30, 0.0, 0.8, t=stamp))
+            spin_until(ex, lambda: False, 1.0 / 30.0)
+        spin_until(ex, lambda: guard.guard.withheld["clock"] >= 10, 2.0)
+        assert guard.guard.withheld["clock"] == 10 and not out.msgs
+        assert guard.guard.last_stamp_lag_s == pytest.approx(100.0, abs=1.0)
     finally:
         guard.destroy_node()
         test.destroy_node()
@@ -210,6 +234,57 @@ def test_fusion_allowed_shifts_the_setpoints_by_the_drift():
         test.destroy_node()
 
 
+def test_fusion_reports_aligned_and_drops_it_at_a_vo_gap():
+    from dronehacks_lidar.pose_fusion_node import PoseFusionNode
+
+    mark = launch_mark_from_files(MAP, RULES)
+    fusion = PoseFusionNode(parameter_overrides=params(
+        lidar_policy="allowed", lidar_topic="/lidar_localizer/pose", lidar_frame_id="course",
+        map_file=MAP, rules_file=RULES, **FUSION_TOPICS))
+    test = Node("test_aligned")
+    vo_pub = test.create_publisher(Odometry, "/vo_guard/odometry", 10)
+    lidar_pub = test.create_publisher(PoseWithCovarianceStamped, "/lidar_localizer/pose", 10)
+    aligned = Collector(test, Bool, "/pose_fusion/aligned")
+    vo_on = {"on": True}
+    ex = SingleThreadedExecutor()
+    ex.add_node(fusion)
+    ex.add_node(test)
+
+    def tick_vo():
+        if vo_on["on"]:
+            vo_pub.publish(odom(test, 0.0, 0.0, 0.73))
+
+    def tick_lidar():
+        msg = PoseWithCovarianceStamped()
+        msg.header.stamp = (test.get_clock().now() - rclpy.duration.Duration(nanoseconds=20_000_000)).to_msg()
+        msg.header.frame_id = "course"
+        msg.pose.pose.position.x, msg.pose.pose.position.y = mark.east, mark.north
+        msg.pose.pose.orientation.z, msg.pose.pose.orientation.w = math.sin(math.pi / 4), math.cos(math.pi / 4)
+        cov = [0.0] * 36
+        cov[0] = cov[7] = 0.02 ** 2
+        cov[14] = cov[21] = cov[28] = 1.0e6
+        cov[35] = math.radians(0.5) ** 2
+        msg.pose.covariance = cov
+        lidar_pub.publish(msg)
+
+    test.create_timer(1.0 / 30.0, tick_vo)
+    test.create_timer(0.1, tick_lidar)
+    try:
+        assert spin_until(ex, lambda: lidar_pub.get_subscription_count() > 0, 5.0)
+        spin_until(ex, lambda: False, 3.0)
+        assert aligned.msgs and aligned.msgs[-1].data is True
+        vo_on["on"] = False                                       # the Guard withholds for half a second
+        spin_until(ex, lambda: False, 0.5)
+        n = len(aligned.msgs)
+        vo_on["on"] = True
+        assert spin_until(ex, lambda: any(not m.data for m in aligned.msgs[n:]), 2.0)
+        assert fusion.fusion.stats.vo_gaps == 1
+        assert spin_until(ex, lambda: fusion.fusion.aligned(), 3.0)   # the next fused fix brings it back
+    finally:
+        fusion.destroy_node()
+        test.destroy_node()
+
+
 # ---------------------------------------------------------------------------------------------- the localiser
 
 @pytest.mark.skipif(not sys.platform.startswith("linux"), reason="needs a Linux pseudo-terminal")
@@ -291,11 +366,15 @@ def test_follower_takes_off_on_offboard_and_stops_when_it_ends():
     test = Node("test_follower")
     state_pub = test.create_publisher(String, "/skybeta/state", 10)
     ready_pub = test.create_publisher(Bool, "/pose_fusion/ready", 10)
+    aligned_pub = test.create_publisher(Bool, "/pose_fusion/aligned", 10)
     pose_pub = test.create_publisher(Odometry, "/pose_fusion/odometry", 10)
     sps = Collector(test, PoseStamped, "/follower/setpoint/pose")
+    twists = Collector(test, TwistStamped, "/follower/setpoint/twist")
     offboard = {"on": False}
+    aligned = {"on": True}
     test.create_timer(0.2, lambda: state_pub.publish(String(data=json.dumps({"offboard_active": offboard["on"]}))))
     test.create_timer(0.1, lambda: ready_pub.publish(Bool(data=True)))
+    test.create_timer(0.1, lambda: aligned_pub.publish(Bool(data=aligned["on"])))
     test.create_timer(0.02, lambda: pose_pub.publish(odom(test, 0.0, 0.0, 0.0)))   # resting on the launch mark
     ex = SingleThreadedExecutor()
     ex.add_node(follower)
@@ -312,6 +391,14 @@ def test_follower_takes_off_on_offboard_and_stops_when_it_ends():
         p = sps.msgs[-1].pose.position
         assert p.z == pytest.approx(0.8 - REST) and abs(p.x) < 1e-9 and abs(p.y) < 1e-9
         assert follower.mission.state == "TAKEOFF"
+        aligned["on"] = False                                    # a frame break: hold still by velocity
+        assert spin_until(ex, lambda: len(twists.msgs) >= 5, 3.0)
+        tw = twists.msgs[-1].twist
+        assert (tw.linear.x, tw.linear.y, tw.linear.z, tw.angular.z) == (0.0, 0.0, 0.0, 0.0)
+        assert follower.mission.realigns == 1
+        aligned["on"] = True
+        n = len(sps.msgs)
+        assert spin_until(ex, lambda: len(sps.msgs) >= n + 5, 3.0)          # back to the takeoff pose
         offboard["on"] = False
         spin_until(ex, lambda: follower.mission.state == "STOPPED", 3.0)
         n = len(sps.msgs)

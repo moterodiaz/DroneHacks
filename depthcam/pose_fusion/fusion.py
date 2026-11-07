@@ -39,6 +39,23 @@ the tracker frame of contracts/frames.md, such that ``truth ≈ C ∘ VO``:
 Only x, y and yaw are corrected. z, roll and pitch pass through unchanged: a 2D lidar does not
 observe them, and PX4 takes height from the rangefinder (``EKF2_HGT_REF = 2``).
 
+Frame breaks: :meth:`PoseFusion.aligned`
+----------------------------------------
+When cuVSLAM re-initialises, its frame jumps. PX4's estimate jumps with it, but ``C_applied`` is
+still the old frame's correction, so the corrected pose and the corrected setpoints are wrong by
+the jump until ``C`` is re-learnt and applied. Flying the route on them would steer the drone
+off its path near obstacles. So :meth:`PoseFusion.aligned` turns false:
+
+* at every VO gap, because cuVSLAM may have re-initialised in it;
+* after ``suspect_after_gated`` gated fixes in a row, because the lidar no longer agrees with
+  ``C ∘ VO`` (a frame that jumped too little for the Guard to break, or a lidar fault).
+
+It turns true again only once a lidar fix has passed the gate since then, and ``C_applied`` is
+within ``aligned_tol_m`` / ``aligned_tol_rad`` of ``C`` at the drone. The follower holds still
+by velocity while it is false (``follower.mission``). A zero velocity setpoint doesn't depend on
+the correction, so while the follower holds, the node applies ``C`` at once
+(:meth:`PoseFusion.snap_to_estimate`) instead of walking it at the slew limits.
+
 VO gaps
 -------
 When the Guard withholds poses (blank view, tracking loss), no VO arrives. The Guard passes raw
@@ -127,6 +144,12 @@ class FusionConfig:
 
     * ``reacquire_after`` - gated fixes in a row before they are considered
     * ``reacquire_tol_m``, ``reacquire_tol_rad`` - how closely they must agree, at the drone
+
+    Frame breaks (see :meth:`PoseFusion.aligned`):
+
+    * ``suspect_after_gated`` - gated fixes in a row that mean the frames may disagree
+    * ``aligned_tol_m``, ``aligned_tol_rad`` - how close ``C_applied`` must be to ``C``, at the
+      drone, for the frames to count as agreeing again
     """
 
     drift_pos_per_m: float = 0.05
@@ -151,6 +174,9 @@ class FusionConfig:
     reacquire_after: int = 5
     reacquire_tol_m: float = 0.05
     reacquire_tol_rad: float = math.radians(2.0)
+    suspect_after_gated: int = 2
+    aligned_tol_m: float = 0.05
+    aligned_tol_rad: float = math.radians(2.0)
 
     def __post_init__(self) -> None:
         for f in fields(self):
@@ -263,6 +289,7 @@ class PoseFusion:
         self._last_innovation: Optional[List[float]] = None
         self._last_d2: Optional[float] = None
         self._gated: List[Pose2] = []          # the correction each gated fix in a row implies
+        self._suspect = False                  # a VO gap or gated fixes since the last fused fix
         self.stats = FusionStats()
 
     # ------------------------------------------------------------------ public API
@@ -343,10 +370,37 @@ class PoseFusion:
         applied correction within *tol_m* / *tol_rad* of the estimate at the drone."""
         if not self.lidar_allowed:
             return True
-        if self.stats.lidar_fused < min_fused or self._last_vo is None or self._last_fix_t is None:
+        if self._suspect or self.stats.lidar_fused < min_fused or self._last_vo is None or self._last_fix_t is None:
             return False
         if self._last_vo.t - self._last_fix_t > max_lidar_age_s:
             return False
+        return self._applied_within(tol_m, tol_rad)
+
+    def aligned(self) -> bool:
+        """Whether the corrected pose and setpoints can be flown on: always under the forbidden policy.
+
+        False from a VO gap, or ``suspect_after_gated`` gated fixes in a row, until a fix passes the
+        gate again and ``C_applied`` is within ``aligned_tol_*`` of ``C`` (the module docstring,
+        "Frame breaks"). A lidar that only goes quiet doesn't make it false: VO alone flies on.
+        """
+        if not self.lidar_allowed:
+            return True
+        if self._suspect:
+            return False
+        return self._applied_within(self.config.aligned_tol_m, self.config.aligned_tol_rad)
+
+    def snap_to_estimate(self) -> None:
+        """Apply ``C`` at once, skipping the slew limits.
+
+        Only for while no command PX4 gets depends on the correction: the follower holding still
+        with a zero velocity setpoint. Then the published pose jumps, but nothing PX4 is told does.
+        """
+        if self.lidar_allowed:
+            self._applied = self._c_pose()
+
+    def _applied_within(self, tol_m: float, tol_rad: float) -> bool:
+        if self._last_vo is None:
+            return True
         here = self._last_vo.planar()
         target = self._c_pose().compose(here)
         current = self._applied.compose(here)
@@ -355,7 +409,8 @@ class PoseFusion:
 
     def status(self) -> Dict[str, object]:
         """Counters and the current correction, for the node's ~/status topic and for logs."""
-        out: Dict[str, object] = {"lidar_policy": self.policy.value, "ready": self.settled()}
+        out: Dict[str, object] = {"lidar_policy": self.policy.value, "ready": self.settled(),
+                                  "aligned": self.aligned()}
         out.update(asdict(self.stats))
         if not self.lidar_allowed:
             return out
@@ -426,6 +481,7 @@ class PoseFusion:
                            cfg.gap_floor_yaw_sigma_rad ** 2])
         self._p = self._p + np.diag(np.maximum(0.0, floors - np.diag(self._p)))
         self._gated = []
+        self._suspect = True
 
     def _fuse_pending(self) -> None:
         if not self._buf_t:
@@ -464,6 +520,8 @@ class PoseFusion:
         if not math.isfinite(d2) or d2 > cfg.gate_chi2:
             self.stats.lidar_gated += 1
             self.stats.consecutive_gated += 1
+            if self.stats.consecutive_gated >= int(cfg.suspect_after_gated):
+                self._suspect = True
             if math.isfinite(d2):
                 self._gated = (self._gated + [fix.pose.compose(vo.inverse())])[-int(cfg.reacquire_after):]
                 self._maybe_reacquire()
@@ -478,6 +536,7 @@ class PoseFusion:
         self.stats.lidar_fused += 1
         self.stats.consecutive_gated = 0
         self._last_fix_t = fix.t
+        self._suspect = False
 
     def _maybe_reacquire(self) -> None:
         """Reset ``C`` when the last ``reacquire_after`` gated fixes agree with each other at the drone."""

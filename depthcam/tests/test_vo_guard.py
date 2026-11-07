@@ -105,3 +105,26 @@ def test_fixed_covariance():
 def test_config_rejects_negative_values():
     with pytest.raises(ValueError, match="settle_s"):
         GuardConfig(settle_s=-1.0)
+
+
+# ---------------------------------------------------------------------------------------------- the clock rule
+
+def test_a_stamp_on_another_clock_is_withheld_and_a_normal_lag_passes():
+    guard = Guard()
+    for i in range(10):
+        t = i * DT
+        assert guard.judge(t, (0.5 * t, 0.0, 0.8), LEVEL, received=t + 0.04).publish     # 40 ms of latency
+    assert guard.last_stamp_lag_s == pytest.approx(0.04)
+    late = guard.judge(10 * DT, (5 * DT, 0.0, 0.8), LEVEL, received=10 * DT + 3600.0)
+    early = guard.judge(11 * DT, (5.5 * DT, 0.0, 0.8), LEVEL, received=11 * DT - 0.2)
+    assert (late.reason, early.reason) == ("clock", "clock")
+    assert "another clock" in late.detail
+    # a break like any other: good poses settle again before they are trusted
+    after = [guard.judge(i * DT, (0.5 * i * DT, 0.0, 0.8), LEVEL, received=i * DT + 0.04) for i in range(12, 30)]
+    assert after[0].reason == "settling" and after[-1].publish
+
+
+def test_without_a_receive_time_the_clock_rule_is_skipped():
+    guard = Guard()
+    assert all(v.publish for v in walk(guard, 10))
+    assert guard.last_stamp_lag_s is None
