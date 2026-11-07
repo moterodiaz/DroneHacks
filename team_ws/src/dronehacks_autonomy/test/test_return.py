@@ -106,14 +106,22 @@ class ConfigTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "return_speed_mps"):
             prep(PUBLISHED, dataclasses.replace(CONFIG, return_speed_mps=0.0))
 
+    def test_needs_a_lag(self):
+        # With no lag the reference, which starts on the drone over the pad, can never move ahead.
+        with self.assertRaisesRegex(ValueError, "return_lag_m"):
+            prep(PUBLISHED, dataclasses.replace(CONFIG, return_lag_m=0.0))
+        prep(PUBLISHED, dataclasses.replace(CONFIG, return_leg=False, return_lag_m=0.0))   # unused: fine
+
 
 class StateTest(unittest.TestCase):
     """Driven by hand, to reach the cases a clean simulated flight does not."""
 
-    def at_pad(self):
+    def at_pad(self, airborne=True):
         m = prep(PUBLISHED).mission
         m._was_offboard = True
         m.state = LAND
+        if airborne:                       # PX4 has said "not landed" since takeoff
+            m.update(0.5, True, None, False, 0.0)
         return m
 
     def pose(self, m, t, xy=None, z=0.0):
@@ -133,6 +141,26 @@ class StateTest(unittest.TestCase):
         cmd = m.update(5.0, True, None, True, 0.0)
         self.assertEqual(m.state, RETURN_CLIMB)
         self.assertAlmostEqual(cmd.z, m.z_return)
+
+    def test_a_landed_left_over_from_the_launch_is_not_a_touchdown(self):
+        # The land detector went quiet after its launch reading: over the pad at flight height it
+        # still says landed. That must not start the return climb.
+        m = self.at_pad(airborne=False)
+        cmd = m.update(1.0, True, self.pose(m, 1.0, z=m.z_fly), True, 0.0)
+        self.assertEqual(m.state, LAND)
+        self.assertEqual(cmd.kind, "twist")
+        self.assertLess(cmd.vz, 0.0)
+        m.update(1.1, True, self.pose(m, 1.1, z=0.3), False, 0.0)      # PX4: in the air
+        m.update(1.2, True, self.pose(m, 1.2, z=0.0), True, 0.0)       # then down: a real touchdown
+        self.assertEqual(m.state, RETURN_CLIMB)
+
+    def test_the_landing_at_the_launch_mark_needs_its_own_liftoff(self):
+        m = self.at_pad()
+        m.update(1.0, True, self.pose(m, 1.0), True, 0.0)
+        self.assertEqual(m.state, RETURN_CLIMB)
+        m.state = LAND                     # straight to the second landing, with no "not landed" between
+        m.update(1.1, True, self.pose(m, 1.1, m.start_odom), True, 0.0)
+        self.assertEqual(m.state, LAND)
 
     def test_still_descending_until_px4_says_landed(self):
         m = self.at_pad()

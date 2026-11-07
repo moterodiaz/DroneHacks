@@ -61,6 +61,14 @@ class NodeTest(unittest.TestCase):
         self.assertAlmostEqual(n.timers[0][0], 1 / 20.0)
         self.assertTrue(any("route tunnel > pad" in line for line in n.logged), n.logged)
 
+    def test_px4_velocity_in_the_body_heading_frame(self):
+        # PX4 heading east (NED yaw 90 deg), flying north at 1 m/s: north is the drone's left
+        half = math.radians(90.0) / 2
+        forward, left = self.mod.body_velocity((math.cos(half), 0.0, 0.0, math.sin(half)), (1.0, 0.0, 0.0))
+        self.assertAlmostEqual(forward, 0.0, places=9)
+        self.assertAlmostEqual(left, 1.0, places=9)
+        self.assertIsNone(self.mod.body_velocity((1.0, 0.0, 0.0, 0.0), (float("nan"), 0.0, 0.0)))
+
     def test_publishes_only_once_the_prechecks_pass_then_takes_off(self):
         pose_pub = self.node.publishers["/skybeta/setpoint/pose"]
         self.feed("/skybeta/state", fake_ros.String(json.dumps({"offboard_active": False})))
@@ -119,6 +127,22 @@ class NodeTest(unittest.TestCase):
         self.tick()
         self.assertEqual(self.node.mission.state, "LAND")
         self.assertLess(self.node.publishers["/skybeta/setpoint/twist"].sent[-1].twist.linear.z, 0.0)
+
+    def test_a_stale_land_detector_reading_is_unknown(self):
+        # take_off fed "landed" at the launch; the detector then stops. Seconds later, over the pad,
+        # that old reading must reach the mission as unknown, not as a touchdown.
+        self.take_off()
+        self.node.mission.state = "LAND"
+        self.node.mission._airborne_seen = True
+        self.handle.now_s += 5.0
+        self.feed("/skybeta/state", fake_ros.String(json.dumps({"offboard_active": True})))
+        self.feed("/visual_slam/tracking/odometry", self.odom(self.handle.now_s, z=0.5))
+        self.tick()
+        self.assertEqual(self.node.mission.state, "LAND")
+        # A fresh reading still counts.
+        self.feed("/fmu/out/vehicle_land_detected_v1", fake_ros.VehicleLandDetected(True))
+        self.tick()
+        self.assertEqual(self.node.mission.state, "LANDED")
 
     def test_a_real_offboard_exit_still_stops(self):
         self.take_off()

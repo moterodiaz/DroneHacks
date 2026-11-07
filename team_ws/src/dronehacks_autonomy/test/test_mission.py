@@ -24,6 +24,7 @@ from dronehacks_autonomy.vehicle_sim import VehicleSimConfig, fly, summary
 # These tests fly the landing too, so they opt into it: land is off by default (px4.md:
 # the drone holds over the pad for the pilot unless a landing API is contracted).
 CONFIG = MissionConfig(rest_height_m=0.07, land=True)
+COAST = dataclasses.replace(CONFIG, coast_max_s=4.0)
 
 
 def prep(map_source, config, **kw):
@@ -192,6 +193,51 @@ class WholeFlightTest(unittest.TestCase):
         log = fly(prepared.mission, cfg=VehicleSimConfig(dropout_s=(5.0, 5.6)))
         self.assertIn("disarm", log.events)
         self.assertEqual(flight_checks(prepared, log.pos)["wall_touches"], 0)
+
+    def test_coasting_is_off_by_default_so_a_dropout_sends_nothing(self):
+        # contracts/ros-graph.md blocks tunnel traversal during vision loss
+        self.assertEqual(CONFIG.coast_max_s, 0.0)
+        log = fly(prep(l_course(), CONFIG).mission, cfg=VehicleSimConfig(dropout_s=(4.0, 6.5)))
+        self.assertFalse(any("coasting" in r for r in log.reasons), log.reasons)
+        self.assertTrue(any("sending nothing" in r for r in log.reasons), log.reasons)
+
+    def test_a_long_dropout_mid_follow_is_flown_through(self):
+        # the dark tube: 2.5 s without odometry would be a stop and a PX4 failsafe; it coasts on
+        prepared = prep(l_course(), COAST)
+        log = fly(prepared.mission, cfg=VehicleSimConfig(dropout_s=(4.0, 6.5)))
+        self.assertIn("disarm", log.events)
+        checks = flight_checks(prepared, log.pos)
+        self.assertEqual(checks["wall_touches"], 0)
+        self.assertTrue(checks["on_pad"])
+        self.assertTrue(any("coasting" in r for r in log.reasons), log.reasons)
+        blind = log.pos[(log.t > 4.1) & (log.t < 6.4), :2]
+        self.assertGreater(float(np.hypot(*(blind[-1] - blind[0]))), 0.8)      # it kept flying
+
+    def test_after_a_frozen_dropout_the_frame_is_stitched_and_the_pad_reached(self):
+        # cuVSLAM resumes from where it froze: without re-anchoring the rest of the flight
+        # would be the coast's length off; the dead reckoning gives the jump
+        prepared = prep(l_course(), COAST)
+        log = fly(prepared.mission, cfg=VehicleSimConfig(dropout_s=(4.0, 5.5), freeze_on_dropout=True))
+        m = prepared.mission
+        self.assertEqual((m.coasts, len(m.stitches)), (1, 1))
+        self.assertGreater(math.hypot(*m.offset), 0.5)
+        checks = flight_checks(prepared, log.pos)
+        self.assertEqual(checks["wall_touches"], 0)
+        self.assertTrue(checks["on_pad"])
+        self.assertIn("disarm", log.events)
+
+    def test_the_coast_dead_reckons_on_px4s_velocity_when_it_has_one(self):
+        # a wildly wrong response model still stitches the frozen frame's jump on PX4's velocity
+        prepared = prep(l_course(), dataclasses.replace(COAST, coast_response_s=3.0))
+        log = fly(prepared.mission, cfg=VehicleSimConfig(dropout_s=(6.0, 7.5), freeze_on_dropout=True))
+        checks = flight_checks(prepared, log.pos)
+        self.assertEqual((len(prepared.mission.stitches), checks["wall_touches"], checks["on_pad"]), (1, 0, True))
+
+    def test_a_coast_longer_than_its_limit_holds_still_by_velocity(self):
+        prepared = prep(l_course(), dataclasses.replace(COAST, coast_max_s=0.5))
+        log = fly(prepared.mission, cfg=VehicleSimConfig(dropout_s=(4.0, 6.0)))
+        self.assertTrue(any("holding still" in r for r in log.reasons), log.reasons)
+        self.assertTrue(flight_checks(prepared, log.pos)["on_pad"])
 
     def test_odometry_dropout_while_landing_never_climbs(self):
         # If the twist stopped, the interface would expire it into its last pose, the pad at

@@ -31,11 +31,15 @@ Parameters:
     state_topic           the kit's state JSON                                 /skybeta/state
     land_detected_topic   PX4's land detector ("" = off, "auto" = resolved)    auto
     attitude_topic        PX4's attitude, for the heading gate ("" = off)      auto
+    px4_odometry_topic    PX4's odometry, read only with coast_max_s > 0: the velocity a coast
+                          dead-reckons on ("" = off: the commanded velocities) auto
     setpoint_pose_out     the kit's pose setpoint topic                        /skybeta/setpoint/pose
     setpoint_twist_out    the kit's twist setpoint topic                       /skybeta/setpoint/twist
     frame_id              header.frame_id of the setpoints                     odom
     rate_hz               setpoint rate                                        20.0
     state_timeout_s       /skybeta/state older than this counts as no Offboard 1.0
+    land_timeout_s        a land-detector reading older than this is unknown   2.0
+                          (PX4 republishes it about once a second unchanged)
     use_window            fly the window (the map needs a reviewed budget too)  false
     <MissionConfig field> any other field of dronehacks_autonomy.mission.MissionConfig
 """
@@ -83,11 +87,13 @@ class MissionNode(Node):
         self.declare_parameter("state_topic", "/skybeta/state")
         self.declare_parameter("land_detected_topic", "auto")
         self.declare_parameter("attitude_topic", "auto")
+        self.declare_parameter("px4_odometry_topic", "auto")
         self.declare_parameter("setpoint_pose_out", "/skybeta/setpoint/pose")
         self.declare_parameter("setpoint_twist_out", "/skybeta/setpoint/twist")
         self.declare_parameter("frame_id", "odom")
         self.declare_parameter("rate_hz", 20.0)
         self.declare_parameter("state_timeout_s", 1.0)
+        self.declare_parameter("land_timeout_s", 2.0)
         self.declare_parameter("use_window", False)
         cfg_fields = [f for f in dataclasses.fields(MissionConfig) if f.name != "rest_height_m"]
         defaults = MissionConfig(rest_height_m=0.0)
@@ -121,12 +127,16 @@ class MissionNode(Node):
         if not (math.isfinite(rate) and rate > 0.0):
             raise ConfigError("rate_hz must be > 0")
         self._state_timeout = float(self._param("state_timeout_s"))
+        self._land_timeout = float(self._param("land_timeout_s"))
+        if not (math.isfinite(self._land_timeout) and self._land_timeout > 0.0):
+            raise ConfigError("land_timeout_s must be > 0")
         self._frame_id = str(self._param("frame_id"))
 
         self._pose: Optional[OdomPose] = None
         self._offboard = False
         self._state_t: Optional[float] = None
         self._landed: Optional[bool] = None
+        self._landed_t: Optional[float] = None
         self._px4_yaw: Optional[float] = None
         self._px4_yaw_t: Optional[float] = None
         self._sent = {"pose": 0, "twist": 0}
@@ -147,6 +157,13 @@ class MissionNode(Node):
         if att_topic:
             from px4_msgs.msg import VehicleAttitude
             self.create_subscription(VehicleAttitude, att_topic, self._on_attitude, BEST_EFFORT)
+        self._px4_velocity = None
+        if self.mission.config.coast_max_s > 0.0:
+            odom_topic = self._fmu_topic("px4_odometry_topic", "vehicle_odometry", "VehicleOdometry")
+            if odom_topic:
+                from px4_msgs.msg import VehicleOdometry
+                self._velocity_frame_ned = VehicleOdometry.VELOCITY_FRAME_NED
+                self.create_subscription(VehicleOdometry, odom_topic, self._on_px4_odometry, BEST_EFFORT)
         self.create_timer(1.0 / rate, self._tick)
         self.create_timer(1.0, self._publish_status)
         plan = self.prepared.plan
@@ -172,7 +189,8 @@ class MissionNode(Node):
     # -- inputs ------------------------------------------------------------------------
 
     def _on_odom(self, msg: Odometry) -> None:
-        self._pose = odom_to_pose(msg)
+        # the arrival time lets the mission see the stream itself stop (pose_gap_s)
+        self._pose = dataclasses.replace(odom_to_pose(msg), received=self._now_s())
 
     def _on_state(self, msg: String) -> None:
         try:
@@ -186,6 +204,14 @@ class MissionNode(Node):
 
     def _on_land(self, msg: Any) -> None:
         self._landed = bool(msg.landed)
+        self._landed_t = self._now_s()
+
+    def _on_px4_odometry(self, msg: Any) -> None:
+        if msg.velocity_frame != self._velocity_frame_ned:
+            return
+        v = body_velocity(msg.q, msg.velocity)
+        if v is not None:
+            self._px4_velocity = (self._now_s(), v[0], v[1])
 
     def _on_attitude(self, msg: Any) -> None:
         w, x, y, z = (float(v) for v in msg.q)        # px4_msgs: q is w, x, y, z (FRD to NED)
@@ -203,7 +229,11 @@ class MissionNode(Node):
         # into the stored pose above, so the drone would climb back up
         # (flight_interface._expire_stale_velocity).
         offboard = self._offboard and (fresh_state or self.mission.started)
-        cmd = self.mission.update(now, offboard, self._pose, self._landed, px4_yaw)
+        # A stopped land detector is unknown, not its last word: a "landed" left over from the launch
+        # must not read as a touchdown on the pad.
+        landed = self._landed if (self._landed_t is not None and now - self._landed_t <= self._land_timeout) else None
+        cmd = self.mission.update(now, offboard, self._pose, landed, px4_yaw,
+                                  px4_velocity=self._px4_velocity)
         if cmd is not None:
             self._publish(cmd)
 
@@ -219,6 +249,19 @@ class MissionNode(Node):
         status = self.mission.status()
         status.update({"offboard": self._offboard, "landed": self._landed, "sent": dict(self._sent)})
         self._status_pub.publish(String(data=json.dumps(status)))
+
+
+def body_velocity(q_wxyz: Any, velocity_ned: Any) -> Optional[tuple]:
+    """PX4's horizontal velocity in the body's heading frame, ``(forward, left)`` m/s, from a
+    ``VehicleOdometry``'s quaternion (``[w, x, y, z]``, FRD to NED) and NED velocity; None if
+    unusable. Only PX4's own heading enters, so PX4's heading reference doesn't matter."""
+    w, x, y, z = (float(v) for v in q_wxyz)
+    yaw = math.atan2(2.0 * (w * z + x * y), 1.0 - 2.0 * (y * y + z * z))
+    vn, ve = float(velocity_ned[0]), float(velocity_ned[1])
+    if not (math.isfinite(vn) and math.isfinite(ve) and math.isfinite(yaw)):
+        return None
+    c, s = math.cos(yaw), math.sin(yaw)
+    return c * vn + s * ve, -(-s * vn + c * ve)
 
 
 def odom_to_pose(msg: Odometry) -> OdomPose:

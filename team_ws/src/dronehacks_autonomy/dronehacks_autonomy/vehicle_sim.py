@@ -76,6 +76,12 @@ class VehicleSimConfig:
     px4_yaw_offset_rad: float = 0.0
     #: Odometry stops arriving between these times (None: never).
     dropout_s: Optional[tuple] = None
+    #: After the dropout, cuVSLAM resumes from where it froze (stereo VO, no IMU fusion): its
+    #: frame has jumped back by the motion it missed. PX4 follows the jump (the bridge bumps
+    #: reset_counter), so its position control runs in the jumped frame too.
+    freeze_on_dropout: bool = False
+    #: Pass PX4's velocity estimate (here: the true velocity) to the mission, as the node does.
+    px4_velocity: bool = True
     #: The pilot takes over (Offboard ends) at this time (None: never).
     pilot_takeover_s: Optional[float] = None
 
@@ -122,6 +128,8 @@ def fly(mission: Mission, limits: VehicleLimits = VehicleLimits(),
     rec = {"t": [], "pos": [], "yaw": [], "state": []}
     reasons: List[str] = []
 
+    frame_jump = np.zeros(2)                     # odom = physical - frame_jump (freeze_on_dropout)
+    frozen_at: Optional[np.ndarray] = None
     steps = int(cfg.timeout_s / cfg.dt_s)
     for k in range(steps + 1):
         now = k * cfg.dt_s
@@ -142,9 +150,17 @@ def fly(mission: Mission, limits: VehicleLimits = VehicleLimits(),
         if k % n_mission == 0:
             history.append((now, p.copy(), v.copy(), yaw))
             dropped = cfg.dropout_s is not None and cfg.dropout_s[0] <= now <= cfg.dropout_s[1]
+            if cfg.freeze_on_dropout and dropped and frozen_at is None:
+                frozen_at = p[:2].copy()
+            if cfg.freeze_on_dropout and not dropped and frozen_at is not None and not frame_jump.any():
+                frame_jump = p[:2] - frozen_at
             pose = None if dropped else _delayed_pose(history, now - cfg.odom_latency_s)
+            if pose is not None and frame_jump.any():
+                pose = dataclasses.replace(pose, x=pose.x - float(frame_jump[0]), y=pose.y - float(frame_jump[1]))
             px4_yaw = wrap(yaw + cfg.px4_yaw_offset_rad)
-            cmd = mission.update(now, offboard, pose, landed, px4_yaw)
+            fwd = (math.cos(yaw) * v[0] + math.sin(yaw) * v[1], -math.sin(yaw) * v[0] + math.cos(yaw) * v[1])
+            cmd = mission.update(now, offboard, pose, landed, px4_yaw,
+                                 px4_velocity=(now, fwd[0], fwd[1]) if cfg.px4_velocity else None)
             if not reasons or reasons[-1] != mission.reason:
                 reasons.append(mission.reason)
             if cmd is not None:
@@ -174,7 +190,7 @@ def fly(mission: Mission, limits: VehicleLimits = VehicleLimits(),
             dt_c = n_px4 * cfg.dt_s
             if armed and offboard and fwd_mode != "none":
                 if fwd_mode == "position":
-                    vxy = limits.kp_pos * (fwd_pos[:2] - p[:2])
+                    vxy = limits.kp_pos * (fwd_pos[:2] - (p[:2] - frame_jump))
                     s = float(np.hypot(*vxy))
                     if s > limits.v_max_mps:
                         vxy *= limits.v_max_mps / s

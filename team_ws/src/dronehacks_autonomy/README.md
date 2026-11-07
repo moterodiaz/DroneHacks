@@ -82,7 +82,8 @@ These can't be tested offline.
   `land: true` in `autonomy_params.yaml`.
 - **The return leg is off by default** (`return_leg: false`). The organisers told the team the drone
   does not disarm on the pad, so it is a touch-and-go: PX4's landed flag triggers an immediate climb,
-  before `COM_DISARM_LAND` (2 s) disarms it. This has only flown offline. Whether PX4 lets a landed
+  before `COM_DISARM_LAND` (2 s) disarms it. Only a fresh flag (`land_timeout_s`) that follows a
+  "not landed" since takeoff counts, so a reading left over from the launch cannot start the climb. This has only flown offline. Whether PX4 lets a landed
   drone climb straight out of Offboard, and how the rangefinder reacts to passing over a wall at
   return height (it gives EKF2 its height), are unknown until tried. Keep `return_height_m` under the
   interface's `max_altitude_m`: it clamps poses instead of refusing them, so a higher value would hover
@@ -92,8 +93,11 @@ These can't be tested offline.
   in the map.
 - **The map is trusted.** Nothing senses walls in flight, so a course laid differently from its
   map needs a re-surveyed map. In the field guide's simulator, 10 cm off touched on 5 of 5 runs.
-- **The tunnel has no vision-loss handling beyond a hold.** A stale pose stops new setpoints, and
-  the interface holds the last one. If tracking is lost PX4 leaves Offboard and it does not return.
+- **By default the tunnel has no vision-loss handling beyond a hold.** A stale pose stops new setpoints,
+  and the interface holds the last one. If tracking is lost PX4 leaves Offboard and it does not return.
+  `coast_max_s` > 0 flies on through the dropout by dead reckoning, then re-anchors the frame. It is off
+  because `contracts/ros-graph.md` blocks tunnel traversal during vision loss until a measured drift
+  bound and a pilot-approved abort procedure exist. So far it has only flown in simulation.
 
 ## Credits
 

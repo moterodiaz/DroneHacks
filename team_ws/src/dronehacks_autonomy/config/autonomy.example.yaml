@@ -30,6 +30,7 @@ mission:
     # contracts/ros-graph.md: the cadence is unvalidated. Measure freshness props-off first.
     rate_hz: 20.0
     state_timeout_s: 1.0
+    land_timeout_s: 2.0              # an older land-detector reading is unknown (PX4 repeats it ~1 Hz)
     # MissionConfig: starting points, none flight-tested.
     start_tolerance_m: 0.15          # prechecks: still on the mark...
     heading_tolerance_deg: 5.0       # ...facing the launch heading...
@@ -43,6 +44,10 @@ mission:
     pose_timeout_s: 0.5
     max_prediction_s: 0.2
     abort_cross_track_m: 0.35        # off the path by more than this: hold and wait for the pilot
+    # Fly on through a vision dropout by dead reckoning, for at most this long. 0.0 = off.
+    # contracts/ros-graph.md blocks tunnel traversal during vision loss until a measured drift bound
+    # and a pilot-approved abort procedure exist. Simulation only until then.
+    coast_max_s: 0.0
     # false: hold over the pad for the pilot, which cannot finish a scored run (any pilot input
     # other than abort ends it). contracts/px4.md blocks the twist descent until the organisers
     # confirm a landing procedure. Set true in autonomy_params.yaml once they have.
@@ -53,4 +58,4 @@ mission:
     return_leg: false
     return_height_m: 2.2             # above the floor; must clear this course's walls (68 in here)
     return_speed_mps: 0.5
-    return_lag_m: 0.5
+    return_lag_m: 0.5                # > 0 with return_leg: with 0 the return never leaves the pad
