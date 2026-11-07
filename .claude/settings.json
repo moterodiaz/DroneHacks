@@ -45,7 +45,7 @@
       "Bash(make claim*)",
       "Bash(make labels*)",
       "Bash(make devlog*)",
-      "Bash(make merge-reviewed N=*)"
+      "Bash(python3 .github/scripts/merge_reviewed.py *)"
     ]
   }
 }

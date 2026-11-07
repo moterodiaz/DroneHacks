@@ -18,6 +18,11 @@ without retries of uncertain same-head writes. Extend the existing CI job,
 not its job count. No flight, organizer or physical-evidence constraint changes.
 Also preserve explicit open issue/PR dependencies in the merge gate and local
 controller, even when the dependency itself has no blocking label.
+Second review follow-up: validate Make entry-point arguments as environment
+data without evaluating shell/Make payloads; grant only the Python merge helper,
+not a blanket Make command. Remove raw `gh api` from reviewer tools, retaining
+read views and the intended review-comment/board operations. Exercise Make
+argument attacks and valid dry-run/execute forwarding in the isolated CI image.
 Same-repository team PRs only; no self-sign-off, force pushes or admin bypass.
 Spending, live flight, deployment and access changes remain manual. All physical
 validation, organizer restrictions, immutable sources and secrets protections

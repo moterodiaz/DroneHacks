@@ -35,14 +35,18 @@ jobs:
           trap 'docker rm -f "$container" >/dev/null 2>&1 || true; rm -rf "$source"' EXIT
           git archive "$PR_HEAD" | tar -x -C "$source"
           chmod 755 "$source"
-          docker pull python:3.12-slim
+          image="review-tests:$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          docker build --tag "$image" - <<'DOCKERFILE'
+          FROM python:3.12-slim
+          RUN apt-get update && apt-get install -y --no-install-recommends make && rm -rf /var/lib/apt/lists/*
+          DOCKERFILE
           timeout --kill-after=10s 180s docker run --rm --name "$container" --network none --read-only \
             --cap-drop ALL --security-opt no-new-privileges \
             --pids-limit 64 --memory 512m --cpus 1 --user 65534:65534 \
             --tmpfs /tmp:rw,noexec,nosuid,size=64m \
             --env PYTHONDONTWRITEBYTECODE=1 \
             --mount "type=bind,source=$source,target=/src,readonly" \
-            --workdir /src python:3.12-slim python3 -I -c '
+            --workdir /src "$image" python3 -I -c '
           import sys, unittest
           suite = unittest.defaultTestLoader.discover("tests")
           if not suite.countTestCases():

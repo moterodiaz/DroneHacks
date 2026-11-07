@@ -1,9 +1,15 @@
 .PHONY: help labels board review-queue claim devlog merge-reviewed
 .DEFAULT_GOAL := help
 
+# Freeze command-line values without evaluating Make expressions. Recipes read
+# them from the environment, never interpolate them into shell source.
+override N := $(value N)
+override EXECUTE := $(value EXECUTE)
+export N EXECUTE
+
 merge-reviewed: ## dry-run guarded merge; EXECUTE=1 enables the final write
-	@test -n "$(N)" || (echo "usage: make merge-reviewed N=<pr-number> [EXECUTE=1]" && exit 1)
-	python3 .github/scripts/merge_reviewed.py "$(N)" $(if $(filter 1,$(EXECUTE)),--execute,)
+	@case "$$N" in ""|*[!0-9]*|0) echo "usage: make merge-reviewed N=<positive-number> [EXECUTE=1]"; exit 2;; esac
+	@case "$$EXECUTE" in ""|0) python3 .github/scripts/merge_reviewed.py "$$N";; 1) python3 .github/scripts/merge_reviewed.py "$$N" --execute;; *) echo "EXECUTE must be 0 or 1"; exit 2;; esac
 
 help: ## list targets
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-16s\033[0m %s\n", $$1, $$2}'

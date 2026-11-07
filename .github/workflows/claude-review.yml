@@ -128,4 +128,4 @@ jobs:
             List any required manual action or missing organizer/physical evidence.
             A green workflow or an old resolved thread is not clean sign-off.
           claude_args: |
-            --allowedTools "Read,Bash(gh api:*),Bash(gh run view:*),Bash(gh pr view:*),Bash(gh pr diff:*),Bash(gh pr comment:*),Bash(gh pr edit:*),Bash(gh issue list:*),Bash(gh issue view:*)"
+            --allowedTools "Read,Bash(gh run view:*),Bash(gh pr view:*),Bash(gh pr diff:*),Bash(gh pr comment:*),Bash(gh pr edit:*),Bash(gh issue list:*),Bash(gh issue view:*)"

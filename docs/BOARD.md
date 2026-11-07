@@ -86,6 +86,11 @@ Real areas and per-area owners replace these generic rows as code lands — add 
    reconciliation, never blind retry. GitHub atomically guards the head SHA,
    but offers no base-SHA merge precondition; a final base read is not a lock.
    No admin bypass, direct main push, self-sign-off or branch deletion.
+   Claude's automatic command permission is scoped to
+   `python3 .github/scripts/merge_reviewed.py <n> [--execute]`, not arbitrary
+   Make invocations. The Make alias validates its environment arguments without
+   evaluating Make or shell expressions. Reviewer tools expose read views and
+   intended comment/board writes, not general-purpose raw API writes.
 
    For a stopped intent, run `python3 .github/scripts/merge_reviewed.py <n>
    --reconcile` from the trusted checkout. This never sends a merge request.

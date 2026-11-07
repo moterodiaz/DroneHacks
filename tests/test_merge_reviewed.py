@@ -4,8 +4,10 @@ import copy
 import importlib.util
 import io
 import json
+import os
 from pathlib import Path
 import tempfile
+import subprocess
 import unittest
 from unittest.mock import patch
 import zipfile
@@ -40,6 +42,54 @@ class GateTests(unittest.TestCase):
         mock = patch.object(gate, "command", return_value=self.binding_log)
         self.command = mock.start()
         self.addCleanup(mock.stop)
+
+    def test_merge_make_target_treats_arguments_as_data(self):
+        for attack in ["shell", "make", "backtick"]:
+            with self.subTest(attack=attack), tempfile.TemporaryDirectory() as d:
+                root = Path(d)
+                marker = root / "injected"
+                payload = {
+                    "shell": f'1"; touch "{marker}"; #',
+                    "make": f"$(shell touch {marker})",
+                    "backtick": f"`touch {marker}`",
+                }[attack]
+                (root / "Makefile").write_bytes((PATH.parents[2] / "Makefile").read_bytes())
+                helper = root / ".github/scripts/merge_reviewed.py"
+                helper.parent.mkdir(parents=True)
+                helper.write_text("import json,sys\nfrom pathlib import Path\n"
+                    "Path(__file__).resolve().parents[2].joinpath('called.json')"
+                    ".write_text(json.dumps(sys.argv[1:]))\n")
+                env = {"PATH": os.environ["PATH"], "HOME": d}
+                result = subprocess.run(["make", "--no-print-directory", "-C", d,
+                    "merge-reviewed", f"N={payload}"], env=env, capture_output=True,
+                    text=True, timeout=10)
+                self.assertFalse(marker.exists(), result.stdout + result.stderr)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertFalse((root / "called.json").exists())
+                for execute in [False, True]:
+                    args = ["make", "--no-print-directory", "-C", d,
+                            "merge-reviewed", "N=42"]
+                    if execute:
+                        args.append("EXECUTE=1")
+                    result = subprocess.run(args, env=env, capture_output=True,
+                                            text=True, timeout=10)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertEqual(json.loads((root / "called.json").read_text()),
+                                     ["42", "--execute"] if execute else ["42"])
+                (root / "called.json").unlink()
+                result = subprocess.run(["make", "--no-print-directory", "-C", d,
+                    "merge-reviewed", "N=42", f"EXECUTE={payload}"], env=env,
+                    capture_output=True, text=True, timeout=10)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertFalse(marker.exists())
+                self.assertFalse((root / "called.json").exists())
+
+    def test_reviewer_and_merge_permissions_are_narrow(self):
+        root = PATH.parents[2]
+        settings = json.loads((root / ".claude/settings.json").read_text())
+        self.assertNotIn("Bash(make merge-reviewed N=*)", settings["permissions"]["allow"])
+        workflow = (root / gate.WORKFLOW).read_text().split("\n  mention:", 1)[1]
+        self.assertNotIn("Bash(gh api:*)", workflow)
 
     def test_valid_team_pr(self):
         self.assertEqual(gate.validate(snapshot(), 42), (HEAD, BASE))
