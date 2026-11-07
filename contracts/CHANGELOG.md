@@ -16,6 +16,8 @@ pre-model log, and require independently executed exact-head/base sandboxed CI
 tests rather than copied author results. Add explicit intent reconciliation
 without retries of uncertain same-head writes. Extend the existing CI job,
 not its job count. No flight, organizer or physical-evidence constraint changes.
+Also preserve explicit open issue/PR dependencies in the merge gate and local
+controller, even when the dependency itself has no blocking label.
 Same-repository team PRs only; no self-sign-off, force pushes or admin bypass.
 Spending, live flight, deployment and access changes remain manual. All physical
 validation, organizer restrictions, immutable sources and secrets protections

@@ -134,8 +134,14 @@ def validate(snapshot, number):
                         rf"\bblocks\s+#{number}(?![0-9])", re.I)
     texts = [p["body"] or ""] + [c["body"] or "" for c in snapshot["comments"]]
     for issue in snapshot["issues"]:
-        if "pull_request" in issue:
+        if issue["number"] == number:
             continue
+        blocked_by = re.compile(
+            rf"\bblocked[\s-]+by\s+(?:#{issue['number']}|"
+            rf"https://github\.com/{re.escape(REPO)}/(?:issues|pull)/"
+            rf"{issue['number']})(?![0-9])", re.I)
+        require(not any(blocked_by.search(text) for text in texts),
+                f"Explicit open dependency #{issue['number']}")
         issue_labels = {v["name"] for v in issue["labels"]}
         relation = bool(linked.search(issue["title"] + "\n" + (issue["body"] or "")))
         explicit = re.compile(

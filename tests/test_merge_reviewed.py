@@ -106,6 +106,15 @@ class GateTests(unittest.TestCase):
             with self.subTest(body=body), self.assertRaises(RuntimeError):
                 gate.validate(s, 42)
 
+    def test_explicit_blocking_pr_is_not_skipped(self):
+        for labels in [[], [{"name": "blocked"}]]:
+            s = snapshot()
+            s["pr"]["body"] = "Blocked by #7"
+            s["issues"] = [{"number": 7, "title": "infra: dependency", "body": "",
+                            "pull_request": {"url": "example"}, "labels": labels}]
+            with self.subTest(labels=labels), self.assertRaises(RuntimeError):
+                gate.validate(s, 42)
+
     def test_missing_and_spoofed_review(self):
         for login, kind in [("claude", "User"), ("attacker", "Bot")]:
             s = snapshot()
