@@ -53,6 +53,30 @@ class ExactClearanceTest(unittest.TestCase):
         self.assertAlmostEqual(at[0], 0.0, places=9)
         self.assertLess(margin, 0)
 
+    def test_collinear_and_degenerate_segments_are_exact(self):
+        # On one line, a leg that doesn't overlap the wall is measured by its gap,
+        # not reported as crossing (review of #24 at f644ace, clearance.py:145).
+        cmap = make_map([((0, 3), (2, 3)), ((5, -2), (5, -2))], [pad((0, 0))], thickness=0.2)
+        field = make_field(cmap)
+        cases = {
+            ((4, 3), (6, 3)): 2.0 - 0.1,       # collinear, 2 m past the wall's end
+            ((-3, 3), (-1, 3)): 1.0 - 0.1,     # collinear, 1 m before its start
+            ((1, 3), (6, 3)): -0.1,            # collinear and overlapping: inside
+            ((2, 3), (4, 3)): -0.1,            # collinear, touching at an end
+            ((4, 3), (4, 3)): 2.0 - 0.1,       # a zero-length leg on the wall's line
+            ((1, 3), (1, 3)): -0.1,            # a zero-length leg on the wall
+            ((1, 2), (1, 4)): -0.1,            # a proper crossing
+            ((2, 2), (2, 4)): -0.1,            # crossing through the wall's end point
+            ((5, 0), (5, 1)): 2.0 - 0.1,       # in line with a post, past it
+            ((5, -3), (5, -1)): -0.1,          # through the post
+        }
+        for (a, b), want in cases.items():
+            surface, margin, _ = field.segment_query(a, b)
+            s, _ = field.query(sample_segment(a, b, 0.0005))
+            self.assertAlmostEqual(surface, want, places=9, msg=f"{a} -> {b}")
+            self.assertAlmostEqual(surface, s.min(), delta=1e-3, msg=f"{a} -> {b}")
+            self.assertAlmostEqual(margin, surface - PC.inscribed_radius_m, places=9)
+
     def test_conservative_bound_catches_what_samples_miss(self):
         # A thin post between two samples 0.3 m apart: both samples look clear.
         cmap = make_map([((0, 0), (0, 0))], [pad((2, 0))], thickness=0.0)
