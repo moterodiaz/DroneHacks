@@ -34,6 +34,8 @@ class SquareTest(Node):
         self.landed = None
         self.armed = None
         self.last_status = None
+        self.finished = False        # main() exits on it; the launch then closes the recording
+        self.end_t = None
 
         self.pose_pub = self.create_publisher(PoseStamped, '/skybeta/setpoint/pose', 10)
         self.twist_pub = self.create_publisher(TwistStamped, '/skybeta/setpoint/twist', 10)
@@ -95,13 +97,22 @@ class SquareTest(Node):
             self.get_logger().info(status)
             self.last_status = status
         self.status_pub.publish(String(data=status))
+        # Done once the mission is over and PX4 has disarmed; exit 5 s later so the recording
+        # keeps the touchdown, then the launch file stops the bag cleanly.
+        if self.mission.state in ('DONE', 'STOPPED') and self.armed is False:
+            if self.end_t is None:
+                self.end_t = self.now()
+                self.get_logger().info('mission over and disarmed: exiting in 5 s')
+            elif self.now() - self.end_t >= 5.0:
+                self.finished = True
 
 
 def main(args=None):
     rclpy.init(args=args)
     node = SquareTest()
     try:
-        rclpy.spin(node)
+        while rclpy.ok() and not node.finished:
+            rclpy.spin_once(node, timeout_sec=0.1)
     except KeyboardInterrupt:
         pass
     finally:
