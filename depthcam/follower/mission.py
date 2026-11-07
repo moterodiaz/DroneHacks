@@ -48,6 +48,15 @@ up the route and goes to ``LAND_HERE``. That is a straight-down velocity descent
 pose. Under the forbidden policy ``aligned`` is always true: without the lidar, a frame break
 can't be seen.
 
+A stale pose gets the same treatment, before ``aligned`` can say anything: past ``PRECHECK``,
+when no pose fresher than ``pose_timeout_s`` has arrived (a cuVSLAM gap longer than the kit's
+tolerance), ``TAKEOFF``, ``FOLLOW`` and ``HOLD`` send the zero velocity setpoint instead of
+silence. Silence would leave the interface holding the last pose setpoint, which was corrected
+in the pre-break odom frame: flying to that number after cuVSLAM re-initialises is exactly the
+failure the hold exists for. ``LAND`` and ``LANDED`` keep descending straight down (``_land_here``),
+which needs no pose. Before Offboard and in ``PRECHECK`` a stale pose still means silence, so
+the kit cannot be fooled into Offboard on a resent setpoint.
+
 Following
 ---------
 * **The heading is held:** the route's one planned heading, all the way (``Route.yaw``). The
@@ -210,10 +219,13 @@ class Follower:
         if self.state == LAND_HERE:                     # straight down: it needs no pose
             return self._land_here(t, landed)
         if pose is None or t - pose.t > self.config.pose_timeout_s:
-            self.reason = "no fresh pose: holding (sending nothing)"
+            self.reason = "no fresh pose: holding still"
             if self.state == PRECHECK:
                 return self._precheck_timeout(t, "no fresh pose")
-            return None                                 # the interface holds the last pose; twists expire to a hold
+            if self.state in (LAND, LANDED):
+                return self._land_here(t, landed)       # descending needs no pose; the horizontal one can't be trusted
+            return Command("twist")                     # zero twist: correction-independent, so the Offboard stream
+            # stays live and no stale-corrected pose setpoint is left with the interface to hold
         if self.state in REALIGN_STATES and self.config.require_ready and not aligned:
             return self._realign(t)
         if self._realign_since is not None:

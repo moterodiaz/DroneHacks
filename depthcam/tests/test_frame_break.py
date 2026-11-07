@@ -202,6 +202,29 @@ def test_a_break_with_the_lidar_gone_lands_where_it_is():
     assert all(c.kind == "twist" and c.vx == 0.0 and c.vy == 0.0 and c.vz < 0.0 for c in landing)
 
 
+def test_a_pose_gap_past_the_timeout_holds_by_zero_twist_not_silence():
+    """The regression for the stale-pose defect: a gap LONGER than pose_timeout_s (0.8 s vs the
+    0.5 s timeout) mid-route. While the pose is stale the commanded setpoint must be a zero twist
+    (not silence, which the interface answers by holding the last, pre-break-corrected pose
+    setpoint), the drone stays within the planner's margin, and the flight resumes once VO is
+    back and the fusion has realigned."""
+    log, follower, fusion = fly(hold=True, gap_s=0.8)
+    route = fixture_route()
+    # a zero twist while still aligned is exactly the stale-pose hold: the realign hold only runs
+    # once aligned is false, and LAND/LAND_HERE descend with vz < 0
+    stale = [t for t, s, _, c, a in log if s in (FOLLOW, HOLD) and c is not None and is_still(c) and a]
+    assert stale and max(stale) - min(stale) > 0.25, "the stale window never held by zero twist"
+    assert all(c is not None for _, s, _, c, _ in log if s in (FOLLOW, HOLD)), \
+        "a stale pose past the timeout sent nothing in flight"
+    assert all(not (is_still(c) and c.kind == "pose") for _, s, _, c, _ in log if s in (FOLLOW, HOLD))
+    worst = worst_off_path(log, route)
+    assert worst < route.margin_m, "left the path by {:.3f} m (margin {:.3})".format(worst, route.margin_m)
+    assert follower.realigns >= 1 and fusion.stats.vo_gaps == 1 and fusion.stats.reacquired == 1
+    final = log[-1][2]
+    assert log[-1][1] == LANDED                     # the flight resumed and finished on the pad
+    assert math.hypot(final.x - route.goal[0], final.y - route.goal[1]) < 0.06
+
+
 # ---------------------------------------------------------------------------------------------- pose_fusion.aligned
 
 def test_aligned_through_normal_lidar_updates_and_false_after_a_gap():
