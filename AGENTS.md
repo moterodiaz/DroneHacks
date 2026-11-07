@@ -57,6 +57,14 @@ ROS 2 Humble / Python nodes on the Jetson, PX4 v1.16.1. See `contracts/px4.md` f
 
 Run `python3 -m unittest discover -s tests -p 'test_merge_reviewed.py'` for the merge gate. Run all relevant tests and project checks at the exact PR head and record commands and outcomes in independent review. Missing tests or physical evidence is not a passing result. CI's contracts guard remains required when contracts change.
 
+Core navigation math (`core/`, covered by `tests/test_core.py`): from the repo root run
+
+```
+.venv/bin/python -m pytest tests/test_core.py
+```
+
+(a Python 3.9 / NumPy 1.26 venv in `.venv/`; the same suite is also verified on Python 3.14 / NumPy 2.5 — NumPy 2 removed 2-D `np.cross`, so `core/` must not rely on it). PRs are additionally validated by review against docs/BOARD.md and AGENTS.md §3.
+
 ## §6 Parallel work
 
 Use isolated git worktrees for parallel implementers. Assign explicit non-overlapping file lists. The designated correction agent may ordinarily push verified fixes to existing same-repository team PR branches (maintainer and the team in §1), never forks. Recheck authenticated identity, remote repository, head, labels and blockers immediately before commit and push; stop on races. Never force-push or overwrite contributor work. A reviewer who did not write the diff must independently check it per docs/BOARD.md.
