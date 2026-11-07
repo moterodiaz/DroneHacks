@@ -2,7 +2,7 @@
 
 Reasoning and background: `docs/field-guide.html` §kit and §build. This file
 is the normative statement; where they disagree, this file wins
-(AGENTS.md §3.1). See also AGENTS.md §3.6.
+(AGENTS.md §3.1). See also AGENTS.md §3.8.
 
 ## Writable parameter allowlist
 

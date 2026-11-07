@@ -2,6 +2,23 @@
 
 Newest entries first. One entry per contract-affecting change, linking the PR.
 
+## 2026-11-07 — reconcile instruction identifiers without merging (PR #5, decision #19)
+
+Maintainer approved the docs-only integration correction in
+[decision #19](https://github.com/moterodiaz/DroneHacks/issues/19). Preserve
+main's drone-1 isolation, immutable-snapshot boundary and Acro prohibition
+(invariant 6), including its reserved invariant 7. Retain this PR's existing
+parameter allowlist and map-only geometry constraints unchanged as invariants
+8 and 9; update all four contract citations.
+
+This reconciles the sole conflicting path, `AGENTS.md`, with the instructions
+already on main. No safety constraint, parameter value, firmware pin, runtime,
+snapshot or workflow changes. No merge commit, rebase or history rewrite.
+The source catalog remains the evidence path when a branch omits the snapshot.
+Affected owner: @moterodiaz (contracts, course, localization and navigation).
+The new head still requires fresh independent review and board/thread
+reconciliation; this decision is not merge or flight acceptance.
+
 ## 2026-11-07 — make remaining review evidence and clearance semantics explicit (PR #5)
 
 Follow-up to the current-head review: record immutable organizer-source links

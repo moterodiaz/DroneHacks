@@ -37,7 +37,7 @@ the tracker makes a run safe.
 Consumes `contracts/course.md`'s map-file format, not typed coordinates.
 A* on a 5 cm grid, Nav2 inflation cost, impassable within 0.32 m of a wall.
 Goals, in order, come from the map: tunnel middle, window, pad. This is
-rule 9.5's generality requirement; see AGENTS.md §3.7.
+rule 9.5's generality requirement; see AGENTS.md §3.9.
 
 ## Follower (planned) — supplied interface only
 

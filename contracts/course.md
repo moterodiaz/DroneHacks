@@ -49,7 +49,7 @@ the course model above, sliced at 0.8 m (flight height) into wall segments,
 plus the net and boulder footprints. The planner must read this map and
 derive goals (tunnel middle, window, pad) from it — never from typed
 coordinates. This is rule 9.5's generality requirement
-(`organisers`) made concrete; see also AGENTS.md §3.7.
+(`organisers`) made concrete; see also AGENTS.md §3.9.
 
 ### Schema (YAML)
 
@@ -72,7 +72,7 @@ goals:                          # planner derives waypoints from these; no typed
 
 A map missing any of `tunnel`, `window`, or `pad` is a **hard parse error** —
 the planner must refuse to run, never substitute a default coordinate
-(AGENTS.md §3.7). `launch` is required too, but only as the path origin and
+(AGENTS.md §3.9). `launch` is required too, but only as the path origin and
 yaw reference, not a routed waypoint.
 
 ### Required `params` by goal name
