@@ -3,7 +3,7 @@ import math
 import numpy as np
 import pytest
 
-from core.costmap import LETHAL_CLEARANCE, build_costmap
+from core.costmap import LETHAL_CLEARANCE, build_costmap, obstacle_clearance
 from core.frames import course_to_odom, enu_to_ned, flu_to_frd, odom_to_course
 from core.planner import plan_route
 from core.trajectory import V_MAX, build_trajectory
@@ -129,3 +129,104 @@ def test_trajectory_sampling_speed_and_tunnel_yaw():
     assert trajectory.yaw_at(tunnel_s) == pytest.approx(math.atan2(axis[1], axis[0]))
     assert trajectory.position_at(0) == pytest.approx(route[0])
     assert trajectory.position_at(trajectory.length) == pytest.approx(route[-1])
+
+
+def test_full_stack_integration_with_real_obstacle_clearance():
+    course = synthetic_map()
+    route = plan_route(course, build_costmap(course))
+    trajectory = build_trajectory(route, course, clearance_at=lambda p: obstacle_clearance(p, course))
+    assert np.all(trajectory.corner_radii >= 0.20)
+    assert np.all(trajectory.corner_radii <= 0.35)
+    # The portal-aware clearance at the window opening reflects the free opening.
+    window_centre = np.asarray(course["goals"][2]["centre"], dtype=float)
+    assert obstacle_clearance(window_centre, course) >= LETHAL_CLEARANCE
+    # Every sampled trajectory point keeps the lethal 0.32 m clearance.
+    for point in trajectory.points:
+        assert obstacle_clearance(point, course) >= LETHAL_CLEARANCE - 1e-6
+
+
+def test_collinear_interior_waypoint_passes_without_fillet_gate():
+    course = synthetic_map()
+    # A straight interior waypoint would fail the old unconditional clearance gate.
+    trajectory = build_trajectory([(0.0, 0.0), (1.0, 0.0), (2.0, 0.0)], course, clearance_at=lambda _: 0.001)
+    assert len(trajectory.corner_radii) == 0
+    assert trajectory.position_at(trajectory.length) == pytest.approx((2.0, 0.0))
+
+
+def test_infeasible_geometry_fails_closed():
+    course = synthetic_map()
+    # Legs too short for any fillet radius in the allowed band at a 90-degree turn.
+    with pytest.raises(ValueError, match="fillet"):
+        build_trajectory([(0.0, 0.0), (0.05, 0.0), (0.05, 0.05)], course, clearance_at=lambda _: 0.70)
+    # A turning corner with less clearance than the 0.20 m minimum fillet.
+    with pytest.raises(ValueError, match="clearance"):
+        build_trajectory([(0.0, 0.0), (1.0, 0.0), (1.0, 1.0)], course, clearance_at=lambda _: 0.40)
+
+
+def test_short_leg_turn_clamps_radius_into_band():
+    course = synthetic_map()
+    # 0.35 m tangent points exceed the 0.6 m legs; the radius clamps to fit instead of raising.
+    trajectory = build_trajectory([(0.0, 0.0), (0.6, 0.0), (0.6, 0.6)], course, clearance_at=lambda _: 0.70)
+    assert len(trajectory.corner_radii) == 1
+    radius = float(trajectory.corner_radii[0])
+    assert 0.20 <= radius <= 0.35
+    assert radius * math.tan(math.pi / 4) <= 0.6 / 2 + 1e-9
+
+
+def _turning_waypoints(route):
+    for i in range(1, len(route) - 1):
+        incoming = route[i] - route[i - 1]
+        outgoing = route[i + 1] - route[i]
+        cross = incoming[0] * outgoing[1] - incoming[1] * outgoing[0]
+        cosine = float(np.clip((incoming @ outgoing) / (np.linalg.norm(incoming) * np.linalg.norm(outgoing)), -1.0, 1.0))
+        if abs(cross) > 1e-8 and math.acos(cosine) > 1e-5:
+            yield i
+
+
+def _feasible_speed_step(v_lo, ds, a_lat=1.5):
+    return math.sqrt(v_lo**2 + 2.0 * a_lat * ds) - v_lo
+
+
+def test_velocity_continuous_across_corner_boundaries():
+    course = synthetic_map()
+    route = plan_route(course, build_costmap(course))
+    trajectory = build_trajectory(route, course, clearance_at=lambda p: obstacle_clearance(p, course))
+    # Globally: no adjacent sample pair jumps more than an a_lat-feasible step.
+    for i in range(len(trajectory.speed) - 1):
+        step = trajectory.s[i + 1] - trajectory.s[i]
+        lo = min(trajectory.speed[i], trajectory.speed[i + 1])
+        assert abs(trajectory.speed[i + 1] - trajectory.speed[i]) <= _feasible_speed_step(lo, step) + 1e-9
+    # Locally: velocity_at is continuous at +-1e-4 and +-1e-6 around each corner band edge.
+    turning = list(_turning_waypoints(route))
+    assert len(turning) == len(trajectory.corner_radii)
+    for k, i in enumerate(turning):
+        vertex_s = trajectory.s[int(np.argmin(np.linalg.norm(trajectory.points - route[i], axis=1)))]
+        radius = float(trajectory.corner_radii[k])
+        for boundary in (vertex_s - radius, vertex_s, vertex_s + radius):
+            for delta in (1e-4, 1e-6):
+                v_before = float(np.linalg.norm(trajectory.velocity_at(boundary - delta)))
+                v_after = float(np.linalg.norm(trajectory.velocity_at(boundary + delta)))
+                lo = min(v_before, v_after)
+                assert abs(v_after - v_before) <= _feasible_speed_step(lo, 0.02) + 1e-9
+
+
+def test_time_profile_respects_caller_bounds():
+    course = synthetic_map()
+    route = plan_route(course, build_costmap(course))
+    trajectory = build_trajectory(route, course, clearance_at=lambda p: obstacle_clearance(p, course))
+    a_lon, jerk_max = 0.6, 1.2
+    t, s, v = trajectory.build_time_profile(a_lon, jerk_max)
+    assert t[0] == 0.0 and s[0] == 0.0 and v[0] == 0.0  # start from rest
+    assert np.all(np.diff(t) > 0)
+    assert np.all(np.diff(s) >= 0)
+    assert s[-1] >= trajectory.length - 2e-3
+    assert np.max(v) <= V_MAX + 5e-3
+    assert v[-1] <= 0.05  # ends at rest
+    accel = np.diff(v) / np.diff(t)
+    assert np.max(np.abs(accel)) <= a_lon + 1e-6
+    jerk = np.diff(accel) / np.diff(t)[:-1]
+    assert np.max(np.abs(jerk)) <= jerk_max + 1e-6
+    with pytest.raises(ValueError):
+        trajectory.build_time_profile(0.0, 1.0)
+    with pytest.raises(ValueError):
+        trajectory.build_time_profile(0.5, 0.0)

@@ -46,6 +46,11 @@ def _finite_pair(value, label):
     return a
 
 
+def _cross2(a, b) -> float:
+    """Portable 2-D scalar cross product (NumPy 2 removed 2-D ``np.cross``)."""
+    return float(a[0] * b[1] - a[1] * b[0])
+
+
 def _point_segment_distance(points, start, end):
     delta = end - start
     length2 = float(delta @ delta)
@@ -82,7 +87,7 @@ def _validated_window(course_map, segments):
     # Both the wall and traversal lines must pass through the declared opening centre.
     if _point_segment_distance(centre[None, :], wall0, wall1)[0] > 1e-6:
         raise ValueError("window centre is not on its referenced wall")
-    cross = abs(np.cross(axis, centre - a0)) / np.linalg.norm(axis)
+    cross = abs(_cross2(axis, centre - a0)) / np.linalg.norm(axis)
     if cross > 1e-6:
         raise ValueError("window axis does not cross its centre")
     slice_height = float(course_map.get("slice_height", math.nan))
@@ -91,9 +96,7 @@ def _validated_window(course_map, segments):
     return index, centre, float(params["side"]), float(params["clearance_radius"]), wall / np.linalg.norm(wall)
 
 
-def build_costmap(course_map: dict) -> Costmap:
-    """Parse and rasterize a contracted course map."""
-    origin = _finite_pair(course_map.get("origin"), "origin")
+def _segments_of(course_map):
     segments = []
     for i, segment in enumerate(course_map.get("segments", [])):
         start = _finite_pair(segment.get("start"), f"segment {i} start")
@@ -102,6 +105,13 @@ def build_costmap(course_map: dict) -> Costmap:
         if not np.isfinite(thickness) or thickness <= 0:
             raise ValueError(f"segment {i} thickness must be positive")
         segments.append((start, end, thickness))
+    return segments
+
+
+def build_costmap(course_map: dict) -> Costmap:
+    """Parse and rasterize a contracted course map."""
+    origin = _finite_pair(course_map.get("origin"), "origin")
+    segments = _segments_of(course_map)
     window_index, window_centre, window_side, clearance_radius, wall_unit = _validated_window(course_map, segments)
     # clearance_radius is a reviewed robot-centre exclusion radius. It must fit the portal.
     if clearance_radius >= window_side / 2:
@@ -139,11 +149,21 @@ def build_costmap(course_map: dict) -> Costmap:
 
 
 def obstacle_clearance(point, course_map: dict) -> float:
-    """Return distance from a point to the nearest wall/boulder surface."""
-    p = _finite_pair(point, "point")[None, :]
+    """Return distance from a point to the nearest wall/boulder surface.
+
+    Portal-aware, with the same cut-out semantics as :func:`build_costmap`:
+    inside the window's opening strip the containing wall is absent, so the
+    clearance at the window opening reflects the free opening rather than the
+    wall that holds it.
+    """
+    segments = _segments_of(course_map)
+    window_index, window_centre, window_side, clearance_radius, wall_unit = _validated_window(course_map, segments)
+    p = _finite_pair(point, "point")
     distances = []
-    for segment in course_map.get("segments", []):
-        distances.append(float(_point_segment_distance(p, _finite_pair(segment["start"], "start"), _finite_pair(segment["end"], "end"))[0] - float(segment.get("thickness", 0.102)) / 2))
+    for i, (start, end, thickness) in enumerate(segments):
+        if i == window_index and abs(float((p - window_centre) @ wall_unit)) <= window_side / 2 - clearance_radius:
+            continue  # window portal cut-out, identical to build_costmap
+        distances.append(float(_point_segment_distance(p[None, :], start, end)[0]) - thickness / 2)
     for boulder in course_map.get("boulders", []):
-        distances.append(float(np.linalg.norm(p[0] - _finite_pair(boulder["centre"], "centre")) - float(boulder["radius"])))
+        distances.append(float(np.linalg.norm(p - _finite_pair(boulder["centre"], "centre")) - float(boulder["radius"])))
     return min(distances, default=math.inf)
