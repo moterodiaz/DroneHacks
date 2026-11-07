@@ -1,10 +1,16 @@
 """Run the production grid walk in the existing dependency-free CI suite."""
 
+import importlib.util
 import itertools
 import math
+from pathlib import Path
 import unittest
 
-from core.grid import crossed_cells
+PATH = Path(__file__).resolve().parents[1] / "core/grid.py"
+spec = importlib.util.spec_from_file_location("grid", PATH)
+grid = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(grid)
+crossed_cells = grid.crossed_cells
 
 
 class GridWalkTests(unittest.TestCase):
