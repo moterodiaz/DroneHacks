@@ -6,7 +6,9 @@ Trajectories are synthetic. The launch marks below are made-up fixtures, not cou
 
 from __future__ import annotations
 
+import ast
 import math
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Callable, List, Optional, Tuple
 
@@ -428,3 +430,25 @@ def test_odometry_round_trip():
     fill_pose(target, apply_correction(sample, IDENTITY))
     assert (target.position.x, target.position.y, target.position.z) == (1.0, 2.0, 0.7)
     assert (target.orientation.z, target.orientation.w) == pytest.approx((q[2], q[3]))
+
+
+def test_every_node_class_defines_the_required_param_helpers_it_calls():
+    """Greptile P1 regression (review of e34b188): FollowerNode and PoseFusionNode called
+    ``self._required_float()``, a helper only LidarLocalizerNode defined, so both flight
+    nodes died at startup with AttributeError and no mission could start. The ROS-node
+    tests need rclpy, so this pins the wiring by reading the node sources instead."""
+    nodes_dir = Path(__file__).resolve().parent.parent / "dronehacks_lidar"
+    sources = sorted(nodes_dir.glob("*_node.py"))
+    assert len(sources) >= 3, "expected the follower, pose-fusion and lidar-localiser node modules"
+    for source in sources:
+        for cls in (n for n in ast.parse(source.read_text()).body if isinstance(n, ast.ClassDef)):
+            defined = {fn.name for fn in cls.body if isinstance(fn, ast.FunctionDef)}
+            called = {
+                node.attr
+                for fn in cls.body if isinstance(fn, ast.FunctionDef)
+                for node in ast.walk(fn)
+                if isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name)
+                and node.value.id == "self" and node.attr.startswith("_required")
+            }
+            assert called <= defined, "{}.{}: undefined required-param helper(s): {}".format(
+                source.name, cls.name, sorted(called - defined))

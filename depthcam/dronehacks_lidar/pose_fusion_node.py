@@ -228,6 +228,12 @@ class PoseFusionNode(Node):
             raise ConfigError("parameter {} is required (it has no default)".format(name))
         return value
 
+    def _required_float(self, name: str) -> float:
+        value = self._param(name)
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(float(value)):
+            raise ConfigError("parameter {} is required: measure it (it has no default)".format(name))
+        return float(value)
+
     # ------------------------------------------------------------------ the drone's pose
 
     def _publish_flags(self) -> None:

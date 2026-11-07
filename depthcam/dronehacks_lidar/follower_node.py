@@ -194,6 +194,12 @@ class FollowerNode(Node):
             raise ConfigError("parameter {} is required (it has no default)".format(name))
         return value
 
+    def _required_float(self, name: str) -> float:
+        value = self._param(name)
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(float(value)):
+            raise ConfigError("parameter {} is required: measure it (it has no default)".format(name))
+        return float(value)
+
     def _now_s(self) -> float:
         return self.get_clock().now().nanoseconds * 1e-9
 
