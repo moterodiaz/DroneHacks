@@ -79,6 +79,8 @@ class VehicleSimConfig:
     #: frame has jumped back by the motion it missed. PX4 follows the jump (the bridge bumps
     #: reset_counter), so its position control runs in the jumped frame too.
     freeze_on_dropout: bool = False
+    #: Pass PX4's velocity estimate (here: the true velocity) to the mission, as the node does.
+    px4_velocity: bool = True
     #: The pilot takes over (Offboard ends) at this time (None: never).
     pilot_takeover_s: Optional[float] = None
 
@@ -154,7 +156,9 @@ def fly(mission: Mission, limits: VehicleLimits = VehicleLimits(),
             if pose is not None and frame_jump.any():
                 pose = dataclasses.replace(pose, x=pose.x - float(frame_jump[0]), y=pose.y - float(frame_jump[1]))
             px4_yaw = wrap(yaw + cfg.px4_yaw_offset_rad)
-            cmd = mission.update(now, offboard, pose, landed, px4_yaw)
+            fwd = (math.cos(yaw) * v[0] + math.sin(yaw) * v[1], -math.sin(yaw) * v[0] + math.cos(yaw) * v[1])
+            cmd = mission.update(now, offboard, pose, landed, px4_yaw,
+                                 px4_velocity=(now, fwd[0], fwd[1]) if cfg.px4_velocity else None)
             if not reasons or reasons[-1] != mission.reason:
                 reasons.append(mission.reason)
             if cmd is not None:

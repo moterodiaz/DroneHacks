@@ -248,6 +248,18 @@ class WholeFlightTest(unittest.TestCase):
         self.assertTrue(checks["on_pad"])
         self.assertIn("disarm", log.events)
 
+    def test_the_coast_dead_reckons_on_px4s_velocity_when_it_has_one(self):
+        # a wildly wrong response model still stitches the frozen frame's jump on PX4's velocity
+        errors = {}
+        for px4 in (False, True):
+            cfg = dataclasses.replace(CONFIG, coast_response_s=3.0)
+            prepared = prep(l_course(), cfg)
+            log = fly(prepared.mission, cfg=VehicleSimConfig(dropout_s=(6.0, 7.5), freeze_on_dropout=True,
+                                                            px4_velocity=px4))
+            checks = flight_checks(prepared, log.pos)
+            errors[px4] = (len(prepared.mission.stitches), checks["wall_touches"], checks["on_pad"])
+        self.assertEqual(errors[True], (1, 0, True), errors)
+
     def test_odometry_dropout_while_landing_never_climbs(self):
         # If the twist stopped, the interface would expire it into its last pose, the pad at
         # flight height, and the drone would climb (review of #26 at a616fdf, mission.py:187-189).

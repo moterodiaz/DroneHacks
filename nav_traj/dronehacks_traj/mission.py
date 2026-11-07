@@ -52,9 +52,11 @@ Added for safety:
   invalid: Offboard ends and PX4 falls back to Altitude, which sinks with the
   throttle low (competitor_guide.md section 4). Stopping in the dark
   guarantees that. So the mission flies on along the trajectory for up to
-  ``coast_max_s``: a dead reckoning (the last odometry, then the velocities
-  commanded since, each reached with a ``coast_response_s`` lag) stands in
-  for the pose, the Follower keeps running on it (its reference clock,
+  ``coast_max_s``: a dead reckoning (the last odometry, then PX4's own
+  velocity estimate, which EKF2 dead-reckons on the IMU; the node passes it
+  in the body's heading frame, so no frame relation is needed. Without a
+  fresh one, the velocities commanded since, each reached with a
+  ``coast_response_s`` lag) stands in for the pose, the Follower keeps running on it (its reference clock,
   progress and checks), and the command is a **velocity**: the reference's,
   times the Follower's clock rate, plus ``coast_gain`` times the dead
   reckoning's offset from the reference, capped at ``v_max_mps``. A velocity
@@ -128,7 +130,10 @@ class MissionConfig:
     pose_gap_s: float = 0.15
     #: FOLLOW: fly on through a dropout this long, by velocity along the trajectory. 0 turns it off.
     coast_max_s: float = 4.0
-    #: The dead reckoning's lag to a commanded velocity: 1/MPC_XY_VEL_P_ACC (1.8 on drone 1).
+    #: PX4's velocity estimate older than this isn't used by the dead reckoning.
+    px4_velocity_timeout_s: float = 0.2
+    #: The dead reckoning's lag to a commanded velocity, without PX4's estimate:
+    #: 1/MPC_XY_VEL_P_ACC (1.8 on drone 1).
     coast_response_s: float = 0.55
     #: 1/s: how hard the coast pulls the dead reckoning back onto the reference.
     coast_gain: float = 1.0
@@ -192,14 +197,19 @@ class _DeadReckoning:
         self.since = 0.0                       # when the coast started (the mission's clock)
         self.travelled = 0.0
 
-    def step(self, t: float, response_s: float) -> None:
+    def step(self, t: float, response_s: float, measured: Optional[Tuple[float, float]] = None) -> None:
+        """Advance to *t*: on *measured* (PX4's velocity estimate) when given, else on the
+        commanded velocity reached with a ``response_s`` lag."""
         dt = t - self.t
         if dt <= 0.0:
             return
-        a = 1.0 if response_s <= 0.0 else 1.0 - math.exp(-dt / response_s)
         vx0, vy0 = self.vx, self.vy
-        self.vx += (self.cmd[0] - self.vx) * a
-        self.vy += (self.cmd[1] - self.vy) * a
+        if measured is not None:
+            self.vx, self.vy = measured
+        else:
+            a = 1.0 if response_s <= 0.0 else 1.0 - math.exp(-dt / response_s)
+            self.vx += (self.cmd[0] - self.vx) * a
+            self.vy += (self.cmd[1] - self.vy) * a
         dx, dy = 0.5 * (vx0 + self.vx) * dt, 0.5 * (vy0 + self.vy) * dt
         self.x += dx
         self.y += dy
@@ -250,15 +260,20 @@ class Mission:
         self._last_good: Optional[OdomPose] = None       # newest odometry flown on (internal)
         self._dr: Optional[_DeadReckoning] = None        # from a coast's start to the resume
         self._frame_lost: Optional[float] = None         # an unexplained jump (m): never fly on
+        self._px4_velocity: Optional[Tuple[float, float, float]] = None   # (t, forward, left)
 
     # -- the tick ------------------------------------------------------------------
 
     def update(self, t: float, offboard_active: bool, pose: Optional[OdomPose],
-               landed: Optional[bool] = None, px4_yaw: Optional[float] = None) -> Optional[Command]:
+               landed: Optional[bool] = None, px4_yaw: Optional[float] = None,
+               px4_velocity: Optional[Tuple[float, float, float]] = None) -> Optional[Command]:
         """``px4_yaw``: PX4's heading as an ENU yaw (None if unknown), for the heading gate.
+        ``px4_velocity``: PX4's horizontal velocity estimate as ``(t, forward, left)`` in the
+        body's heading frame (None if unknown), for a coast's dead reckoning.
 
         Poses are shifted into the internal frame by :attr:`offset` (zero until a coast's
         stitch), and pose setpoints shifted back out of it, so callers see only their own frame."""
+        self._px4_velocity = px4_velocity
         if pose is not None and self.offset != (0.0, 0.0):
             pose = dataclasses.replace(pose, x=pose.x + self.offset[0], y=pose.y + self.offset[1])
         cmd = self._update(t, offboard_active, pose, landed, px4_yaw)
@@ -441,7 +456,7 @@ class Mission:
             self._dr.since = t
             self.coasts += 1
         dr = self._dr
-        dr.step(t, cfg.coast_response_s)
+        dr.step(t, cfg.coast_response_s, self._measured_velocity(t))
         coasted = t - dr.since
         if coasted < cfg.coast_max_s:
             here = self.frame.to_course(dr.x, dr.y)
@@ -464,6 +479,18 @@ class Mission:
         dr.cmd = (0.0, 0.0)
         return self._hold_still(t, f"no fresh pose; coasted {dr.travelled:.2f} m")
 
+    def _measured_velocity(self, t: float) -> Optional[Tuple[float, float]]:
+        """PX4's velocity estimate in the odom frame, if fresh: its (forward, left) turned by the
+        heading of the last odometry flown on (the yaw changes little in a few seconds)."""
+        sample = self._px4_velocity
+        if sample is None or self._last_good is None or not (0.0 <= t - sample[0] <= self.config.px4_velocity_timeout_s):
+            return None
+        _t, forward, left = sample
+        if not (math.isfinite(forward) and math.isfinite(left)):
+            return None
+        c, s = math.cos(self._last_good.yaw), math.sin(self._last_good.yaw)
+        return c * forward - s * left, s * forward + c * left
+
     def _hold_still(self, t: float, why: str) -> Command:
         """Zero velocity, refreshed: it needs no frame, and it never expires into an old pose."""
         if self._still_since is None:
@@ -476,7 +503,7 @@ class Mission:
         """The odometry is back after a coast: compare it with the dead reckoning, stitch the jump."""
         cfg = self.config
         dr, self._dr = self._dr, None
-        dr.step(t, cfg.coast_response_s)
+        dr.step(t, cfg.coast_response_s, self._measured_velocity(t))
         back = max(0.0, t - pose.t)                  # the dead reckoning at the pose's capture time
         jx, jy = dr.x - dr.vx * back - pose.x, dr.y - dr.vy * back - pose.y
         jump = math.hypot(jx, jy)

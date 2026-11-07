@@ -55,11 +55,26 @@ class NodeTest(unittest.TestCase):
     def test_wiring(self):
         n = self.node
         self.assertEqual(set(n.subscriptions), {"/vo_guard/odometry", "/skybeta/state",
-                                                "/fmu/out/vehicle_land_detected_v1", "/fmu/out/vehicle_attitude_v1"})
+                                                "/fmu/out/vehicle_land_detected_v1", "/fmu/out/vehicle_attitude_v1",
+                                                "/fmu/out/vehicle_odometry_v1"})
         self.assertEqual(n.subscriptions["/vo_guard/odometry"][2].reliability, "best_effort")
+        self.assertEqual(n.subscriptions["/fmu/out/vehicle_odometry_v1"][2].reliability, "best_effort")
         self.assertEqual(set(n.publishers), {"/skybeta/setpoint/pose", "/skybeta/setpoint/twist", "~/status"})
         self.assertAlmostEqual(n.timers[0][0], 1 / 50.0)
         self.assertTrue(any("route tunnel > gate_b > pad" in line for line in n.logged), n.logged)
+
+    def test_px4_velocity_reaches_the_mission_in_the_body_heading_frame(self):
+        # PX4 heading east (NED yaw 90 deg), flying north at 1 m/s: north is the drone's left
+        from px4_msgs.msg import VehicleOdometry
+        half = math.radians(90.0) / 2
+        msg = VehicleOdometry(q=(math.cos(half), 0.0, 0.0, math.sin(half)), velocity=(1.0, 0.0, 0.0))
+        self.node._on_px4_odometry(msg)
+        _t, forward, left = self.node._px4_velocity
+        self.assertAlmostEqual(forward, 0.0, places=9)
+        self.assertAlmostEqual(left, 1.0, places=9)
+        self.node._px4_velocity = None
+        self.node._on_px4_odometry(VehicleOdometry(velocity=(1.0, 0.0, 0.0), velocity_frame=2))   # not NED
+        self.assertIsNone(self.node._px4_velocity)
 
     def test_publishes_only_once_the_prechecks_pass_then_takes_off(self):
         pose_pub = self.node.publishers["/skybeta/setpoint/pose"]

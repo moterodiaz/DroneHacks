@@ -32,6 +32,8 @@ Parameters:
     state_topic           the kit's state JSON                                 /skybeta/state
     land_detected_topic   PX4's land detector ("" = off, "auto" = resolved)    auto
     attitude_topic        PX4's attitude, for the heading gate ("" = off)      auto
+    px4_odometry_topic    PX4's odometry: the velocity a coast dead-reckons on   auto
+                          ("" = off: the commanded velocities are integrated)
     setpoint_pose_out     the kit's pose setpoint topic                        /skybeta/setpoint/pose
     setpoint_twist_out    the kit's twist setpoint topic                       /skybeta/setpoint/twist
     frame_id              header.frame_id of the setpoints                     odom
@@ -85,6 +87,7 @@ class MissionNode(Node):
         self.declare_parameter("state_topic", "/skybeta/state")
         self.declare_parameter("land_detected_topic", "auto")
         self.declare_parameter("attitude_topic", "auto")
+        self.declare_parameter("px4_odometry_topic", "auto")
         self.declare_parameter("setpoint_pose_out", "/skybeta/setpoint/pose")
         self.declare_parameter("setpoint_twist_out", "/skybeta/setpoint/twist")
         self.declare_parameter("frame_id", "odom")
@@ -148,6 +151,13 @@ class MissionNode(Node):
         if att_topic:
             from px4_msgs.msg import VehicleAttitude
             self.create_subscription(VehicleAttitude, att_topic, self._on_attitude, BEST_EFFORT)
+        # PX4's velocity estimate, read only: EKF2 dead-reckons on the IMU through a dropout
+        self._px4_velocity = None
+        odom_topic = self._fmu_topic("px4_odometry_topic", "vehicle_odometry", "VehicleOdometry")
+        if odom_topic:
+            from px4_msgs.msg import VehicleOdometry
+            self._velocity_frame_ned = VehicleOdometry.VELOCITY_FRAME_NED
+            self.create_subscription(VehicleOdometry, odom_topic, self._on_px4_odometry, BEST_EFFORT)
         self.create_timer(1.0 / rate, self._tick)
         self.create_timer(1.0, self._publish_status)
         plan = self.prepared.plan
@@ -187,6 +197,13 @@ class MissionNode(Node):
     def _on_land(self, msg: Any) -> None:
         self._landed = bool(msg.landed)
 
+    def _on_px4_odometry(self, msg: Any) -> None:
+        if msg.velocity_frame != self._velocity_frame_ned:
+            return
+        v = body_velocity(msg.q, msg.velocity)
+        if v is not None:
+            self._px4_velocity = (self._now_s(), v[0], v[1])
+
     def _on_attitude(self, msg: Any) -> None:
         w, x, y, z = (float(v) for v in msg.q)        # px4_msgs: q is w, x, y, z (FRD to NED)
         self._px4_yaw = ned_yaw_to_enu(quat_to_yaw(x, y, z, w))
@@ -198,7 +215,8 @@ class MissionNode(Node):
         now = self._now_s()
         fresh_state = self._state_t is not None and now - self._state_t <= self._state_timeout
         px4_yaw = self._px4_yaw if (self._px4_yaw_t is not None and now - self._px4_yaw_t <= 1.0) else None
-        cmd = self.mission.update(now, self._offboard and fresh_state, self._pose, self._landed, px4_yaw)
+        cmd = self.mission.update(now, self._offboard and fresh_state, self._pose, self._landed, px4_yaw,
+                                  px4_velocity=self._px4_velocity)
         if cmd is not None:
             self._publish(cmd)
 
@@ -214,6 +232,19 @@ class MissionNode(Node):
         status = self.mission.status()
         status.update({"offboard": self._offboard, "landed": self._landed, "sent": dict(self._sent)})
         self._status_pub.publish(String(data=json.dumps(status)))
+
+
+def body_velocity(q_wxyz: Any, velocity_ned: Any) -> Optional[tuple]:
+    """PX4's horizontal velocity in the body's heading frame, ``(forward, left)`` m/s, from a
+    ``VehicleOdometry``'s quaternion (``[w, x, y, z]``, FRD to NED) and NED velocity; None if
+    unusable. Only PX4's own heading enters, so PX4's heading reference doesn't matter."""
+    w, x, y, z = (float(v) for v in q_wxyz)
+    yaw = math.atan2(2.0 * (w * z + x * y), 1.0 - 2.0 * (y * y + z * z))
+    vn, ve = float(velocity_ned[0]), float(velocity_ned[1])
+    if not (math.isfinite(vn) and math.isfinite(ve) and math.isfinite(yaw)):
+        return None
+    c, s = math.cos(yaw), math.sin(yaw)
+    return c * vn + s * ve, -(-s * vn + c * ve)
 
 
 def odom_to_pose(msg: Odometry) -> OdomPose:

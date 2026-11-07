@@ -78,6 +78,15 @@ class VehicleAttitude:
         self.q = list(q)
 
 
+class VehicleOdometry:
+    VELOCITY_FRAME_NED = 1
+
+    def __init__(self, q=(1.0, 0.0, 0.0, 0.0), velocity=(0.0, 0.0, 0.0), velocity_frame=1):
+        self.q = list(q)
+        self.velocity = list(velocity)
+        self.velocity_frame = velocity_frame
+
+
 # -- rclpy ---------------------------------------------------------------------------------------
 
 
@@ -236,6 +245,7 @@ def install(handle: Handle) -> Handle:
     m["nav_msgs.msg"].Odometry = Odometry
     m["std_msgs.msg"].String = String
     m["px4_msgs.msg"].VehicleLandDetected, m["px4_msgs.msg"].VehicleAttitude = VehicleLandDetected, VehicleAttitude
+    m["px4_msgs.msg"].VehicleOdometry = VehicleOdometry
     m["skybeta_flight_interface.topics"].fmu_topic = lambda d, base, msg=None, msg_dir=None: f"/fmu/{d}/{base}_v1"
 
     def share(pkg):
