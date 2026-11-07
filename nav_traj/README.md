@@ -21,7 +21,7 @@ This is one of three variants:
 |---|---|---|---|
 | Lidar | `core/port-depth-camera-testing`, `dronehacks_lidar` | Guard + lidar drift correction (`pose_fusion`) | carrot on the planner's polyline |
 | No lidar | `core/vo-nav-no-lidar`, `dronehacks_vo` | Guard | carrot on the polyline |
-| **No lidar, trajectory Follower (this one)** | `core/vo-nav-traj-follower`, `dronehacks_traj` | Guard (`dronehacks_vo`'s, if installed), or raw cuVSLAM | `dronehacks_planner` Follower: smoothed path, speed profile, lead poses |
+| **No lidar, trajectory Follower (this one)** | `navigation/vo-traj-follower`, `dronehacks_traj` | Guard (`dronehacks_vo`'s, if installed), or raw cuVSLAM | `dronehacks_planner` Follower: smoothed path, speed profile, lead poses |
 
 This variant and `dronehacks_vo` can run the same Guard; only the follower
 differs. In the planner benchmark, which flies both followers in the same

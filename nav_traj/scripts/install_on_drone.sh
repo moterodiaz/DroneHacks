@@ -3,7 +3,7 @@
 # skybeta-stack container, and dry-run the whole mission on the map the competitor window will fly.
 #
 # Run on the drone's HOST shell (not in a container), from a checkout of this repo on branch
-# core/vo-nav-traj-follower:
+# navigation/vo-traj-follower (or main, once merged):
 #
 #   nav_traj/scripts/install_on_drone.sh                     # defaults: v_max 1.0, rest height 0.07
 #   V_MAX=1.0 REST_HEIGHT=0.07 nav_traj/scripts/install_on_drone.sh
