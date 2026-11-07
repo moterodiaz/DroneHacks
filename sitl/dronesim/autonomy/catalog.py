@@ -13,8 +13,10 @@ from __future__ import annotations
 import copy
 import io
 import os
+import shutil
 import subprocess
 import tarfile
+import tempfile
 
 import yaml
 
@@ -60,18 +62,7 @@ def materialize(repo_root, version, cache_root):
         return [], 'organizer kit only (drone-snapshot)'
     if 'git' in src:
         sha, subject = resolve_ref(repo_root, src['git'])
-        dest = os.path.join(cache_root, 'src', sha[:12])
-        marker = os.path.join(dest, '.complete')
-        if not os.path.isfile(marker):
-            os.makedirs(dest, exist_ok=True)
-            data = _git(repo_root, 'archive', '--format=tar', sha, '--', *pkgs, binary=True)
-            with tarfile.open(fileobj=io.BytesIO(data)) as tf:
-                try:
-                    tf.extractall(dest, filter='data')
-                except TypeError:          # Python < 3.12
-                    tf.extractall(dest)
-            with open(marker, 'w', encoding='utf-8') as fh:
-                fh.write(sha + '\n')
+        dest = _archive_once(repo_root, sha, pkgs, os.path.join(cache_root, 'src'))
         return [os.path.join(dest, p) for p in pkgs], f"{src['git']} @ {subject}"
     if 'dir' in src:
         base = src['dir']
@@ -81,6 +72,50 @@ def materialize(repo_root, version, cache_root):
             raise VersionError(f'source directory {base} does not exist')
         return [os.path.join(base, p) for p in pkgs], f'directory {base} (working tree)'
     raise VersionError(f"version {version.get('id')}: no source")
+
+
+def _archive_once(repo_root, sha, pkgs, src_root):
+    """Extract ``git archive <sha> -- <pkgs>`` to ``<src_root>/<sha12>`` exactly once.
+
+    Several simulator processes may ask for the same commit at the same moment.  Each
+    extracts into its own temporary directory and renames it into place; the first
+    rename wins, and the losers delete their copy.  Nobody ever reads a half-written tree.
+    A directory without its ``.complete`` marker (an older, interrupted extraction) is
+    moved aside the same way, never written into.
+    """
+    os.makedirs(src_root, exist_ok=True)
+    dest = os.path.join(src_root, sha[:12])
+    marker = os.path.join(dest, '.complete')
+    if os.path.isfile(marker):
+        return dest
+    if os.path.isdir(dest):
+        stale = tempfile.mkdtemp(dir=src_root, prefix=f'{sha[:12]}.stale-')
+        try:
+            os.replace(dest, os.path.join(stale, 'tree'))
+        except OSError:
+            pass                          # another process moved or completed it meanwhile
+        shutil.rmtree(stale, ignore_errors=True)
+        if os.path.isfile(marker):
+            return dest
+    tmp = tempfile.mkdtemp(dir=src_root, prefix=f'{sha[:12]}.tmp-')
+    try:
+        data = _git(repo_root, 'archive', '--format=tar', sha, '--', *pkgs, binary=True)
+        with tarfile.open(fileobj=io.BytesIO(data)) as tf:
+            try:
+                tf.extractall(tmp, filter='data')
+            except TypeError:              # Python < 3.12
+                tf.extractall(tmp)
+        with open(os.path.join(tmp, '.complete'), 'w', encoding='utf-8') as fh:
+            fh.write(sha + '\n')
+        try:
+            os.rename(tmp, dest)
+        except OSError:
+            if not os.path.isfile(marker):   # not a lost race: a real failure
+                raise
+    finally:
+        if os.path.isdir(tmp):
+            shutil.rmtree(tmp, ignore_errors=True)
+    return dest
 
 
 def kit_package_dirs(repo_root):

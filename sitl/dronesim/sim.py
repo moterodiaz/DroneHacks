@@ -20,6 +20,7 @@ import copy
 import json
 import math
 import os
+import tempfile
 import time as _time
 from dataclasses import asdict, dataclass, field
 
@@ -45,6 +46,9 @@ class Scenario:
     options: dict = field(default_factory=dict)
     param_profile: str = 'drone1-fleet'
     param_overrides: dict = field(default_factory=dict)
+    # PX4's horizontal speed cap, MPC_XY_VEL_MAX (m/s); None = the profile's value. The install
+    # config's $v_max (a version's own speed limit, e.g. dronehacks_traj's v_max_mps) follows it.
+    speed_cap_mps: float = None
     seed: int = 1
     duration_s: float = 240.0
     stop_after_end_s: float = 8.0
@@ -170,7 +174,10 @@ class Simulation:
         os.environ.update({k: str(v) for k, v in (sc.env or {}).items()})
         # world, PX4 parameters, airframe
         self.course = Course(os.path.join(self.repo_root, 'dronehacks-course-v3.step'), self.cache_dir)
-        self.params = load_profile(self.repo_root, sc.param_profile, sc.param_overrides)
+        overrides = scenario_param_overrides(sc)
+        if sc.speed_cap_mps is not None:
+            self.run_notes.append(f"speed cap MPC_XY_VEL_MAX = {overrides['MPC_XY_VEL_MAX']:g} m/s (scenario)")
+        self.params = load_profile(self.repo_root, sc.param_profile, overrides)
         self.airframe = AirframeConfig.from_params(self.params, sc.vehicle.get('airframe'))
         # start pose
         launch_xy = self.course.centre_xy('Launch mark')
@@ -200,10 +207,13 @@ class Simulation:
         self.pilot = PilotScript(self.px4.rc, arm_at_s=sc.pilot_arm_at_s, position_after_s=sc.pilot_position_after_s,
                                  enabled=sc.pilot_script)
         self.referee = Referee(self.course, os.path.join(SITL_ROOT, 'course', 'course_v3_rules.json'), self.airframe)
-        # workspace: kit underlay + team overlay, built like colcon (one per engine process;
-        # build trees of finished runs older than a few hours are removed)
-        _clean_old_workspaces(os.path.join(self.cache_dir, 'ws'))
-        self.ws = packages.Workspace(os.path.join(self.cache_dir, 'ws', f'run{os.getpid()}'))
+        # workspace: kit underlay + team overlay, built like colcon.  One fresh directory per
+        # simulation (the pid alone is reused by Windows and by GUI runs), removed when the run
+        # closes; trees left by crashed runs are removed once they are a few hours old.
+        ws_root = os.path.join(self.cache_dir, 'ws')
+        _clean_old_workspaces(ws_root)
+        os.makedirs(ws_root, exist_ok=True)
+        self.ws = packages.Workspace(tempfile.mkdtemp(dir=ws_root, prefix=f'run{os.getpid()}-'))
         packages.set_active(self.ws)
         self.ws.register_interfaces()
         self.ws.register_native('tf2_ros', {'static_transform_publisher': _static_tf_main})
@@ -550,6 +560,19 @@ class Simulation:
             devices.clear()
             self.ws.close()
             packages.set_active(None)
+            import shutil
+            shutil.rmtree(self.ws.root, ignore_errors=True)
+
+
+def scenario_param_overrides(sc):
+    """The PX4 parameter overrides a scenario asks for: its own, then the speed cap on top."""
+    overrides = dict(sc.param_overrides or {})
+    if sc.speed_cap_mps is not None:
+        cap = float(sc.speed_cap_mps)
+        if not (math.isfinite(cap) and cap > 0.0):
+            raise ValueError(f'speed cap must be a positive number of m/s (got {sc.speed_cap_mps!r})')
+        overrides['MPC_XY_VEL_MAX'] = cap
+    return overrides
 
 
 def course_to_ned_vec(v):
@@ -557,13 +580,20 @@ def course_to_ned_vec(v):
 
 
 def _clean_old_workspaces(root, max_age_s=6 * 3600):
+    """Remove build trees that crashed runs left behind, once they are ``max_age_s`` old.
+
+    Ages are measured on the real clock.  ``time.time`` is the simulated clock once a
+    runtime exists (the epoch is a day ahead), which made every other run's tree look
+    old, including the live trees of simulations running in parallel.
+    """
     import shutil
+    from .rosfake.runtime import REAL_TIME
     if not os.path.isdir(root):
         return
-    now = _time.time()
+    now = REAL_TIME()
     for name in os.listdir(root):
         path = os.path.join(root, name)
-        if name.startswith('run') and os.path.isdir(path) and name != f'run{os.getpid()}':
+        if name.startswith('run') and os.path.isdir(path):
             try:
                 if now - os.path.getmtime(path) > max_age_s:
                     shutil.rmtree(path, ignore_errors=True)

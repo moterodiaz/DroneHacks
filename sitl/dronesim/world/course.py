@@ -19,6 +19,7 @@ from __future__ import annotations
 import hashlib
 import math
 import os
+import tempfile
 
 import numpy as np
 
@@ -103,19 +104,31 @@ class Course:
     def _load_or_build_caches(self):
         path = self._cache_path()
         if os.path.isfile(path):
-            data = np.load(path)
-            self.hm = data['hm']
-            self.hm_kind = data['hm_kind']
-            self.df = data['df']
-            self.hm_origin = data['hm_origin']
-            self.df_origin = data['df_origin']
+            # read everything and close the file, so another process may replace it (Windows)
+            with np.load(path) as data:
+                self.hm = data['hm']
+                self.hm_kind = data['hm_kind']
+                self.df = data['df']
+                self.hm_origin = data['hm_origin']
+                self.df_origin = data['df_origin']
             return
         self._build_heightmap()
         self._build_distance_field()
-        tmp = path + '.tmp.npz'
-        np.savez_compressed(tmp, hm=self.hm, hm_kind=self.hm_kind, df=self.df, hm_origin=self.hm_origin,
-                            df_origin=self.df_origin)
-        os.replace(tmp, path)
+        # several simulator processes may build the cache at once: each writes its own temp file
+        fd, tmp = tempfile.mkstemp(dir=self.cache_dir, prefix='course_', suffix='.tmp.npz')
+        try:
+            with os.fdopen(fd, 'wb') as fh:
+                np.savez_compressed(fh, hm=self.hm, hm_kind=self.hm_kind, df=self.df, hm_origin=self.hm_origin,
+                                    df_origin=self.df_origin)
+            try:
+                os.replace(tmp, path)
+            except PermissionError:
+                if not os.path.isfile(path):     # the target is busy but missing: a real failure
+                    raise
+                # another process wrote the same cache first and has it open (Windows): keep theirs
+        finally:
+            if os.path.exists(tmp):
+                os.unlink(tmp)
 
     def _build_heightmap(self):
         lo, hi = self.bounds

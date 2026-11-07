@@ -23,10 +23,11 @@
 versions:
 
   traj:
-    label: "dronehacks_traj: trajectory Follower, no lidar (PR #26)"
+    label: "dronehacks_traj: trajectory Follower, no lidar (PR #26 + dropout coast, local)"
     description: >-
       Mission state machine + dronehacks_planner's minimum-time trajectory and Follower, raw cuVSLAM.
-    source: {git: origin/navigation/vo-traj-follower}
+      Local branch navigation/vo-traj-follower: PR #26's head plus the dropout coast (c557199).
+    source: {git: navigation/vo-traj-follower}
     packages: [planner, nav_traj]
     launch: {package: dronehacks_traj, file: traj_nav_competitor.launch.py}
     install_config:
@@ -52,6 +53,12 @@ versions:
         choices:
           hold: {label: "hold over the pad (shipped default, land: false)", params: {mission: {land: false}}}
           land: {label: "land and disarm (land: true)", params: {mission: {land: true}}}
+      dropout:
+        label: Tracking dropout
+        default: coast
+        choices:
+          coast: {label: "fly on by dead reckoning, re-anchor after (shipped)"}
+          hold: {label: "hold still (the old behaviour: coast_max_s 0)", params: {mission: {coast_max_s: 0.0}}}
     followers:
       default: plain
       choices:
@@ -64,11 +71,11 @@ versions:
                     hook: traj_waypoint_follower, args: {arrival_radius_m: 0.3}}
 
   lidar_allowed:
-    label: "dronehacks_lidar: cuVSLAM + MS200K lidar fusion, lidar ALLOWED (PR #27)"
+    label: "dronehacks_lidar: cuVSLAM + MS200K lidar fusion, lidar ALLOWED (PR #27 + dropout coast, local)"
     description: >-
       vo_guard -> pose_fusion (lidar drift correction) -> carrot follower -> flight_interface;
       the lidar is read from /dev/ms200 by the team's own driver.
-    source: {git: origin/localization/lidar-nav}
+    source: {git: localization/lidar-nav}
     packages: [depthcam]
     devices: [ms200]
     launch: {package: dronehacks_lidar, file: lidar_nav_allowed.launch.py}
@@ -92,6 +99,12 @@ versions:
         choices:
           hold: {label: "hold over the pad (shipped default)", params: {follower: {land: false}}}
           land: {label: "land (land: true)", params: {follower: {land: true}}}
+      dropout:
+        label: Tracking dropout
+        default: coast
+        choices:
+          coast: {label: "fly on by dead reckoning (shipped)"}
+          hold: {label: "hold still (the old behaviour: coast_max_s 0)", params: {follower: {coast_max_s: 0.0}}}
     followers:
       default: carrot
       choices:
@@ -99,9 +112,9 @@ versions:
         carrot_1m: {label: "carrot pursuit, lookahead 1.0 m (parameter)", params: {follower: {lookahead_max_m: 1.0}}}
 
   lidar_forbidden:
-    label: "dronehacks_lidar: lidar FORBIDDEN (PR #27, cuVSLAM only)"
+    label: "dronehacks_lidar: lidar FORBIDDEN (PR #27 + dropout coast, local; cuVSLAM only)"
     description: "The same stack with lidar_policy forbidden: no lidar node, no drift correction."
-    source: {git: origin/localization/lidar-nav}
+    source: {git: localization/lidar-nav}
     packages: [depthcam]
     launch: {package: dronehacks_lidar, file: lidar_nav_forbidden.launch.py}
     install_config:
@@ -124,6 +137,12 @@ versions:
         choices:
           hold: {label: "hold over the pad (shipped default)", params: {follower: {land: false}}}
           land: {label: "land (land: true)", params: {follower: {land: true}}}
+      dropout:
+        label: Tracking dropout
+        default: coast
+        choices:
+          coast: {label: "fly on by dead reckoning (shipped)"}
+          hold: {label: "hold still (the old behaviour: coast_max_s 0)", params: {follower: {coast_max_s: 0.0}}}
     followers:
       default: carrot
       choices:
@@ -131,7 +150,7 @@ versions:
         carrot_1m: {label: "carrot pursuit, lookahead 1.0 m (parameter)", params: {follower: {lookahead_max_m: 1.0}}}
 
   return_flight:
-    label: "dronehacks_lidar + optional return flight (localization/return-flight, local)"
+    label: "dronehacks_lidar + optional return flight + dropout coast (localization/return-flight, local)"
     description: "Lidar build with the rule 7.10 return leg; return_flight is off unless chosen here."
     source: {git: localization/return-flight}
     packages: [depthcam]
@@ -157,6 +176,12 @@ versions:
         choices:
           "off": {label: "off (shipped default)", params: {follower: {return_flight: false}}}
           "on": {label: "on: land, disarm, return (needs land: true)", params: {follower: {return_flight: true, land: true}}}
+      dropout:
+        label: Tracking dropout
+        default: coast
+        choices:
+          coast: {label: "fly on by dead reckoning (shipped)"}
+          hold: {label: "hold still (the old behaviour: coast_max_s 0)", params: {follower: {coast_max_s: 0.0}}}
     followers:
       default: carrot
       choices:
@@ -180,6 +205,12 @@ versions:
         choices:
           window: {label: window, launch: vo_nav.launch.py}
           gate_b: {label: Gate B, launch: vo_nav_gate_b.launch.py}
+      dropout:
+        label: Tracking dropout
+        default: coast
+        choices:
+          coast: {label: "fly on by dead reckoning (shipped)"}
+          hold: {label: "hold still (the old behaviour: coast_max_s 0)", params: {follower: {coast_max_s: 0.0}}}
     followers:
       default: carrot
       choices:

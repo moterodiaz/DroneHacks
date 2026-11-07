@@ -10,9 +10,11 @@ The world is the STEP model, `dronehacks-course-v3.step`.
 py -m dronesim gui              # the graphical test environment (or double-click run_gui.cmd)
 py -m dronesim list             # autonomy versions, followers, options, PX4 parameter profiles
 py -m dronesim run --version traj --follower path_lead --option route=window --out runs/x
+py -m dronesim run --version lidar_forbidden --option dropout=hold --speed-cap 1.5 --out runs/y
 ```
 
-Run these from `sitl/`. You need Python 3.10+ with `numpy` and `pyyaml` (`requirements.txt`).
+Run these from `sitl/`. Several `run` commands may run at once: each simulation builds its own
+tree (removed when it ends), and the shared caches are written atomically. You need Python 3.10+ with `numpy` and `pyyaml` (`requirements.txt`).
 Tkinter comes with the standard Windows installer. No ROS, Docker, WSL or GPU is needed. The first
 start builds the course caches from the STEP file, which takes about 40 s once.
 
@@ -60,9 +62,14 @@ on), so `DRONEHACKS_*` variables do not arrive, just as on the drone.
   * **Follower algorithm.** Followers marked *sim injection* patch the mission module inside
     the simulated process only; the drone would run the shipped one. Parameter followers are
     real parameters of the version.
-  * **Version options**: route, landing, return flight.
+  * **Version options**: route, landing, return flight, and what to do on a tracking dropout
+    (fly through by dead reckoning, the shipped behaviour, or hold still, the old one).
   * **PX4 parameter profile.**
   * **Scenario**:
+    * the **speed cap**, PX4's `MPC_XY_VEL_MAX`. It starts at the selected profile's value (1.0 m/s
+      on `drone1-fleet`) and follows the profile until you type your own. A version's own speed
+      limit follows it too (`dronehacks_traj`'s `v_max_mps`, through `$v_max`). The kit's
+      flight interface still caps twist setpoints at its `max_speed_mps` (1.5 m/s);
     * seed and duration;
     * start pose and calibration error (what the operator "measured");
     * tunnel lighting, cuVSLAM drift and latency;
@@ -99,10 +106,10 @@ on), so `DRONEHACKS_*` variables do not arrive, just as on the drone.
 
 | id | what | source |
 |---|---|---|
-| `traj` | dronehacks_traj: minimum-time trajectory + Follower, no lidar (PR #26) | `origin/navigation/vo-traj-follower` |
-| `lidar_allowed` / `lidar_forbidden` | dronehacks_lidar: vo_guard → pose_fusion (MS200K) → carrot follower (PR #27) | `origin/localization/lidar-nav` |
-| `return_flight` | the lidar build with the rule 7.10 return leg | `localization/return-flight` (local) |
-| `vo_nolidar` | dronehacks_vo: vo_guard + carrot follower | `core/vo-nav-no-lidar` (local) |
+| `traj` | dronehacks_traj: minimum-time trajectory + Follower, no lidar (PR #26 + the dropout coast) | `navigation/vo-traj-follower` (local, ahead of PR #26) |
+| `lidar_allowed` / `lidar_forbidden` | dronehacks_lidar: vo_guard → pose_fusion (MS200K) → carrot follower (PR #27 + the dropout coast) | `localization/lidar-nav` (local, ahead of PR #27) |
+| `return_flight` | the lidar build with the rule 7.10 return leg and the dropout coast | `localization/return-flight` (local) |
+| `vo_nolidar` | dronehacks_vo: vo_guard + carrot follower, with the dropout coast | `core/vo-nav-no-lidar` (local) |
 | `manual_full` | hard-coded full-course waypoints | `origin/core/manual-waypoint-nav` |
 | `manual_square` | dronehacks_nav square mission | `origin/core/manual-waypoint-nav` |
 | `kit_square` | the organizers' example: hover, then a 5 m square | drone snapshot |
@@ -117,6 +124,11 @@ on), so `DRONEHACKS_*` variables do not arrive, just as on the drone.
 * The lidar family:
   * the shipped carrot (0.5 m lookahead);
   * a 1.0 m lookahead (a real parameter).
+
+**Tracking dropout** (an option of `traj`, the lidar family and `vo_nolidar`): `coast`, the shipped
+behaviour, flies on along the route by dead reckoning on PX4's velocity estimate, then re-anchors
+the frame when cuVSLAM resumes; `hold` sets `coast_max_s` to 0, the behaviour before the fix (hold
+still, which in the dark tube ends in PX4's position-loss failsafe).
 
 **To add a version**, add an entry to `versions.yaml`:
 
@@ -233,14 +245,29 @@ Each of these comes from running the real code here. They are worth checking on 
 3. **CP1 is easy to miss.** The rules file's CP1 line is at north 2.584 m. The traj route turns
    east with its centre just past it but its tail short of it, so the *whole drone* never crosses.
    Every later checkpoint then does not count (rule 7.6). The lidar routes go far enough north.
-4. **The dark tunnel defeats every VIO-only plan, and the lidar plans too.**
+4. **The dark tunnel defeated every plan, the lidar ones too; flying through fixes it.**
    * cuVSLAM drops out in the tube.
    * PX4 only ever sees raw cuVSLAM, so the team's lidar fusion never reaches EKF2.
    * PX4 dead-reckons for `EKF2_NOAID_TOUT` (5 s), then leaves Offboard for Altitude, and the
-     low throttle brings the drone down in the tube.
-   * The lidar and vo followers deliberately *hold still* while tracking is false, which
-     guarantees that timeout.
-   * With a lit tunnel (scenario option), the same stacks pass.
+     low throttle brings the drone down in the tube (the organizers' guide warns of exactly
+     this). EKF2's estimate is still within about 0.2 m when it gives up.
+   * The followers *held still* while tracking was false (traj stopped on its last pose), which
+     guaranteed that timeout.
+   * **Fix (2026-11-07, all four autonomy branches, local commits):** in FOLLOW the follower now
+     coasts on along the route by velocity, dead-reckoning on PX4's own velocity estimate, for up
+     to `coast_max_s` (4 s). cuVSLAM then resumes 1.3–3.3 s after the drop, inside the 5 s.
+     cuVSLAM resumes from where it froze, so its frame has jumped back by the coast. Without
+     the lidar, the follower re-anchors its frame on the dead reckoning. With the lidar,
+     pose_fusion re-learns the jump.
+   * Dark-tunnel results with the fix (seed 1): no position-loss failsafe in any version.
+     * `vo_nolidar` finishes all five checkpoints with no touches, in 105.3 s (104.9 s lit).
+     * `lidar_allowed`, `lidar_forbidden` and `return_flight` reach CP4 with no touches, then
+       hold over the pad (landing is off by default).
+     * traj gets through the tube but still scores nothing, because of finding 3.
+     * After the tube, the path stays within 1 cm (`lidar_forbidden`, median) to 7 cm
+       (`vo_nolidar`, median; 12.5 cm at most) of the same version's lit-tunnel path.
+     * The `dropout: hold` option reproduces the old failure.
+   * A lit tunnel (scenario option) never drops out.
 5. **`manual_full` assumes odom +x = course east.** cuVSLAM's +x is the nose, which faces north on
    the launch mark, so the drone flies west into the net and later flips.
 6. **The kit's 5 m square** flies into the north net at about 2 m. In this course, that is the
@@ -254,7 +281,7 @@ Each of these comes from running the real code here. They are worth checking on 
 
 ```
 cd sitl
-py -B -m unittest tests.test_rosfake tests.test_models tests.test_step_mesh      # ~5 s
+py -B -m unittest tests.test_rosfake tests.test_models tests.test_step_mesh tests.test_cache   # ~8 s
 py -B -m unittest tests.test_flight -v                                            # ~1 min: real flights
 ```
 
@@ -279,6 +306,11 @@ py -B -m unittest tests.test_flight -v                                          
   * parameter profiles (including the `COM_FLTMODE6` finding);
   * the MS200 frame codec;
   * the referee's gates from the STEP model and its whole-drone crossing rule.
+* `test_cache`:
+  * workspace cleanup measures ages on the real clock (parallel runs used to delete each
+    other's live build trees, because the simulated clock is a day ahead);
+  * six parallel extractions of one commit, and an interrupted extraction being replaced;
+  * the speed cap overriding `MPC_XY_VEL_MAX`.
 * `test_flight`:
   * the organizer procedure on the kit example;
   * the traj stack flying to the tunnel exit.
