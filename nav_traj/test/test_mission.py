@@ -9,6 +9,7 @@ import math
 import unittest
 
 import _paths
+import numpy as np
 
 from dronehacks_planner import parse_map
 from dronehacks_traj.factory import flight_checks, prepare
@@ -96,6 +97,19 @@ class StateMachineTest(unittest.TestCase):
         self.assertIsNone(self.m.update(2.0, True, self.pose(t=0.5, z=0.5), False, 0.0))
         self.assertEqual(self.m.state, TAKEOFF)
 
+    def test_stale_pose_while_landing_keeps_descending(self):
+        self.m.update(0.0, False, self.pose(), True, 0.0)
+        self.m.update(0.02, True, self.pose(t=0.02), True, 0.0)       # Offboard: TAKEOFF
+        self.m.state = LAND                                             # skip ahead to the descent
+        cmd = self.m.update(2.0, True, self.pose(t=0.5, z=0.4), False, 0.0)
+        self.assertEqual((cmd.kind, cmd.vx, cmd.vy), ("twist", 0.0, 0.0))
+        self.assertAlmostEqual(cmd.vz, -CONFIG.descent_mps)
+        self.assertIn("no fresh pose", self.m.reason)
+        cmd = self.m.update(2.1, True, None, True, 0.0)                 # PX4: landed
+        self.assertEqual(self.m.state, LANDED)
+        self.assertEqual((cmd.kind, cmd.vx, cmd.vy), ("twist", 0.0, 0.0))
+        self.assertAlmostEqual(cmd.vz, -0.3 * CONFIG.descent_mps)
+
     def test_rest_height_must_be_below_flight_height(self):
         with self.assertRaises(ValueError):
             prepare(l_course(), MissionConfig(rest_height_m=0.9))
@@ -136,6 +150,21 @@ class WholeFlightTest(unittest.TestCase):
         log = fly(prep.mission, cfg=VehicleSimConfig(dropout_s=(5.0, 5.6)))
         self.assertIn("disarm", log.events)
         self.assertEqual(flight_checks(prep, log.pos)["wall_touches"], 0)
+
+    def test_odometry_dropout_while_landing_never_climbs(self):
+        # If the twist stopped, the interface would expire it into its last pose, the pad at
+        # flight height, and the drone would climb (review of #26 at a616fdf, mission.py:187-189).
+        nominal = fly(prepare(l_course(), CONFIG).mission)
+        t_land = next(t for t, s in zip(nominal.t, nominal.state) if s == LAND)
+        start = t_land + 0.5
+        prep = prepare(l_course(), CONFIG)
+        log = fly(prep.mission, cfg=VehicleSimConfig(dropout_s=(start, start + 2.0)))
+        z = log.pos[log.t >= t_land, 2]
+        climb = float((z - np.minimum.accumulate(z)).max())          # height regained since LAND began
+        self.assertLess(climb, 0.02)
+        self.assertIn("disarm", log.events)
+        self.assertTrue(flight_checks(prep, log.pos)["on_pad"])
+        self.assertTrue(any("no fresh pose" in r and "straight down" in r for r in log.reasons), log.reasons)
 
     def test_published_map(self):
         prep = prepare(str(_paths.PUBLISHED_MAP), CONFIG)

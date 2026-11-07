@@ -185,6 +185,8 @@ class Mission:
         if self.state == HELD:
             return self._hold_cmd
         if not fresh:
+            if self.state in (LAND, LANDED):
+                return self._descend_without_pose(t, landed)
             self.reason = "no fresh pose: sending nothing, so the interface holds the last checked pose"
             return None
         handler = {TAKEOFF: self._takeoff, FOLLOW: self._follow, HOLD: self._hold, LAND: self._land,
@@ -267,17 +269,29 @@ class Mission:
             return self._land(t, pose, landed)
         return cmd
 
-    def _land(self, t: float, pose: OdomPose, landed: Optional[bool]) -> Command:
+    def _land(self, t: float, pose: Optional[OdomPose], landed: Optional[bool]) -> Command:
         if landed:
             self.state = LANDED
-            self.reason = "landed: pressing down until PX4 disarms (COM_DISARM_LAND)"
             return self._landed(t, pose, landed)
+        self.reason = "landing"
         return self._descend(pose, self.config.descent_mps)
 
-    def _landed(self, t: float, pose: OdomPose, landed: Optional[bool]) -> Command:
+    def _landed(self, t: float, pose: Optional[OdomPose], landed: Optional[bool]) -> Command:
+        self.reason = "landed: pressing down until PX4 disarms (COM_DISARM_LAND)"
         return self._descend(pose, 0.3 * self.config.descent_mps)
 
-    def _descend(self, pose: OdomPose, rate: float) -> Command:
+    def _descend_without_pose(self, t: float, landed: Optional[bool]) -> Command:
+        """No fresh pose while landing: keep descending, straight down. Sending
+        nothing is not a hold here. The interface expires a twist after 1 s into
+        its last pose, which is the pad at flight height, so the drone would climb
+        back up (``flight_interface._expire_stale_velocity``)."""
+        cmd = (self._land if self.state == LAND else self._landed)(t, None, landed)
+        self.reason += ": no fresh pose, so straight down"
+        return cmd
+
+    def _descend(self, pose: Optional[OdomPose], rate: float) -> Command:
+        if pose is None:
+            return Command("twist", vz=-rate)
         cfg = self.config
         vx = cfg.land_xy_gain * (self.end_odom[0] - pose.x)
         vy = cfg.land_xy_gain * (self.end_odom[1] - pose.y)
