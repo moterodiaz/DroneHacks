@@ -107,7 +107,9 @@ def fly(hold: bool, jump_after_follow_s: float = 2.0, gap_s: float = 0.5, lidar_
     """
     rng = np.random.default_rng(seed)
     route = fixture_route()
-    follower = Follower(route, FollowerConfig(rest_height_m=REST, require_ready=hold))
+    # land=True is passed explicitly: the closed loop exercises the landing path, though the
+    # shipped default (issue #25 point 4) holds over the pad for the pilot
+    follower = Follower(route, FollowerConfig(rest_height_m=REST, require_ready=hold, land=True))
     fusion = PoseFusion(LidarPolicy.ALLOWED, FusionConfig())
     vehicle = OdomVehicle()
     drift = IDENTITY                     # truth = drift ∘ odom

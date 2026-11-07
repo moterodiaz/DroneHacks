@@ -112,4 +112,6 @@ follower:
     max_yaw_rate_rps: 0.785398       # 45 deg/s
     hold_before_land_s: 2.0
     descent_mps: 0.3
-    land: true
+    land: false               # issue #25 point 4: hold over the pad for the pilot by default; the pilot
+                              # lands. true re-enables the velocity-setpoint descent, blocked as a landing
+                              # API until contracts/px4.md contracts one.

@@ -1,4 +1,8 @@
-"""The follower's mission: wait for Offboard, check the start, take off, follow, hold over the pad, land.
+"""The follower's mission: wait for Offboard, check the start, take off, follow, hold over the pad.
+
+Landing is off by default (``land: false``, issue #25 point 4): the follower holds over the pad
+for the pilot until a landing API is contracted (``contracts/px4.md`` blocks the velocity-only
+descent as a landing). ``land: true`` re-enables the velocity-setpoint descent described below.
 
 It flies the true pose (``/pose_fusion/odometry``) in the true (tracker) frame. Its setpoints go to
 ``pose_fusion``, which corrects them into PX4's frame. It obeys the kit's procedure
@@ -13,9 +17,11 @@ It flies the true pose (``/pose_fusion/odometry``) in the true (tracker) frame. 
   ``/skybeta/state`` says ``offboard_active``;
 * if Offboard ends, for any reason, it stops for good. It never tries to get Offboard back, and
   it never arms, disarms or changes mode;
-* landing uses a velocity setpoint. The kit floors pose setpoints at ``min_altitude_m`` but only
-  speed-caps velocity setpoints ("NOT a landing inhibit", its ``envelope.py``). Once landed, PX4
-  disarms itself after ``COM_DISARM_LAND`` (2 s in the organisers' parameters).
+* landing, when ``land`` is set, uses a velocity setpoint. The kit floors pose setpoints at
+  ``min_altitude_m`` but only speed-caps velocity setpoints ("NOT a landing inhibit", its
+  ``envelope.py``). Once landed, PX4 disarms itself after ``COM_DISARM_LAND`` (2 s in the
+  organisers' parameters). By default (``land: false``) the follower instead holds over the pad
+  with a pose setpoint and the pilot takes over the landing (issue #25 point 4).
 
 Pre-takeoff checks (``PRECHECK``)
 ---------------------------------
@@ -134,7 +140,9 @@ class FollowerConfig:
     land_xy_max_mps: float = 0.2
     pose_timeout_s: float = 0.5
     realign_timeout_s: float = 5.0
-    land: bool = True
+    land: bool = False               # issue #25 point 4: hold over the pad for the pilot by default; the
+    #                                  velocity-only descent stays off until a landing API is contracted
+    #                                  (contracts/px4.md blocks it) and the pilot authorizes it
 
     def __post_init__(self) -> None:
         for f in fields(self):

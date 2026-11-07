@@ -90,8 +90,11 @@ To replan after a change to the map or the rules, run `python -m follower.make_r
    - **If something changed in the second before the switch,** Offboard starts, the follower's
      second check fails, and after 20 s it blocks and sends nothing. The interface holds the
      last takeoff pose, and the pilot takes over.
-5. **The run:** CP1 → CP4, hold over the pad, land by velocity setpoint. PX4 disarms 2 s after
-   touchdown (`COM_DISARM_LAND`). `/follower/status` lists the checkpoints crossed.
+5. **The run:** CP1 → CP4, then it holds over the pad with a pose setpoint for the pilot
+   (`land: false` by default, issue #25 point 4 — the pilot lands; a velocity-only descent is not
+   a contracted landing API, per `contracts/px4.md`). `/follower/status` lists the checkpoints
+   crossed. With `land: true`, it descends by velocity setpoint after 2 s over the pad, and PX4
+   disarms 2 s after touchdown (`COM_DISARM_LAND`).
    - **If cuVSLAM breaks and re-initialises,** `/pose_fusion/aligned` goes false. The follower
      holds still (zero velocity) until the lidar has realigned the correction, then carries on.
      If that takes over 5 s (`realign_timeout_s`), it lands straight down where it is. Under the

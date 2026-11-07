@@ -161,7 +161,7 @@ def test_shipped_window_route_is_what_the_planner_makes_today():
 
 def test_window_route_flown_stays_inside_the_planners_margin():
     route = load_route(ROUTES["window"], TF)
-    follower = Follower(route, FollowerConfig(rest_height_m=REST))
+    follower = Follower(route, FollowerConfig(rest_height_m=REST, land=True))   # the full mission, landing on
     log = fly(follower, Vehicle(), 240.0)
     states = [s for _, s, _, _ in log]
     order = [s for i, s in enumerate(states) if i == 0 or s != states[i - 1]]
@@ -273,7 +273,7 @@ def test_a_switch_before_ready_is_refused_and_a_switch_after_flies():
     log = fly(early, vehicle, 10.0, offboard_at=0.5, ready=lambda t: t >= 3.0)
     assert next(t for t, _, c, _ in log if c is not None) >= 3.0      # nothing streamed before ready
     assert vehicle.refused and not vehicle.offboard and vehicle.z == 0.0   # one attempt per arming: used up
-    late = Follower(synthetic_route(corner=False), FollowerConfig(rest_height_m=REST))
+    late = Follower(synthetic_route(corner=False), FollowerConfig(rest_height_m=REST, land=True))
     log = fly(late, Vehicle(), 40.0, offboard_at=4.0, ready=lambda t: t >= 3.0)   # re-armed, switched once ready
     assert log[-1][1] == STOPPED
 
@@ -318,14 +318,17 @@ def test_a_stale_pose_while_landing_descends_straight_down():
     assert "no fresh pose" in follower.reason
 
 
-def test_no_landing_when_disabled():
-    follower = Follower(synthetic_route(corner=False), FollowerConfig(rest_height_m=REST, land=False))
+def test_the_default_holds_over_the_pad_for_the_pilot():
+    """The default (issue #25 point 4): land is false, so it holds over the pad with a pose
+    setpoint and the pilot takes over the landing, until a landing API is contracted."""
+    follower = Follower(synthetic_route(corner=False), FollowerConfig(rest_height_m=REST))
     log = fly(follower, Vehicle(), 40.0)
     assert log[-1][1] == HOLD and log[-1][2].kind == "pose"
+    assert all(s not in (LAND, LANDED) for _, s, _, _ in log)
 
 
 def test_landing_is_a_downward_twist():
-    follower = Follower(synthetic_route(corner=False), FollowerConfig(rest_height_m=REST))
+    follower = Follower(synthetic_route(corner=False), FollowerConfig(rest_height_m=REST, land=True))
     log = fly(follower, Vehicle(), 40.0)
     assert all(c.kind == "twist" and c.vz < 0.0 for _, s, c, _ in log if s in (LAND, LANDED) and c is not None)
 

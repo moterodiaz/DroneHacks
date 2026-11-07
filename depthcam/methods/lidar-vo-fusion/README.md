@@ -91,9 +91,11 @@ The details are in `follower/mission.py`.
    - the carrot is the furthest path point (up to 0.5 m ahead) whose straight line from the drone
      keeps every path point in between within `max_cut_m` (1.5 cm), so tight corners slow it down;
    - progress only moves forward, and each gate crossed is recorded.
-5. **Land:** it holds over the pad for 2 s, then descends with a velocity setpoint (the kit only
-   floors *pose* setpoints). PX4 disarms 2 s after touchdown (`COM_DISARM_LAND`), which ends
-   Offboard.
+5. **Land:** it holds over the pad with a pose setpoint for the pilot (issue #25 point 4: `land`
+   is `false` by default, so the pilot takes over the landing; a velocity-only descent is not a
+   contracted landing API, per `contracts/px4.md`). With `land: true` it instead holds over the
+   pad for 2 s, then descends with a velocity setpoint (the kit only floors *pose* setpoints).
+   PX4 disarms 2 s after touchdown (`COM_DISARM_LAND`), which ends Offboard.
 6. **Stop:** when Offboard ends, for any reason, it stops for good. A pose older than 0.5 s
    (a cuVSLAM gap past the timeout) makes it hold still with a zero velocity setpoint in flight
    (or descend straight down while landing); before Offboard it still sends nothing.
