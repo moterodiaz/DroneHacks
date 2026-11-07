@@ -174,6 +174,7 @@ def test_each_px4_frame_mapping_round_trips_a_forward_step(frame: course.Px4Fram
 
     assert odom[0] == pytest.approx([1.0, 0.0, 0.5])
     assert yaw[0] == pytest.approx(0.0)
+    assert course.px4_from_odom(odom, frame) == pytest.approx(ned)
 
 
 def test_the_missions_transform_is_read_from_its_parameter_dump_and_a_nan_is_refused(tmp_path: Path) -> None:
@@ -284,6 +285,25 @@ def test_the_synthetic_flights_px4_frame_is_chosen_by_its_agreement_with_vision(
 
     assert frame is course.Px4Frame.ODOM
     assert any("`odom` mapping vs cuVSLAM odometry: median 0.00 m" in line for line in lines)
+
+
+def test_without_the_kits_px4_setpoint_the_pose_setpoint_is_tracked_in_px4s_frame(tmp_path: Path) -> None:
+    # The FlyX lab records no /fmu/in/trajectory_setpoint: the competitor's ENU pose stands in
+    rows = _synthetic_flight()
+    rows.pop("trajectory_setpoint")
+    rows["pose_setpoint"] = [(log_ns, SimpleNamespace(header=_stamp(0.0), pose=SimpleNamespace(
+        position=SimpleNamespace(x=0.0, y=1.0, z=0.8),
+        orientation=SimpleNamespace(x=0.0, y=0.0, z=0.0, w=1.0)))) for log_ns, _ in rows["status"]]
+    resolved = {role: f"/{role}" for role in rows}
+    bag = bag_flight_from_rows(rows, dict.fromkeys(resolved.values(), 1), resolved)
+    args = argparse.Namespace(flight=tmp_path, course_map=None, course_to_odom=None, px4_frame="auto",
+                              arrival_radius_m=0.12, ulog=None, truth=None, out=tmp_path)
+
+    lines, legs = analyze.report(bag, args)
+
+    # Odom +y (1 m) is PX4 north under the `odom` mapping the synthetic vision agrees with
+    assert [leg.target_ned for leg in legs] == [(1.0, 0.0, -0.8)]
+    assert any("/skybeta/setpoint/pose, put in PX4's frame as `odom`" in line for line in lines)
 
 
 def test_ulog_parameters_are_written_in_qgcs_params_format(tmp_path: Path) -> None:

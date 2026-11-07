@@ -131,6 +131,25 @@ python3 -m pytest team_ws/src/dronehacks_telemetry/tests -q
 Synthetic data only: no ROS, no drone. The bag tests write a real mcap with `mcap-ros2-support`
 and skip without it.
 
+## What has been checked, and what has not (2026-11-07)
+
+- **Recorder, measured off-drone**: `record_flight.sh start`/`status`/`stop` against a stand-in
+  container named `skybeta-stack` (`ros:humble-ros-base` plus `ros-humble-rosbag2-storage-mcap`,
+  on WSL, publishing `/skybeta/state`, `/oak/left/image_raw` and `/oak/left/camera_info`). Light
+  left the image topic out and kept `camera_info`; full kept it and wrote `bag_0.mcap.zstd`;
+  SIGINT closed both cleanly (`metadata.yaml` written, "Recording stopped" in `recorder.log`); a
+  second `start` was refused; the files came back owned by the host user. Humble's
+  `ros2 bag record --help` lists `-x/--exclude` and `--compression-format zstd`.
+- **Analyzer, measured**: on a FlyX lab bag with the lab's truth log (`--truth`), it picked the
+  `launch` frame by its agreement with cuVSLAM and showed the vision gap, EV-fusion dropout and
+  failsafe sequence; its PX4-versus-truth error agreed with the team's earlier lab comparison.
+- **Not checked without the drone**: the recorder inside the real skybeta image (its
+  `skybeta_env.sh`, the uXRCE `/fmu` QoS as rosbag2 adapts to it, the bag rate with real images),
+  `ros2 param dump` of the kit's nodes, whether PX4 v1.16 publishes `distance_sensor` and
+  `estimator_status_flags` over DDS on the kit (the report falls back to `dist_bottom` and the
+  ULog), the ULog fetch, and which PX4 frame reading holds on the real EKF2 (the report prints
+  both against cuVSLAM).
+
 ## Provenance
 
 `analyze`'s course scoring, the lab comparison and `ulog_triage.py` are adapted from the team's

@@ -93,12 +93,13 @@ def report(bag: BagFlight, args: argparse.Namespace) -> tuple[list[str], list[me
     flying = metrics.flying_spans(armed, land.times_s if land else None,
                                   land.fields["landed"] if land else None, bag.duration_s)
     vision_gaps = _vision_gaps(bag)
+    frame, frame_lines = _px4_frame(bag, args, flying)
 
-    legs = _legs(bag, status, args.arrival_radius_m, vision_gaps)
-    lines = [*_header(bag, args.flight, armed, flying), *_timeline(bag, flying, vision_gaps),
-             *_tracking_section(bag, legs, args.arrival_radius_m), *_vision_section(bag, flying),
-             *_latency_section(bag), *_height_section(bag, flying),
-             *_course_section(bag, args, flying), *_ulog_section(args, armed)]
+    legs, setpoint_source = _legs(bag, status, frame, args.arrival_radius_m, vision_gaps)
+    lines = [*_header(bag, args.flight, armed, flying), *_timeline(bag, armed, flying, vision_gaps),
+             *_tracking_section(legs, setpoint_source, args.arrival_radius_m),
+             *_vision_section(bag, flying), *_latency_section(bag), *_height_section(bag, flying),
+             *_course_section(bag, args, flying, frame, frame_lines), *_ulog_section(args, armed)]
     return lines, legs
 
 
@@ -174,6 +175,10 @@ def _header(bag: BagFlight, folder: Path, armed: list[metrics.Span],
     if missing:
         lines.append(f"- not in the bag: {', '.join(missing)}")
 
+    if bag.undecodable:
+        lines.append(f"- recorded without a message definition, so not read: {', '.join(bag.undecodable)}"
+                     " (the recorder's environment lacked the package)")
+
     return lines
 
 
@@ -194,7 +199,7 @@ def _vision_gaps(bag: BagFlight) -> list[metrics.Span]:
     return timing.gaps if timing else []
 
 
-def _timeline(bag: BagFlight, flying: list[metrics.Span],
+def _timeline(bag: BagFlight, armed: list[metrics.Span], flying: list[metrics.Span],
               vision_gaps: list[metrics.Span]) -> list[str]:
     """Arming, modes, failsafes, tracking losses, vision gaps, fusion dropouts and logged
     warnings, in time order."""
@@ -207,10 +212,12 @@ def _timeline(bag: BagFlight, flying: list[metrics.Span],
                    ulog_triage.state_changes(status.times_s, status.fields["nav_state"])]
         events += ulog_triage._rise_events(status.times_s, status.fields["failsafe"], "failsafe")
 
+    # Failsafe conditions from the first arming: before it, start-up conditions are all true
     failsafes = bag.series.get("failsafe_flags")
-    if failsafes is not None:
+    if failsafes is not None and armed:
+        since = failsafes.times_s >= armed[0].start_s
         for name, values in failsafes.fields.items():
-            events += ulog_triage._rise_events(failsafes.times_s, values, name)
+            events += ulog_triage._rise_events(failsafes.times_s[since], values[since], name)
 
     vision_status = bag.series.get("vision_status")
     if vision_status is not None:
@@ -266,18 +273,32 @@ def _kit_events(bag: BagFlight) -> list[tuple[float, str]]:
     return events
 
 
-def _legs(bag: BagFlight, status: Series | None, arrival_radius_m: float,
-          vision_gaps: list[metrics.Span]) -> list[metrics.Leg]:
-    """The setpoint legs flown in Offboard, from the kit's PX4 setpoints against PX4's estimate."""
-    setpoint = bag.series.get("trajectory_setpoint")
+def _legs(bag: BagFlight, status: Series | None, frame: course_frames.Px4Frame,
+          arrival_radius_m: float, vision_gaps: list[metrics.Span]) -> tuple[list[metrics.Leg], str]:
+    """The setpoint legs flown in Offboard against PX4's estimate, and what the setpoints were:
+    the kit's PX4 setpoints, else the competitor's pose setpoints put in PX4's frame."""
     estimate = bag.series.get("local_position")
-    if setpoint is None or estimate is None or status is None:
-        return []
+    if estimate is None or status is None:
+        return [], "no PX4 local position or status"
+
+    # The kit's own PX4 setpoint is already NED; a pose setpoint is odom ENU, unanchored as the
+    # kit's default flies it
+    setpoint = bag.series.get("trajectory_setpoint")
+    pose = bag.series.get("pose_setpoint")
+    if setpoint is not None:
+        targets, times_s = _xyz(setpoint), setpoint.times_s
+        source = "the kit's /fmu/in/trajectory_setpoint"
+    elif pose is not None:
+        targets, times_s = course_frames.px4_from_odom(_xyz(pose), frame), pose.times_s
+        source = f"/skybeta/setpoint/pose, put in PX4's frame as `{frame.value}`"
+    else:
+        return [], "no setpoint recorded"
 
     offboard = metrics.state_spans(status.times_s, status.fields["nav_state"], metrics.NAV_OFFBOARD,
                                    bag.duration_s)
-    return metrics.legs(setpoint.times_s, _xyz(setpoint), estimate.times_s, _xyz(estimate),
+    legs = metrics.legs(times_s, targets, estimate.times_s, _xyz(estimate),
                         estimate.fields["heading"], offboard, arrival_radius_m, vision_gaps)
+    return legs, source
 
 
 def _xyz(series: Series) -> np.ndarray:
@@ -285,12 +306,10 @@ def _xyz(series: Series) -> np.ndarray:
     return np.column_stack([series.fields["x"], series.fields["y"], series.fields["z"]])
 
 
-def _tracking_section(bag: BagFlight, legs: list[metrics.Leg], arrival_radius_m: float) -> list[str]:
-    """Setpoint tracking per leg: what the kit sent PX4 against PX4's own estimate."""
-    lines = ["", "## Setpoint tracking (kit's /fmu/in setpoint vs PX4's estimate, NED)", ""]
-    if "trajectory_setpoint" not in bag.series:
-        return [*lines, "No /fmu/in/trajectory_setpoint in the bag."]
-
+def _tracking_section(legs: list[metrics.Leg], source: str, arrival_radius_m: float) -> list[str]:
+    """Setpoint tracking per leg: the setpoints against PX4's own estimate, both NED."""
+    lines = ["", "## Setpoint tracking (setpoint vs PX4's estimate, NED, in Offboard)", "",
+             f"Setpoints: {source}."]
     if not legs:
         return [*lines, "No position setpoint while in Offboard."]
 
@@ -432,10 +451,11 @@ def _height_section(bag: BagFlight, flying: list[metrics.Span]) -> list[str]:
                     f"{agreement.spread_p95_m:.3f} m, worst {agreement.worst_m:.3f} m"]
 
 
-def _course_section(bag: BagFlight, args: argparse.Namespace, flying: list[metrics.Span]) -> list[str]:
+def _course_section(bag: BagFlight, args: argparse.Namespace, flying: list[metrics.Span],
+                    frame: course_frames.Px4Frame, frame_lines: list[str]) -> list[str]:
     """The flight placed on the course map: frame agreement with vision, wall clearance and goals,
     and estimate-versus-truth where a truth log is given."""
-    lines = ["", "## Course (PX4's estimate placed on the course map)", ""]
+    lines = ["", "## Course (PX4's estimate placed on the course map)", "", *frame_lines]
     estimate = bag.series.get("local_position")
     map_path = args.course_map or args.flight / "meta" / "course_map.yaml"
     if estimate is None or not map_path.is_file():
@@ -447,15 +467,16 @@ def _course_section(bag: BagFlight, args: argparse.Namespace, flying: list[metri
         return [*lines, f"- cannot read {map_path}: {failure}"]
 
     transform, source = _transform(args, course)
-    frame, agreement_lines = _px4_frame(bag, args, flying)
     odom_xyz, odom_yaw = course_frames.odom_from_px4(_xyz(estimate), estimate.fields["heading"], frame)
     track, track_yaw = course_frames.course_from_odom(odom_xyz, odom_yaw, course, transform)
     lines += [f"- map {map_path.name}; course-to-odom {source}: yaw {transform.yaw_rad:+.3f} rad, "
-              f"odom ({transform.odom_x_m:+.3f}, {transform.odom_y_m:+.3f}) m",
-              f"- PX4 local frame taken as `{frame.value}`", *agreement_lines]
+              f"odom ({transform.odom_x_m:+.3f}, {transform.odom_y_m:+.3f}) m"]
 
-    result = metrics.clearance(estimate.times_s, track[:, :2], course_frames.wall_clearance_m(track[:, :2], course),
-                               flying, course.goals, course_frames.PROP_REACH_M)
+    # The launch mark is where the run starts, not a goal it passes
+    goals = {name: at for name, at in course.goals.items() if name != "launch"}
+    result = metrics.clearance(estimate.times_s, track[:, :2],
+                               course_frames.wall_clearance_m(track[:, :2], course), flying, goals,
+                               course_frames.PROP_REACH_M)
     if result is None:
         return [*lines, "- never flew: no clearance to measure"]
 
@@ -506,12 +527,15 @@ def _px4_frame(bag: BagFlight, args: argparse.Namespace,
     lines = [f"- PX4 `{frame.value}` mapping vs cuVSLAM odometry: median {residual:.2f} m apart"
              for frame, residual in residuals.items()]
     if args.px4_frame != "auto":
-        return course_frames.Px4Frame(args.px4_frame), lines
+        chosen = course_frames.Px4Frame(args.px4_frame)
+        return chosen, [*lines, f"- PX4 local frame taken as `{chosen.value}` (command line)"]
 
     if not residuals:
-        return course_frames.Px4Frame.LAUNCH, [*lines, "- no cuVSLAM odometry to choose by: `launch` assumed"]
+        return course_frames.Px4Frame.LAUNCH, [*lines, "- no cuVSLAM odometry to choose by: PX4 "
+                                                       "local frame taken as `launch`, assumed"]
 
     best = min(residuals, key=residuals.__getitem__)
+    lines.append(f"- PX4 local frame taken as `{best.value}`, the closer to vision")
     if residuals[best] > _FRAME_AGREEMENT_M:
         lines.append(f"- WARNING: neither mapping agrees with vision within {_FRAME_AGREEMENT_M} m")
 

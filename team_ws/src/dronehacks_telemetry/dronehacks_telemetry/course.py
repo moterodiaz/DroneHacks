@@ -97,6 +97,15 @@ def odom_from_px4(local_ned: np.ndarray, heading_rad: np.ndarray,
     return np.column_stack([north, -east, -down]), -heading_rad
 
 
+def px4_from_odom(odom_xyz: np.ndarray, frame: Px4Frame) -> np.ndarray:
+    """(n, 3) odom ENU positions in PX4's local NED frame, inverting `odom_from_px4`."""
+    x, y, z = odom_xyz.T
+    if frame is Px4Frame.ODOM:
+        return np.column_stack([y, x, -z])
+
+    return np.column_stack([x, -y, -z])
+
+
 def course_from_odom(odom_xyz: np.ndarray, yaw_rad: np.ndarray, course: CourseMap,
                      transform: CourseToOdom) -> tuple[np.ndarray, np.ndarray]:
     """(n, 3) odom ENU positions and yaws as course east, north, up-from-origin and course yaws,

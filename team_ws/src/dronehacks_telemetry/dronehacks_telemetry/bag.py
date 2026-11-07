@@ -12,7 +12,7 @@ from __future__ import annotations
 import json
 import math
 import re
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Collection
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -71,6 +71,7 @@ class BagFlight:
     series: dict[str, Series]            # each role found, by role name
     log: list[LogLine]                   # /rosout warnings and worse, and the team's own lines
     resolved: dict[str, str]             # each role's topic name
+    undecodable: list[str]               # topics recorded without their message definition
 
 
 def find_bag_files(folder: Path) -> list[Path]:
@@ -103,7 +104,7 @@ def _decompressed(path: Path) -> Path:
     return target
 
 
-def resolve_roles(topics: Iterable[str]) -> dict[str, str]:
+def resolve_roles(topics: Collection[str]) -> dict[str, str]:
     """Each role's topic among `topics`; the shortest name wins where several match."""
     resolved = {}
     for role, pattern in ROLE_PATTERNS.items():
@@ -124,8 +125,10 @@ def read_bag(folder: Path) -> BagFlight:
 
     files = find_bag_files(folder)
 
-    # The topic list and counts come from the summaries, before anything is decoded
+    # The topic list and counts come from the summaries, before anything is decoded. A recorder
+    # that lacked a message's package writes its channel with an empty schema: it cannot be decoded
     topics: dict[str, int] = {}
+    undecodable: set[str] = set()
     for path in files:
         with path.open("rb") as stream:
             summary = make_reader(stream).get_summary()
@@ -135,8 +138,11 @@ def read_bag(folder: Path) -> BagFlight:
             for channel_id, channel in summary.channels.items():
                 count = summary.statistics.channel_message_counts.get(channel_id, 0)
                 topics[channel.topic] = topics.get(channel.topic, 0) + count
+                schema = summary.schemas.get(channel.schema_id)
+                if schema is None or not schema.data:
+                    undecodable.add(channel.topic)
 
-    resolved = resolve_roles(topics)
+    resolved = resolve_roles([topic for topic in topics if topic not in undecodable])
     by_topic = {topic: role for role, topic in resolved.items()}
     rows: dict[str, list[tuple[int, Any]]] = {role: [] for role in resolved}
     for path in files:
@@ -145,11 +151,11 @@ def read_bag(folder: Path) -> BagFlight:
             for _, channel, record, message in reader.iter_decoded_messages(topics=list(by_topic)):
                 rows[by_topic[channel.topic]].append((record.log_time, message))
 
-    return bag_flight_from_rows(rows, topics, resolved)
+    return bag_flight_from_rows(rows, topics, resolved, sorted(undecodable))
 
 
 def bag_flight_from_rows(rows: dict[str, list[tuple[int, Any]]], topics: dict[str, int],
-                         resolved: dict[str, str]) -> BagFlight:
+                         resolved: dict[str, str], undecodable: list[str] | None = None) -> BagFlight:
     """The flight from each role's (log time ns, decoded message) rows."""
     every_ns = [log_ns for role_rows in rows.values() for log_ns, _ in role_rows]
     if not every_ns:
@@ -166,7 +172,7 @@ def bag_flight_from_rows(rows: dict[str, list[tuple[int, Any]]], topics: dict[st
             series[role] = _series(role, role_rows, start_ns)
 
     return BagFlight(start_ns=start_ns, duration_s=(max(every_ns) - start_ns) * 1e-9, topics=topics,
-                     series=series, log=log, resolved=resolved)
+                     series=series, log=log, resolved=resolved, undecodable=undecodable or [])
 
 
 def stamp_s(header: Any) -> float:
