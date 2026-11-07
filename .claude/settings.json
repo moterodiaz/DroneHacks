@@ -40,7 +40,8 @@
       "Bash(make board*)",
       "Bash(make review-queue*)",
       "Bash(make claim*)",
-      "Bash(make labels*)"
+      "Bash(make labels*)",
+      "Bash(make devlog*)"
     ]
   }
 }
