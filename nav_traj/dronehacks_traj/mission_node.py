@@ -40,6 +40,10 @@ Parameters:
     rate_hz               setpoint rate                                        50.0
     state_timeout_s       /skybeta/state older than this counts as no Offboard 1.0
     prefer                goal names to force among alternatives ([] = fastest) []
+    avoid_boulders        plan around the boulders (False: drop them from the     true
+                          map, so the route may fly over them: they are 0.53 m
+                          tall, under the flight slice; PX4's rangefinder height
+                          then reads their tops)
     <MissionConfig field> any other field of dronehacks_traj.mission.MissionConfig
 """
 
@@ -58,6 +62,7 @@ from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, HistoryPolicy, QoSProfile, ReliabilityPolicy
 from std_msgs.msg import String
 
+from dronehacks_planner.course_map import load_map
 from dronehacks_planner.limits import VehicleLimits
 from dronehacks_planner.route import PlannerConfig
 
@@ -94,6 +99,7 @@ class MissionNode(Node):
         self.declare_parameter("rate_hz", 50.0)
         self.declare_parameter("state_timeout_s", 1.0)
         self.declare_parameter("prefer", [""])
+        self.declare_parameter("avoid_boulders", True)
         cfg_fields = [f for f in dataclasses.fields(MissionConfig) if f.name != "rest_height_m"]
         defaults = MissionConfig(rest_height_m=0.0)
         for f in cfg_fields:
@@ -118,7 +124,10 @@ class MissionNode(Node):
             config = MissionConfig(rest_height_m=rest, **{f.name: self._param(f.name) for f in cfg_fields})
             limits = dataclasses.replace(VehicleLimits(), v_max_mps=float(self._param("v_max_mps")))
             prefer = tuple(p for p in self._param("prefer") if p)
-            self.prepared = prepare(map_file, config, limits,
+            cmap = load_map(map_file)
+            if not self._param("avoid_boulders"):
+                cmap = dataclasses.replace(cmap, boulders=())
+            self.prepared = prepare(cmap, config, limits,
                                    dataclasses.replace(PlannerConfig(), prefer=prefer), frame=frame)
         except Exception as exc:  # noqa: BLE001 - every start-up failure must stop the node before it publishes
             raise ConfigError(str(exc)) from exc

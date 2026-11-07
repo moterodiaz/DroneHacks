@@ -63,6 +63,17 @@ class NodeTest(unittest.TestCase):
         self.assertAlmostEqual(n.timers[0][0], 1 / 50.0)
         self.assertTrue(any("route tunnel > gate_b > pad" in line for line in n.logged), n.logged)
 
+    def test_the_boulders_are_planned_around_unless_avoid_boulders_is_off(self):
+        self.assertEqual(len(self.node.prepared.cmap.boulders), 5)
+        fake_ros.uninstall()
+        params = config_params()
+        params.update(MEASURED, map_file=STEP_MAP, rest_height_m=0.07, avoid_boulders=False, prefer=["window"])
+        self.handle = fake_ros.install(fake_ros.Handle(parameters=params))
+        mod = importlib.reload(importlib.import_module("dronehacks_traj.mission_node"))
+        node = mod.MissionNode()
+        self.assertEqual(node.prepared.cmap.boulders, ())
+        self.assertEqual(node.prepared.plan.route.goals, ["tunnel", "window", "pad"])
+
     def test_px4_velocity_reaches_the_mission_in_the_body_heading_frame(self):
         # PX4 heading east (NED yaw 90 deg), flying north at 1 m/s: north is the drone's left
         from px4_msgs.msg import VehicleOdometry
