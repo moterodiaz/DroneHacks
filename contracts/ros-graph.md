@@ -10,7 +10,7 @@ this file wins (AGENTS.md §3.1).
 |---|---|---|---|---|---|---|
 | `depthai-ros` | kit (Luxonis driver) | — | stereo image pair, IMU | `sensor_msgs/Image`, `sensor_msgs/Imu` | 1024×640 @ 30 fps image, 200 Hz IMU | default |
 | cuVSLAM (`visual_slam`) | library (Isaac ROS, NVIDIA) | stereo image pair, IMU | pose | `nav_msgs/Odometry` (pose+covariance) | ~30 Hz, stereo-only mode | default |
-| **Guard** | **ours** | cuVSLAM pose | filtered pose | `nav_msgs/Odometry` | passthrough, with withholds | default |
+| **Guard** | **ours** | cuVSLAM pose, stereo image pair (texture check), IMU/gyro (rotation cross-check), cuVSLAM tracking status, PX4 estimate (re-anchor on vision return) | filtered pose | `nav_msgs/Odometry` | passthrough, with withholds | default |
 | `px4_odom_bridge.py` | kit | Guard's filtered pose (ENU) | `VehicleOdometry` (FRD) | `px4_msgs/VehicleOdometry` | passthrough | best-effort out |
 | **Planner** | **ours** | `contracts/course.md` map file | route | internal | once per run / re-plan | — |
 | **Follower** | **ours** | Planner's route, PX4 estimate | led pose setpoints | ENU pose/twist | 50 Hz | — |

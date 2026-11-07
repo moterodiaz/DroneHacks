@@ -14,7 +14,7 @@ Tools › Save to file) before any change.
 | parameter | value | why | source |
 |---|---|---|---|
 | `EKF2_EVA_NOISE` | `0.01` | PX4 1.16 uses this noise unsquared, weighting vision yaw 5× weaker than 1.18 | `measured` |
-| `EKF2_EV_DELAY` | `0` | Confirmed from the first hover's log (vision innovations at 0 against their 70); their bridge already stamps at capture, so their `70` double-counts latency | `measured` |
+| `EKF2_EV_DELAY` | `0` | Simulator-only result (vision innovations at 0 against their 70 in sim); their bridge already stamps at capture, so their `70` double-counts latency — kit and first-hover confirmation still pending | `measured` |
 | `EKF2_EV_QMIN` | `0` (keep, do not raise) | Their bridge sends quality 0; a higher QMIN refuses every sample | `measured` |
 
 Nothing else under `EKF2_*`, `COM_*`, `NAV_*`, `MIS_*`, or `MPC_*` may be

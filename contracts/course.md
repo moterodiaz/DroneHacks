@@ -50,6 +50,36 @@ derive goals (tunnel middle, window, pad) from it — never from typed
 coordinates. This is rule 9.5's generality requirement
 (`organisers`) made concrete; see also AGENTS.md §3.7.
 
+### Schema (YAML)
+
+```yaml
+origin: [<east_m>, <north_m>]  # course-frame origin, metres
+slice_height: <m>               # height at which walls are sliced (planner flight height)
+segments:                       # wall and net footprints at slice_height
+  - start: [<east_m>, <north_m>]
+    end:   [<east_m>, <north_m>]
+    thickness: <m>              # wall thickness (default 0.102 m from geometry table)
+boulders:                       # obstacle discs
+  - centre: [<east_m>, <north_m>]
+    radius: <m>
+goals:                          # planner derives waypoints from these; no typed coords in code
+  - name: <tunnel|window|pad>
+    shape: <oval|rect|disc>
+    centre: [<east_m>, <north_m>]
+    params: {}                  # shape-specific dimensions (see worked example below)
+```
+
+### Worked example — pad goal
+
+```yaml
+goals:
+  - name: pad
+    shape: disc
+    centre: [-2.042, -0.792]  # from geometry table (course-frame east, north)
+    params:
+      radius: 0.762           # 1.524 m diameter / 2
+```
+
 ## Layout tolerance
 
 The organisers state the layout "may change slightly" (`organisers`). Survey

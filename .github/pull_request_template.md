@@ -6,7 +6,7 @@
 
 <!-- Checks run and results; include any limitations or unrelated failures. -->
 
-- [ ] Scope matches the branch's area prefix (core/docs/infra/contracts)
+- [ ] Scope matches the branch's area prefix (localization/navigation/course/infra/docs/contracts)
 - [ ] No secrets, .env files, or credential-bearing data in the diff
 - [ ] Contracts changes include a contracts/CHANGELOG.md entry (or N/A)
 
