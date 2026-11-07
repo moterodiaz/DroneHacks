@@ -1,4 +1,15 @@
-.PHONY: help labels board review-queue claim devlog
+.PHONY: help labels board review-queue claim devlog merge-reviewed
+.DEFAULT_GOAL := help
+
+# Freeze command-line values without evaluating Make expressions. Recipes read
+# them from the environment, never interpolate them into shell source.
+override N := $(value N)
+override EXECUTE := $(value EXECUTE)
+export N EXECUTE
+
+merge-reviewed: ## dry-run guarded merge; EXECUTE=1 enables the final write
+	@case "$$N" in ""|*[!0-9]*|0) echo "usage: make merge-reviewed N=<positive-number> [EXECUTE=1]"; exit 2;; esac
+	@case "$$EXECUTE" in ""|0) python3 .github/scripts/merge_reviewed.py "$$N";; 1) python3 .github/scripts/merge_reviewed.py "$$N" --execute;; *) echo "EXECUTE must be 0 or 1"; exit 2;; esac
 
 help: ## list targets
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-16s\033[0m %s\n", $$1, $$2}'
@@ -8,11 +19,11 @@ labels: ## create/update the full label taxonomy (idempotent)
 	gh label create in-review          --color "0e8a16" --force --description "A reviewer has claimed this PR"
 	gh label create changes-requested  --color "d93f0b" --force --description "Findings filed; back to the author"
 	gh label create review-passed      --color "0e8a16" --force --description "Signed off at a recorded SHA; awaiting merge"
-	gh label create needs-human        --color "b60205" --force --description "A maintainer decision is required"
+	gh label create needs-human        --color "b60205" --force --description "Manual spend, live-flight, deployment or access decision required"
 	gh label create blocked            --color "e4e669" --force --description "Waiting on another issue/PR"
 	gh label create review-finding     --color "5319e7" --force --description "An independently-closable defect found in review"
 	gh label create task               --color "c5def5" --force --description "A standalone piece of work"
-	gh label create decision           --color "b60205" --force --description "A choice only a maintainer can make"
+	gh label create decision           --color "b60205" --force --description "Recorded repository choice or manual-action escalation"
 	gh label create contract           --color "5319e7" --force --description "Touches contracts/"
 	gh label create area:localization  --color "c2e0c6" --force --description "localization/"
 	gh label create area:navigation    --color "c2e0c6" --force --description "navigation/"
