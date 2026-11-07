@@ -38,11 +38,11 @@ within 10 s.
 
 ## Recording it
 
-Automatic. The launch file records a `dronehacks_telemetry` light bag (its exclude regex) from
-stack start into `~/team_ws/flights/<UTC>-light-square/` (`bag/`, `meta/manifest.txt`, an empty
-`px4/`). When the mission is over and PX4 has disarmed, the node exits 5 s later and the launch
-closes the bag with SIGINT (checked on skybeta-11 with the nodes stubbed: "Recording stopped",
-`metadata.yaml` written). Power cut before that: `ros2 bag reindex <run>/bag -s mcap` in the
+Automatic, from arming only. The node starts a `dronehacks_telemetry` light bag (its exclude regex) at
+the first arming into `~/team_ws/flights/<UTC>-light-square/` (`bag/`, `meta/manifest.txt`, an empty
+`px4/`); nothing is recorded while the drone sits powered and disarmed. When the mission is over and
+PX4 has disarmed, the node closes the bag with SIGINT 5 s later and exits.
+Power cut before that: `ros2 bag reindex <run>/bag -s mcap` in the
 container. `record:=false` turns it off. The folder is root-owned (written in the container):
 readable for `scp`, deletable only from inside the container.
 
