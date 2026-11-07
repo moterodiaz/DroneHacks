@@ -4,7 +4,7 @@ Newest entries first. One entry per contract-affecting change, linking the PR.
 
 ## 2026-11-07 — autonomous repository decisions and guarded merges
 
-Policy branch `infra/autonomous-pr-lifecycle` (policy PR link added on publication):
+[PR #31](https://github.com/moterodiaz/DroneHacks/pull/31):
 remove per-PR human approval for code, contract, cross-area and guard decisions.
 Require documented reasoning, affected-owner notification, independent exact-head
 review, recorded relevant tests and the trusted guarded squash-merge helper.
