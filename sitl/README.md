@@ -11,6 +11,8 @@ py -m dronesim gui              # the graphical test environment (or double-clic
 py -m dronesim list             # autonomy versions, followers, options, PX4 parameter profiles
 py -m dronesim run --version traj --follower path_lead --option route=window --out runs/x
 py -m dronesim run --version lidar_forbidden --option dropout=hold --speed-cap 1.5 --out runs/y
+py -m dronesim run --version vo_nolidar --track-speed 0.6 --descent-speed 0.3 --out runs/z
+py -m dronesim run --version traj --option route=window --option rocks=fly_over --out runs/w
 ```
 
 Run these from `sitl/`. Several `run` commands may run at once: each simulation builds its own
@@ -62,14 +64,22 @@ on), so `DRONEHACKS_*` variables do not arrive, just as on the drone.
   * **Follower algorithm.** Followers marked *sim injection* patch the mission module inside
     the simulated process only; the drone would run the shipped one. Parameter followers are
     real parameters of the version.
-  * **Version options**: route, landing, return flight, and what to do on a tracking dropout
-    (fly through by dead reckoning, the shipped behaviour, or hold still, the old one).
+  * **Version options**: route, landing, return flight, what to do on a tracking dropout (fly
+    through by dead reckoning, the shipped behaviour, or hold still, the old one), and **Rocks**
+    (plan around the boulders, or fly over them; the carrot builds have it for the window route).
   * **PX4 parameter profile.**
   * **Scenario**:
     * the **speed cap**, PX4's `MPC_XY_VEL_MAX`. It starts at the selected profile's value (1.0 m/s
       on `drone1-fleet`) and follows the profile until you type your own. A version's own speed
       limit follows it too (`dronehacks_traj`'s `v_max_mps`, through `$v_max`). The kit's
       flight interface still caps twist setpoints at its `max_speed_mps` (1.5 m/s);
+    * the **track speed**: how fast the autonomy itself flies the route, separate from PX4's cap.
+      Blank keeps the version's own behaviour. traj: its planner's `v_max_mps`. The carrot
+      builds: `track_speed_mps`, which regulates the carrot's lookahead to hold that ground speed
+      (corners still slow it, and PX4's cap still applies);
+    * the **landing descent** (`descent_mps`; blank: the version's 0.3 m/s). Below 0.275 m/s PX4's
+      land detector can't use "commanded down, not moving" (1.1 x `LNDMC_Z_VEL_MAX`), so it waits
+      for low throttle and disarms far later (33 s at 0.2 m/s, against 3 s at 0.3);
     * seed and duration;
     * start pose and calibration error (what the operator "measured");
     * tunnel lighting, cuVSLAM drift and latency;
@@ -124,6 +134,15 @@ on), so `DRONEHACKS_*` variables do not arrive, just as on the drone.
 * The lidar family:
   * the shipped carrot (0.5 m lookahead);
   * a 1.0 m lookahead (a real parameter).
+
+**Rocks** (`traj`, `lidar_allowed`, `lidar_forbidden`, `vo_nolidar`): `avoid` is the shipped
+planning; `fly_over` drops the boulders (0.53 m tall, under the 0.8 m flight band). traj plans
+with `avoid_boulders: false`, on any route. The carrot builds fly
+`routes/course_v3_window_over_rocks.json` (`make_route --over-rocks`) through the
+`*_over_rocks.launch.py` variants, so only with the window route.
+
+**Track speed and landing descent** map, per version, to the node parameter in the `tunables`
+section of `versions.yaml`; versions without one (the manual and kit missions) ignore them.
 
 **Tracking dropout** (an option of `traj`, the lidar family and `vo_nolidar`): `coast`, the shipped
 behaviour, flies on along the route by dead reckoning on PX4's velocity estimate, then re-anchors
@@ -197,7 +216,10 @@ runtime.
   * Geofence (`GF_MAX_VER_DIST` 3 m on drone 1).
 * **Auto disarm**: `COM_DISARM_PRFLT` and `COM_DISARM_LAND`, and the kill switch with
   `COM_KILL_DISARM`.
-* **Land detector**: three-stage hysteresis.
+* **Land detector**: three-stage hysteresis. While flying, ground contact makes `mc_pos_control`
+  cut the thrust (its `flying_but_ground_contact` branch: empty setpoint, high downward
+  acceleration, integrators reset), so it reaches landed within `LNDMC_TRIG_TIME` of
+  touchdown, and `COM_DISARM_LAND` disarms 2 s later.
 * **Pilot modes**: low throttle descends at `MPC_LAND_SPEED` near the ground.
 * **Acro** is refused and flagged (AGENTS.md §3.6).
 * **EKF2.**
@@ -272,7 +294,24 @@ Each of these comes from running the real code here. They are worth checking on 
    the launch mark, so the drone flies west into the net and later flips.
 6. **The kit's 5 m square** flies into the north net at about 2 m. In this course, that is the
    point of trying it here first.
-7. **Height references differ.** PX4's z is floor-referenced (rangefinder) while odom z is
+7. **Landing.** The followers descend at a constant `descent_mps` (0.3 m/s, PX4's own crawl
+   speed), about 2.3 s from the cruise height to the pad. The SITL had kept the drone armed on
+   the pad for 21 s after touchdown, because its PX4 model lacked the ground-contact thrust cut.
+   With the cut it disarms 3.0 s after touchdown. A descent below 0.275 m/s takes far longer to
+   disarm on real PX4 too (33 s at 0.2 m/s).
+8. **Track speed (2026-11-07).** The carrot followers flew slowly, median about 0.2 m/s: any
+   cross-track offset above `max_cut_m` (1.5 cm) collapsed the carrot to the next path point.
+   With `track_speed_mps` set, the drone's own offset is allowed on top of `max_cut_m`. In the
+   lit tunnel, `vo_nolidar` then finishes in 74 s at 0.3 m/s, 48 s at 0.6 m/s and 47 s at
+   0.9 m/s, against 87 s by default, with no touches. `lidar_allowed` at 0.6 m/s reaches CP4 at
+   36 s instead of 71 s.
+9. **Flying over the rocks.** The carrot planner's window route never needed to cross a boulder:
+   the over-rocks route is within 4 cm of it. traj's window route is clearance-weighted, and
+   without the boulders it flies straight over Boulder 3, reaching the pad 1.4 s sooner with no
+   touches. Over the rock PX4's rangefinder height dipped from 0.73 to 0.60 m. Its range
+   consistency check held the true height at 0.71–0.72 m, so the drone did not climb toward the
+   window's 1.22 m top edge.
+10. **Height references differ.** PX4's z is floor-referenced (rangefinder) while odom z is
    start-referenced, so pose setpoints fly about 7 cm lower than they read in odom.
 
 ---
@@ -281,8 +320,8 @@ Each of these comes from running the real code here. They are worth checking on 
 
 ```
 cd sitl
-py -B -m unittest tests.test_rosfake tests.test_models tests.test_step_mesh tests.test_cache   # ~8 s
-py -B -m unittest tests.test_flight -v                                            # ~1 min: real flights
+py -B -m unittest tests.test_rosfake tests.test_models tests.test_step_mesh tests.test_cache tests.test_catalog   # ~9 s
+py -B -m unittest tests.test_flight -v                                            # ~2 min: real flights
 ```
 
 **What they cover.**
@@ -306,6 +345,7 @@ py -B -m unittest tests.test_flight -v                                          
   * parameter profiles (including the `COM_FLTMODE6` finding);
   * the MS200 frame codec;
   * the referee's gates from the STEP model and its whole-drone crossing rule.
+* `test_catalog`: the rocks option's launch variants and requirements, and the tunables.
 * `test_cache`:
   * workspace cleanup measures ages on the real clock (parallel runs used to delete each
     other's live build trees, because the simulated clock is a day ahead);
@@ -313,7 +353,8 @@ py -B -m unittest tests.test_flight -v                                          
   * the speed cap overriding `MPC_XY_VEL_MAX`.
 * `test_flight`:
   * the organizer procedure on the kit example;
-  * the traj stack flying to the tunnel exit.
+  * the traj stack flying to the tunnel exit;
+  * `vo_nolidar` landing on the pad, with PX4 disarming within 4 s of touchdown.
 
 **The kit's own tests on this runtime** need pytest. Start a Python that has pytest; at its top
 call `dronesim.rosfake.activate()` and build the kit packages with

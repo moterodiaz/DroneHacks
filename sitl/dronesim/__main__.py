@@ -2,7 +2,8 @@
 
     list                                   autonomy versions, followers, options, PX4 profiles
     run --version traj [--follower F] [--option route=window] [--duration 120]
-        [--speed 1.0|max] [--speed-cap 1.0] [--out runs/x] [--set key=value ...] [--fault t:action[:arg]]
+        [--speed 1.0|max] [--speed-cap 1.0] [--track-speed 0.5] [--descent-speed 0.3]
+        [--out runs/x] [--set key=value ...] [--fault t:action[:arg]]
     gui                                    the graphical test environment
 """
 from __future__ import annotations
@@ -44,7 +45,8 @@ def cmd_list(args):
 def cmd_run(args):
     from .sim import Scenario, Simulation, format_log
     sc = Scenario(version=args.version, follower=args.follower, duration_s=args.duration, seed=args.seed,
-                  param_profile=args.profile, speed_cap_mps=args.speed_cap)
+                  param_profile=args.profile, speed_cap_mps=args.speed_cap,
+                  track_speed_mps=args.track_speed, descent_mps=args.descent_speed)
     for opt in args.option or []:
         k, _, v = opt.partition('=')
         sc.options[k] = v
@@ -105,6 +107,10 @@ def main(argv=None):
     r.add_argument('--profile', default='drone1-fleet')
     r.add_argument('--speed-cap', type=float, dest='speed_cap',
                    help="PX4's horizontal speed cap MPC_XY_VEL_MAX, m/s (default: the profile's)")
+    r.add_argument('--track-speed', type=float, dest='track_speed',
+                   help="how fast the autonomy flies the route, m/s (default: the version's own)")
+    r.add_argument('--descent-speed', type=float, dest='descent_speed',
+                   help="the autonomy's landing descent, m/s (default: the version's own)")
     r.add_argument('--duration', type=float, default=150.0)
     r.add_argument('--seed', type=int, default=1)
     r.add_argument('--speed', default='max')

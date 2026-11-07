@@ -123,26 +123,61 @@ def kit_package_dirs(repo_root):
     return [os.path.join(base, p) for p in KIT_PACKAGES]
 
 
-def resolve_selection(version, option_values=None, follower=None):
-    """Merge the chosen options and follower into (launch file, params by node, hook)."""
+TUNABLES = {
+    'track_speed_mps': 'track speed',
+    'descent_mps': 'landing descent speed',
+}
+
+
+def resolve_selection(version, option_values=None, follower=None, tunables=None):
+    """Merge the chosen options, follower and tunables into (launch file, params by node, hook, notes).
+
+    An option choice may set ``launch`` (the file), ``launch_suffix`` (inserted before
+    ``.launch.py`` once every option is resolved, e.g. ``_over_rocks``), ``params``, and
+    ``requires`` ({other option: choice}). ``tunables`` maps a scenario value (``TUNABLES``) to the
+    value; the version's ``tunables`` section names the node parameter it sets.
+    """
     launch = dict(version['launch'])
     params = {}
     hook = None
     notes = []
+    suffixes = []
 
     def merge(p):
         for node, vals in (p or {}).items():
             params.setdefault(node, {}).update(vals)
 
+    chosen = {}
     for name, opt in version.get('options', {}).items():
-        choice = (option_values or {}).get(name, opt.get('default'))
-        ch = opt['choices'].get(str(choice))
+        chosen[name] = str((option_values or {}).get(name, opt.get('default')))
+    for name, opt in version.get('options', {}).items():
+        choice = chosen[name]
+        ch = opt['choices'].get(choice)
         if ch is None:
             raise VersionError(f'{version["id"]}: option {name} has no choice {choice!r}')
+        for other, needed in (ch.get('requires') or {}).items():
+            if chosen.get(other) != str(needed):
+                other_label = version['options'].get(other, {}).get('label', other)
+                raise VersionError(f"{version['id']}: {opt.get('label', name)} {ch.get('label', choice)!r} "
+                                   f"needs {other_label} = {needed}")
         if 'launch' in ch:
             launch['file'] = ch['launch']
+        if ch.get('launch_suffix'):
+            suffixes.append(ch['launch_suffix'])
         merge(ch.get('params'))
         notes.append(f"{opt.get('label', name)}: {ch.get('label', choice)}")
+    for suffix in suffixes:
+        stem = launch['file'][:-len('.launch.py')] if launch['file'].endswith('.launch.py') else launch['file']
+        launch['file'] = stem + suffix + '.launch.py'
+    for key, value in (tunables or {}).items():
+        if value is None:
+            continue
+        target = (version.get('tunables') or {}).get(key)
+        if target is None:
+            notes.append(f'{TUNABLES.get(key, key)} {value:g} m/s: not adjustable in this version (ignored)')
+            continue
+        merge({target['node']: {target['param']: float(value)}})
+        notes.append(f"{TUNABLES.get(key, key)}: {value:g} m/s ({target['node']}.{target['param']})")
     fol = version['followers']
     fname = follower or fol.get('default')
     fch = fol['choices'].get(fname)

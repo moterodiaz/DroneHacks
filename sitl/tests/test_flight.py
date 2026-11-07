@@ -1,8 +1,9 @@
 """End-to-end flights: the organizer procedure on the real kit code and team code.
 
-These run the full simulation (tens of seconds of CPU each).  The traj flight
-needs the git ref origin/navigation/vo-traj-follower in the local repository;
-it is skipped if the ref is missing.
+These run the full simulation (tens of seconds of CPU each).  The traj and
+landing flights need the git refs their versions name in versions.yaml
+(navigation/vo-traj-follower, core/vo-nav-no-lidar); each is skipped if its
+ref is missing.
 """
 import os
 import subprocess
@@ -28,8 +29,10 @@ def _run(version, until, **kw):
         'sim = Simulation(sc)\n'
         'sim.run()\n'
         'r = sim.result(); st = sim.snapshot()\n'
+        'tr = sim.trajectory; hi = [i for i, row in enumerate(tr) if row[3] > 0.6]\n'
+        'td = next((row[0] for row in tr[hi[-1]:] if row[3] < 0.08), None) if hi else None\n'
         'print("RESULT" + json.dumps({"events": r["events"], "ref": r["referee"], "procs": r["processes"],'
-        ' "nav": st["px4"]["nav_name"], "z": st["true"]["z"], "msgs": r["px4_messages"]}))\n'
+        ' "nav": st["px4"]["nav_name"], "z": st["true"]["z"], "msgs": r["px4_messages"], "touchdown": td}))\n'
         'sim.close()\n' % (SITL, version, until, kw))
     out = subprocess.run([sys.executable, '-B', '-c', code], capture_output=True, text=True, timeout=1500)
     for line in out.stdout.splitlines():
@@ -49,7 +52,7 @@ class KitProcedureTest(unittest.TestCase):
         self.assertTrue(all(p['alive'] for p in r['procs']))
 
 
-@unittest.skipUnless(_have_ref('origin/navigation/vo-traj-follower'), 'traj ref not present')
+@unittest.skipUnless(_have_ref('navigation/vo-traj-follower'), 'traj ref not present')
 class TrajFlightTest(unittest.TestCase):
     def test_traj_reaches_the_tunnel_exit_when_the_tunnel_is_lit(self):
         # with the default dark tunnel cuVSLAM drops out inside the tube (see README "Known results")
@@ -57,6 +60,21 @@ class TrajFlightTest(unittest.TestCase):
         rows = {c['id']: c for c in r['ref']['checkpoints']}
         self.assertIsNotNone(rows[2]['whole_drone_s'])     # Gate A
         self.assertIsNotNone(rows[3]['whole_drone_s'])     # tunnel south end
+        self.assertEqual(r['ref']['touches'], 0)
+
+
+@unittest.skipUnless(_have_ref('core/vo-nav-no-lidar'), 'vo_nolidar ref not present')
+class LandingTest(unittest.TestCase):
+    def test_px4_disarms_within_a_few_seconds_of_touchdown_on_the_pad(self):
+        # mc_pos_control's flying-but-ground-contact thrust cut lets the land detector finish within
+        # LNDMC_TRIG_TIME of touchdown; then COM_DISARM_LAND (2 s). Without it the vehicle sat on the
+        # pad armed for about 21 s while the velocity integrator wound the thrust down.
+        r = _run('vo_nolidar', 130.0, vo={'tunnel_lighting': 'lit'})
+        disarm = next(m[0] for m in r['msgs'] if 'Disarmed by auto disarm on land' in m[2])
+        self.assertIsNotNone(r['touchdown'])
+        self.assertLess(disarm - r['touchdown'], 4.0)
+        rows = {c['id']: c for c in r['ref']['checkpoints']}
+        self.assertGreater(rows[5]['earned'], 0.0)             # landed and disarmed on the pad
         self.assertEqual(r['ref']['touches'], 0)
 
 

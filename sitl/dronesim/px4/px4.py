@@ -263,7 +263,16 @@ class PX4:
             pos = (pos[0], pos[1], NAN)
             vel_s = (vel_s[0], vel_s[1], NAN)
         self.pos_ctrl.set_state(pos, vel_s, vel_dot, lpos['heading'])
-        self.pos_ctrl.set_input_setpoint(sp.pos, sp.vel, acc_sp, sp.yaw, sp.yawspeed)
+        if flying and self.land_detector.ground_contact:
+            # mc_pos_control "flying_but_ground_contact": treated like not taken off -- an empty
+            # setpoint with a high downward acceleration "to make sure there's no thrust", and no
+            # integrator windup. This is what lets the land detector reach maybe-landed and landed
+            # within LNDMC_TRIG_TIME of touchdown instead of waiting for the integrator.
+            self.pos_ctrl.reset_integral()
+            self.pos_ctrl.set_input_setpoint((NAN, NAN, NAN), (NAN, NAN, NAN), (0.0, 0.0, 100.0),
+                                             lpos['heading'], 0.0)
+        else:
+            self.pos_ctrl.set_input_setpoint(sp.pos, sp.vel, acc_sp, sp.yaw, sp.yawspeed)
         ok = self.pos_ctrl.update(dt)
         if not ok:
             # PositionControl::generateFailsafeSetpoint: level, gentle descent

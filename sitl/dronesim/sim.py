@@ -49,6 +49,9 @@ class Scenario:
     # PX4's horizontal speed cap, MPC_XY_VEL_MAX (m/s); None = the profile's value. The install
     # config's $v_max (a version's own speed limit, e.g. dronehacks_traj's v_max_mps) follows it.
     speed_cap_mps: float = None
+    # the autonomy's own speeds, where a version has them (versions.yaml ``tunables``); None = its default
+    track_speed_mps: float = None      # how fast it flies the route
+    descent_mps: float = None          # how fast it descends onto the pad when landing
     seed: int = 1
     duration_s: float = 240.0
     stop_after_end_s: float = 8.0
@@ -133,8 +136,13 @@ class Simulation:
         self.version = self.catalog[scenario.version]
         # sources first: git runs in real time, before the simulated clock exists
         self.package_dirs, self.provenance = cat.materialize(self.repo_root, self.version, self.cache_dir)
+        for key in ('track_speed_mps', 'descent_mps'):
+            value = getattr(scenario, key)
+            if value is not None and not (math.isfinite(float(value)) and float(value) > 0.0):
+                raise ValueError(f'{key} must be a positive number of m/s (got {value!r})')
         self.launch, self.version_params, self.hook, notes = cat.resolve_selection(
-            self.version, scenario.options, scenario.follower)
+            self.version, scenario.options, scenario.follower,
+            {'track_speed_mps': scenario.track_speed_mps, 'descent_mps': scenario.descent_mps})
         self.run_notes += notes
         self._build()
 

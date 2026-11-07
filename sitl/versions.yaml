@@ -16,6 +16,10 @@
 # drone would run the version's shipped follower.  Choices with `params` are real parameters of
 # the version, written into its installed config.
 #
+# Tunables: the GUI's / CLI's "track speed" and "landing descent" set the node parameter named here
+# (versions without one ignore them). An option choice may also set `launch_suffix` (inserted before
+# .launch.py, e.g. _over_rocks) and `requires` ({other option: choice}).
+#
 # Substitutions: $rest_height_m  $v_max  $traj_yaw $traj_x $traj_y (contracts/frames.md
 # p_odom = o + R p_course, yaw CCW from east)  $odom_yaw_deg (bearing of odom +x, clockwise from
 # course north)  $odom_origin_x $odom_origin_y (tracker reading of the launch mark).
@@ -59,6 +63,15 @@ versions:
         choices:
           coast: {label: "fly on by dead reckoning, re-anchor after (shipped)"}
           hold: {label: "hold still (the old behaviour: coast_max_s 0)", params: {mission: {coast_max_s: 0.0}}}
+      rocks:
+        label: Rocks
+        default: avoid
+        choices:
+          avoid: {label: "plan around the boulders (shipped)"}
+          fly_over: {label: "fly over the boulders (avoid_boulders: false)", params: {mission: {avoid_boulders: false}}}
+    tunables:
+      track_speed_mps: {node: mission, param: v_max_mps}
+      descent_mps: {node: mission, param: descent_mps}
     followers:
       default: plain
       choices:
@@ -105,6 +118,16 @@ versions:
         choices:
           coast: {label: "fly on by dead reckoning (shipped)"}
           hold: {label: "hold still (the old behaviour: coast_max_s 0)", params: {follower: {coast_max_s: 0.0}}}
+      rocks:
+        label: Rocks
+        default: avoid
+        choices:
+          avoid: {label: "plan around the boulders (shipped routes)"}
+          fly_over: {label: "fly over the boulders (window route planned with --over-rocks)",
+                     launch_suffix: _over_rocks, requires: {route: window}}
+    tunables:
+      track_speed_mps: {node: follower, param: track_speed_mps}
+      descent_mps: {node: follower, param: descent_mps}
     followers:
       default: carrot
       choices:
@@ -143,6 +166,16 @@ versions:
         choices:
           coast: {label: "fly on by dead reckoning (shipped)"}
           hold: {label: "hold still (the old behaviour: coast_max_s 0)", params: {follower: {coast_max_s: 0.0}}}
+      rocks:
+        label: Rocks
+        default: avoid
+        choices:
+          avoid: {label: "plan around the boulders (shipped routes)"}
+          fly_over: {label: "fly over the boulders (window route planned with --over-rocks)",
+                     launch_suffix: _over_rocks, requires: {route: window}}
+    tunables:
+      track_speed_mps: {node: follower, param: track_speed_mps}
+      descent_mps: {node: follower, param: descent_mps}
     followers:
       default: carrot
       choices:
@@ -182,6 +215,9 @@ versions:
         choices:
           coast: {label: "fly on by dead reckoning (shipped)"}
           hold: {label: "hold still (the old behaviour: coast_max_s 0)", params: {follower: {coast_max_s: 0.0}}}
+    tunables:
+      track_speed_mps: {node: follower, param: track_speed_mps}
+      descent_mps: {node: follower, param: descent_mps}
     followers:
       default: carrot
       choices:
@@ -211,6 +247,16 @@ versions:
         choices:
           coast: {label: "fly on by dead reckoning (shipped)"}
           hold: {label: "hold still (the old behaviour: coast_max_s 0)", params: {follower: {coast_max_s: 0.0}}}
+      rocks:
+        label: Rocks
+        default: avoid
+        choices:
+          avoid: {label: "plan around the boulders (shipped routes)"}
+          fly_over: {label: "fly over the boulders (window route planned with --over-rocks)",
+                     launch_suffix: _over_rocks, requires: {route: window}}
+    tunables:
+      track_speed_mps: {node: follower, param: track_speed_mps}
+      descent_mps: {node: follower, param: descent_mps}
     followers:
       default: carrot
       choices:

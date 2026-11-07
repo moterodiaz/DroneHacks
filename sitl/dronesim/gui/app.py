@@ -118,23 +118,25 @@ class App:
             self.fields[key] = var
         self._cap_default = self._profile_speed_cap(DEFAULT_PROFILE)
         field(0, 'Speed cap, MPC_XY_VEL_MAX (m/s)', 'speed_cap', self._cap_default)
-        field(1, 'Seed', 'seed', 1)
-        field(2, 'Duration (s)', 'duration_s', 200)
-        field(3, 'Start heading (deg cw from N)', 'start_heading_deg', 0)
-        field(4, 'Start offset east, north (m)', 'start_offset_m', '0, 0')
-        field(5, 'Calibration error pos (m, 1-sigma)', 'calib_pos_error_m', 0.0)
-        field(6, 'Calibration error yaw (deg)', 'calib_yaw_error_deg', 0.0)
-        field(7, 'Tunnel lighting', 'tunnel_lighting', 'dark', choices=['dark', 'dim', 'lit'])
-        field(8, 'cuVSLAM drift x (1 = nominal)', 'vo_drift', 1.0)
-        field(9, 'cuVSLAM latency mean (s)', 'vo_latency', 0.062)
-        field(10, 'EKF2_EV_DELAY override (ms, blank)', 'ev_delay', '')
-        field(11, 'Other PX4 overrides (N=v, ...)', 'param_overrides', '')
-        field(12, 'Wind east, north (m/s)', 'wind', '0, 0')
-        field(13, 'Pilot arms at (s)', 'pilot_arm_at_s', 15.0)
-        field(14, 'Pilot -> Position after (s)', 'pilot_position_after_s', 2.0)
+        field(1, 'Track speed (m/s, blank: version default)', 'track_speed', '')
+        field(2, 'Landing descent (m/s, blank: version default)', 'descent_speed', '')
+        field(3, 'Seed', 'seed', 1)
+        field(4, 'Duration (s)', 'duration_s', 200)
+        field(5, 'Start heading (deg cw from N)', 'start_heading_deg', 0)
+        field(6, 'Start offset east, north (m)', 'start_offset_m', '0, 0')
+        field(7, 'Calibration error pos (m, 1-sigma)', 'calib_pos_error_m', 0.0)
+        field(8, 'Calibration error yaw (deg)', 'calib_yaw_error_deg', 0.0)
+        field(9, 'Tunnel lighting', 'tunnel_lighting', 'dark', choices=['dark', 'dim', 'lit'])
+        field(10, 'cuVSLAM drift x (1 = nominal)', 'vo_drift', 1.0)
+        field(11, 'cuVSLAM latency mean (s)', 'vo_latency', 0.062)
+        field(12, 'EKF2_EV_DELAY override (ms, blank)', 'ev_delay', '')
+        field(13, 'Other PX4 overrides (N=v, ...)', 'param_overrides', '')
+        field(14, 'Wind east, north (m/s)', 'wind', '0, 0')
+        field(15, 'Pilot arms at (s)', 'pilot_arm_at_s', 15.0)
+        field(16, 'Pilot -> Position after (s)', 'pilot_position_after_s', 2.0)
         self.script_var = tk.BooleanVar(value=True)
         ttk.Checkbutton(sc, text='Scripted pilot (organizers\' arm-then-Position procedure)',
-                        variable=self.script_var).grid(row=15, column=0, columnspan=2, sticky='w')
+                        variable=self.script_var).grid(row=17, column=0, columnspan=2, sticky='w')
         sc.columnconfigure(1, weight=1)
         sp = ttk.Frame(f)
         sp.pack(fill='x', pady=4)
@@ -441,6 +443,12 @@ class App:
                 except ValueError:
                     pass
         sc['param_overrides'] = over
+        for key, name in (('track_speed', 'track_speed_mps'), ('descent_speed', 'descent_mps')):
+            text = f[key].get().strip()
+            if text:
+                sc[name] = float(text)
+                if not (math.isfinite(sc[name]) and sc[name] > 0.0):
+                    raise ValueError(f'the {key.replace("_", " ")} must be a positive number of m/s')
         cap = f['speed_cap'].get().strip()
         if cap:
             sc['speed_cap_mps'] = float(cap)
