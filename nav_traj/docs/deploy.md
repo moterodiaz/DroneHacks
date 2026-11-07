@@ -9,7 +9,8 @@ touches the organisers' PX4 parameters (rule 8.5).
 
 ```sh
 # on the drone (host shell)
-git clone <the fork> DroneHacks && cd DroneHacks && git checkout core/vo-nav-traj-follower
+git clone https://github.com/moterodiaz/DroneHacks.git && cd DroneHacks
+git checkout navigation/vo-traj-follower     # or stay on main once it has merged
 nav_traj/scripts/install_on_drone.sh
 # with the Guard from the lidar-free build (branch core/vo-nav-no-lidar):
 GUARD_SRC=<that checkout>/depthcam nav_traj/scripts/install_on_drone.sh
