@@ -17,8 +17,9 @@ sys.path.insert(0, SITL)
 
 
 def _have_ref(ref):
-    r = subprocess.run(['git', '-C', REPO, 'rev-parse', '--verify', ref], capture_output=True)
-    return r.returncode == 0
+    # the catalog's own rule: the ref itself, else origin/<ref> (a fresh clone)
+    return any(subprocess.run(['git', '-C', REPO, 'rev-parse', '--verify', candidate],
+                              capture_output=True).returncode == 0 for candidate in (ref, 'origin/' + ref))
 
 
 def _run(version, until, **kw):

@@ -53,5 +53,24 @@ class TunablesTest(unittest.TestCase):
         self.assertTrue(any('not adjustable in this version' in n for n in notes), notes)
 
 
+class RefResolutionTest(unittest.TestCase):
+    def test_a_branch_only_on_origin_resolves_in_a_fresh_clone(self):
+        import subprocess
+        import tempfile
+        from dronesim.autonomy.catalog import resolve_ref
+        with tempfile.TemporaryDirectory() as repo:
+            def git(*args):
+                return subprocess.run(['git', '-C', repo, *args], capture_output=True, text=True, check=True).stdout.strip()
+            git('init', '-q')
+            git('-c', 'user.name=t', '-c', 'user.email=t@example.invalid', 'commit', '-q', '--allow-empty', '-m', 'x')
+            sha = git('rev-parse', 'HEAD')
+            git('update-ref', 'refs/remotes/origin/navigation/some-branch', sha)     # remote-tracking only
+            got, subject = resolve_ref(repo, 'navigation/some-branch')
+            self.assertEqual(got, sha)
+            self.assertIn('via origin/navigation/some-branch', subject)
+            with self.assertRaisesRegex(VersionError, 'not found locally or as origin/'):
+                resolve_ref(repo, 'navigation/missing')
+
+
 if __name__ == '__main__':
     unittest.main()

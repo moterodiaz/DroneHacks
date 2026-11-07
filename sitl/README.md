@@ -151,6 +151,14 @@ behaviour, flies on along the route by dead reckoning on PX4's velocity estimate
 the frame when cuVSLAM resumes; `hold` sets `coast_max_s` to 0, the behaviour before the fix (hold
 still, which in the dark tube ends in PX4's position-loss failsafe).
 
+**Where the code comes from.** A version's `git` ref is used as named if this repository has it
+(a worktree's local branch), else as `origin/<ref>` (a fresh clone). As of 2026-11-07:
+`navigation/vo-traj-follower` is on origin with the coast, velocity follow and 2 m/s fixes;
+`localization/lidar-nav` on origin is PR #27's merged head (`be7262c`), without the coast,
+track-speed and over-rocks commits, which are local, on `141f49e`; `core/vo-nav-no-lidar` and
+`localization/return-flight` are local only. A version
+whose ref can't be found says so when you start it.
+
 **To add a version**, add an entry to `versions.yaml`:
 
 * a git ref or a directory;

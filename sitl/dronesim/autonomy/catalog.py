@@ -49,9 +49,23 @@ def _git(repo, *args, binary=False):
 
 
 def resolve_ref(repo, ref):
-    sha = _git(repo, 'rev-parse', '--verify', f'{ref}^{{commit}}')
-    subject = _git(repo, 'log', '-1', '--format=%h %an %ad %s', '--date=short', sha)
-    return sha, subject
+    """``(sha, subject)`` of a version's ``git`` ref: the ref itself, else ``origin/<ref>``.
+
+    A worktree that made a branch has it as a local branch; a fresh clone has the team's branches
+    only as remote-tracking refs, so the same versions.yaml works in both."""
+    errors = []
+    for candidate in (ref, f'origin/{ref}'):
+        try:
+            sha = _git(repo, 'rev-parse', '--verify', f'{candidate}^{{commit}}')
+        except VersionError as exc:
+            errors.append(str(exc))
+            continue
+        subject = _git(repo, 'log', '-1', '--format=%h %an %ad %s', '--date=short', sha)
+        if candidate != ref:
+            subject = f'(via {candidate}) {subject}'
+        return sha, subject
+    raise VersionError(f"git ref {ref!r} not found locally or as origin/{ref} (fetch it, or check the "
+                       f"branch was pushed): {errors[-1]}")
 
 
 def materialize(repo_root, version, cache_root):
