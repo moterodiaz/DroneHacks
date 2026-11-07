@@ -2,7 +2,13 @@
 
     /visual_slam/tracking/odometry ─► vo_guard ─► output_topic (nav_msgs/Odometry) ─► pose_fusion
     /visual_slam/status ────────────┤   (raw pose, fixed variances, odom frame)
-    /fmu/out/vehicle_odometry ──────┘   (read only: PX4's gyro)
+    /fmu/out/vehicle_odometry ──────┘ ─► ~/tracking (std_msgs/Bool) ─► follower
+                                        (read only: PX4's gyro)
+
+``~/tracking`` is published for every pose judged, before the pose: true when it passed, false
+when it was withheld. The follower holds still from the first withheld frame. It doesn't wait
+for the pose stream to go quiet, because PX4 sees cuVSLAM's poses without this Guard's settling
+time.
 
 It republishes the organisers' cuVSLAM poses that pass every rule in ``pose_fusion.guard``:
 header stamp off this node's clock, tracker failed, jump, spin, gyro disagreement, and settling
@@ -36,7 +42,7 @@ import rclpy
 from nav_msgs.msg import Odometry
 from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, HistoryPolicy, QoSProfile, ReliabilityPolicy, qos_profile_sensor_data
-from std_msgs.msg import String
+from std_msgs.msg import Bool, String
 
 from pose_fusion.guard import Guard, GuardConfig, fixed_pose_covariance
 from pose_fusion.ros_io import stamp_to_s
@@ -76,6 +82,7 @@ class VoGuardNode(Node):
 
         self._pub = self.create_publisher(Odometry, str(self.get_parameter("output_topic").value), QUEUE_DEPTH)
         self._status_pub = self.create_publisher(String, "~/status", QUEUE_DEPTH)
+        self._tracking_pub = self.create_publisher(Bool, "~/tracking", QUEUE_DEPTH)
         self.create_subscription(Odometry, odom_in, self._on_odom, qos_profile_sensor_data)
 
         status_topic = str(self.get_parameter("status_topic").value)
@@ -115,6 +122,7 @@ class VoGuardNode(Node):
         p, q = msg.pose.pose.position, msg.pose.pose.orientation
         verdict = self.guard.judge(stamp_to_s(msg.header.stamp), (p.x, p.y, p.z), (q.x, q.y, q.z, q.w),
                                    received=self._now_s())
+        self._tracking_pub.publish(Bool(data=bool(verdict.publish)))     # before the pose it describes
         if not verdict.publish:
             return
         out = Odometry()

@@ -20,8 +20,8 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from follower.mission import (BLOCKED, FOLLOW, HOLD, LAND, LANDED, PRECHECK, STOPPED, TAKEOFF, WAIT_FOR_OFFBOARD,
-                              Follower, FollowerConfig, Pose)
+from follower.mission import (BLOCKED, FOLLOW, HOLD, LAND, LAND_HERE, LANDED, PRECHECK, STOPPED, TAKEOFF,
+                              WAIT_FOR_OFFBOARD, Follower, FollowerConfig, Pose)
 from follower.route import ROUTE_FORMAT, load_route, plan_to_dict, route_from_dict
 from pose_fusion.course_files import launch_mark_from_files, load_course_map, load_rules
 from pose_fusion.frames import CourseToTracker, LaunchMark, course_pose_to_tracker
@@ -288,16 +288,14 @@ def test_losing_offboard_stops_for_good():
     assert follower.update(4.1, True, vehicle.pose(4.1)) is None
 
 
-def test_a_stale_pose_in_flight_holds_by_zero_twist_not_silence():
-    """Past PRECHECK a stale pose must not mean silence: the interface would hold the last,
-    stale-corrected pose setpoint. It means a zero twist, which keeps the Offboard stream live."""
+def test_a_stale_pose_in_flight_holds_still_by_velocity():
+    # A held pose setpoint would point PX4 at the wrong place if cuVSLAM's frame jumps meanwhile;
+    # a zero velocity setpoint doesn't depend on any frame
     follower = Follower(synthetic_route(), FollowerConfig(rest_height_m=REST))
     vehicle = Vehicle()
     fly(follower, vehicle, 4.0)
-    assert follower.state in (TAKEOFF, FOLLOW)
     cmd = follower.update(4.0, True, Pose(0.0, vehicle.x, vehicle.y, vehicle.z, vehicle.yaw))
-    assert cmd is not None and cmd.kind == "twist"
-    assert (cmd.vx, cmd.vy, cmd.vz, cmd.yaw_rate) == (0.0, 0.0, 0.0, 0.0)
+    assert cmd.kind == "twist" and (cmd.vx, cmd.vy, cmd.vz, cmd.yaw_rate) == (0.0, 0.0, 0.0, 0.0)
     assert "no fresh pose" in follower.reason
 
 
@@ -306,16 +304,23 @@ def test_a_stale_pose_before_offboard_still_sends_nothing():
     assert follower.update(0.0, False, None) is None and "no fresh pose" in follower.reason
 
 
-def test_a_stale_pose_while_landing_descends_straight_down():
+def test_a_stale_pose_while_landing_holds_then_lands_straight_down():
+    """The author's in-flight hold (PR #27, 44d320e): a stale pose in LAND holds by zero twist like
+    any flight state; only once the hold outlasts realign_timeout_s does it give up the route and
+    descend straight down (LAND_HERE), which needs no pose."""
     follower = Follower(synthetic_route(corner=False), FollowerConfig(rest_height_m=REST))
     z = follower.z_fly
     for i in range(20):                                   # offboard, past PRECHECK, then cut to LAND
         follower.update(i * DT, True, Pose(i * DT, 0.0, 0.0, z, 0.0), None, True, True)
     assert follower.state in (TAKEOFF, FOLLOW)
     follower.state = LAND
-    cmd = follower.update(21.0, True, Pose(0.0, 0.0, 0.0, z, 0.0), None, True, True)   # pose.t = 0: stale
-    assert cmd.kind == "twist" and (cmd.vx, cmd.vy) == (0.0, 0.0) and cmd.vz < 0.0
+    stale = Pose(0.0, 0.0, 0.0, z, 0.0)                   # pose.t = 0: stale at t = 21 s
+    cmd = follower.update(21.0, True, stale, None, True, True)
+    assert cmd.kind == "twist" and (cmd.vx, cmd.vy, cmd.vz) == (0.0, 0.0, 0.0)   # holds, no descent
     assert "no fresh pose" in follower.reason
+    cmd = follower.update(21.0 + follower.config.realign_timeout_s + DT, True, stale, None, True, True)
+    assert follower.state == LAND_HERE and cmd.kind == "twist"
+    assert (cmd.vx, cmd.vy) == (0.0, 0.0) and cmd.vz < 0.0                  # gives up: straight down
 
 
 def test_the_default_holds_over_the_pad_for_the_pilot():
