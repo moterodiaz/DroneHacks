@@ -23,8 +23,9 @@ python -m unittest discover -s test          # 83 tests, ~12 s; or: python -m py
 On the drone, `planner/` is an ament_python package, `dronehacks_planner`.
 Copy it into `~/team_ws/src` and the kit's `team_build.sh` builds it. It
 provides `ros2 run dronehacks_planner plan MAP.yaml` and `... bench MAP.yaml`.
-The flight stack that uses it is `nav_vio/` (package `dronehacks_vio`, branch
-`core/vio-follower`).
+The flight stack that flies it is `nav_traj/`: package `dronehacks_traj`, on
+branch `core/vo-nav-traj-follower` (worktree `../DroneHacks-traj`). It has no
+lidar, and this Follower flies its FOLLOW state.
 
 ## Results (simulated, provisional map)
 
