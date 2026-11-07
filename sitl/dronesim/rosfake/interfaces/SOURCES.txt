@@ -1,0 +1,5 @@
+px4_msgs 392e831c1f659429ca83902e66820d7094591410 release/1.16
+common_interfaces 08434490d3e4abd37ccc5462cdde69b88853b5b8 humble
+rcl_interfaces 82776fc9068d1e0cd4af11c2e2700195994b2eb1 humble
+geometry2 404b7224d623d614f18fa9738dbf1716403d857e humble
+isaac_ros_visual_slam e31f4cc1d41a329a01946e5fe63669f8b15da677 release-3.2
