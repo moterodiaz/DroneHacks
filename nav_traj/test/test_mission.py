@@ -260,6 +260,29 @@ class WholeFlightTest(unittest.TestCase):
             errors[px4] = (len(prepared.mission.stitches), checks["wall_touches"], checks["on_pad"])
         self.assertEqual(errors[True], (1, 0, True), errors)
 
+    def test_a_track_speed_flies_the_whole_course_faster(self):
+        # The default governor holds the reference poses back to about 0.3 m/s (it slows the
+        # reference once PX4 trails it by 0.15 m); with a track speed it allows PX4's lag at it.
+        from dronehacks_traj.factory import for_track_speed
+        from dronehacks_planner.follower import FollowerConfig
+        from dronehacks_planner.limits import VehicleLimits
+        limits, fol = for_track_speed(0.8, VehicleLimits(), FollowerConfig())
+        self.assertEqual(limits.v_max_mps, 0.8)
+        self.assertAlmostEqual(fol.lag_ok_m, 0.15 + 0.8 * (1 / 0.95 + 0.05))
+        self.assertAlmostEqual(fol.lag_stop_m - fol.lag_ok_m, 0.35)
+        self.assertEqual(for_track_speed(3.0, VehicleLimits(), FollowerConfig())[0].v_max_mps, 1.0)   # PX4's cap
+        led = FollowerConfig(lead=True, lead_mode="path")
+        self.assertEqual(for_track_speed(0.8, VehicleLimits(), led)[1], led)       # a lead already compensates
+        times = {}
+        for track in (0.0, 0.8):
+            prepared = prep(l_course(), CONFIG, track_speed_mps=track)
+            log = fly(prepared.mission)
+            self.assertIn("disarm", log.events)
+            self.assertEqual(flight_checks(prepared, log.pos)["wall_touches"], 0)
+            self.assertTrue(flight_checks(prepared, log.pos)["on_pad"])
+            times[track] = log.events["disarm"] - log.events["takeoff"]
+        self.assertLess(times[0.8], 0.8 * times[0.0], times)
+
     def test_odometry_dropout_while_landing_never_climbs(self):
         # If the twist stopped, the interface would expire it into its last pose, the pad at
         # flight height, and the drone would climb (review of #26 at a616fdf, mission.py:187-189).

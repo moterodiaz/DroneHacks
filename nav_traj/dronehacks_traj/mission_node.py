@@ -40,6 +40,9 @@ Parameters:
     rate_hz               setpoint rate                                        50.0
     state_timeout_s       /skybeta/state older than this counts as no Offboard 1.0
     prefer                goal names to force among alternatives ([] = fastest) []
+    track_speed_mps       fly the course at this speed: the plan is capped at it,   0.0
+                          and the Follower's governor allows PX4's lag at it
+                          (factory.for_track_speed); 0 = the plan at v_max_mps
     avoid_boulders        plan around the boulders (False: drop them from the     true
                           map, so the route may fly over them: they are 0.53 m
                           tall, under the flight slice; PX4's rangefinder height
@@ -100,6 +103,7 @@ class MissionNode(Node):
         self.declare_parameter("state_timeout_s", 1.0)
         self.declare_parameter("prefer", [""])
         self.declare_parameter("avoid_boulders", True)
+        self.declare_parameter("track_speed_mps", 0.0)
         cfg_fields = [f for f in dataclasses.fields(MissionConfig) if f.name != "rest_height_m"]
         defaults = MissionConfig(rest_height_m=0.0)
         for f in cfg_fields:
@@ -128,7 +132,8 @@ class MissionNode(Node):
             if not self._param("avoid_boulders"):
                 cmap = dataclasses.replace(cmap, boulders=())
             self.prepared = prepare(cmap, config, limits,
-                                   dataclasses.replace(PlannerConfig(), prefer=prefer), frame=frame)
+                                   dataclasses.replace(PlannerConfig(), prefer=prefer), frame=frame,
+                                   track_speed_mps=float(self._param("track_speed_mps")))
         except Exception as exc:  # noqa: BLE001 - every start-up failure must stop the node before it publishes
             raise ConfigError(str(exc)) from exc
         self.mission = self.prepared.mission
