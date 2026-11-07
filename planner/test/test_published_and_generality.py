@@ -27,10 +27,17 @@ class PublishedTest(unittest.TestCase):
         cls.route = plan(cls.cmap)
 
     def test_visits_every_stage_in_order(self):
-        self.assertEqual(self.route.goals, ["tunnel", "window", "pad"])
-        self.assertEqual(self.route.choices, {"landing_entry": "window"})
-        self.assertEqual(self.route.rejected, {})
+        # The window is opt-in (contracts/course.md leaves its clearance_radius
+        # unreviewed), so the default route is Gate B.
+        self.assertEqual(self.route.goals, ["tunnel", "gate_b", "pad"])
+        self.assertEqual(self.route.choices, {"landing_entry": "gate_b"})
+        self.assertIn("window", self.route.rejected)
         self.assertGreaterEqual(self.route.min_margin_m, 0.0)
+
+    def test_window_is_opt_in(self):
+        route = plan(self.cmap, dataclasses.replace(CFG, allow_windows=True))
+        self.assertEqual(route.goals, ["tunnel", "window", "pad"])
+        self.assertGreaterEqual(route.min_margin_m, 0.0)
 
     def test_length_is_plausible(self):
         # The field guide's planner measured about 17 m launch to pad.

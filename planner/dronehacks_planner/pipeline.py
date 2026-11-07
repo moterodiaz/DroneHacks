@@ -1,8 +1,10 @@
 """Map to flyable trajectory: plan, smooth, profile, verify.
 
 ``build`` runs one route through every stage. ``fastest`` does that for every
-combination of alternatives (window or Gate B, ...) and keeps the one with the
-shortest flight time, which accounts for turns and speed limits, not just length.
+combination of alternatives (Gate B by default; the window only when
+``PlannerConfig.allow_windows`` is set, since ``contracts/course.md`` leaves
+its ``clearance_radius`` unreviewed) and keeps the one with the shortest
+flight time, which accounts for turns and speed limits, not just length.
 Anything that fails a check is reported, not used.
 """
 
@@ -60,7 +62,10 @@ def fastest(cmap: CourseMap, planner: PlannerConfig = PlannerConfig(), limits: V
     fails to plan, or if its profile reports any violation. If the planner
     config already prefers specific goals, only those combinations are tried.
     """
-    groups = [stage for stage in cmap.stages() if len(stage) > 1]
+    stages = cmap.stages()
+    if not planner.allow_windows:
+        stages = [tuple(g for g in stage if g.shape != "rect") or stage for stage in stages]
+    groups = [stage for stage in stages if len(stage) > 1]
     options = [[g.name for g in stage if not planner.prefer or g.name in planner.prefer] or
                [g.name for g in stage] for stage in groups]
     best: Optional[FlightPlan] = None

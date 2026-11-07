@@ -213,6 +213,9 @@ def _forward_backward(u_cap: np.ndarray, ds: np.ndarray, kappa: np.ndarray, lim:
     if u_start is not None and u[0] < u_start - 1e-9:
         raise ProfileError(f"cannot brake from the start speed {math.sqrt(u_start):.2f} m/s in time "
                            f"(at most {math.sqrt(max(u[0], 0.0)):.2f} m/s is stoppable)")
+    if u_end is not None and u[-1] < u_end - 1e-9:
+        raise ProfileError(f"cannot reach the end speed {math.sqrt(u_end):.2f} m/s "
+                           f"(at most {math.sqrt(max(u[-1], 0.0)):.2f} m/s fits under the caps)")
     return u
 
 

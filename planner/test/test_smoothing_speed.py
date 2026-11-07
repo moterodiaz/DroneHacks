@@ -142,10 +142,10 @@ class SmoothingTest(unittest.TestCase):
         from dronehacks_planner import load_map
         from dronehacks_planner.sim import openings_crossed
         cmap = load_map(PUBLISHED)
-        route = plan(cmap)
+        route = plan(cmap)          # Gate B by default; the window is opt-in
         path = smooth_route(route, cmap, make_field(cmap))
         self.assertGreaterEqual(path.min_margin_m, 0.0)
-        self.assertEqual(openings_crossed(path.xy, route, cmap, PC.drone_extent_m), {"tunnel": True, "window": True})
+        self.assertEqual(openings_crossed(path.xy, route, cmap, PC.drone_extent_m), {"tunnel": True, "gate_b": True})
 
 
 class SpeedTest(unittest.TestCase):
@@ -189,6 +189,19 @@ class SpeedTest(unittest.TestCase):
         fast = dataclasses.replace(LIM, v_max_mps=3.0)
         with self.assertRaises(ProfileError):
             self.profile([(-0.3, 0), (0.3, 0)], limits=fast, v_start_mps=2.5)
+
+    def test_end_speed_too_fast_to_reach_is_infeasible(self):
+        # Review of #24: an unreachable v_end_mps used to be silently clamped,
+        # so a caller joining trajectories got a different end speed than asked.
+        # 3.0 m/s needs 9 / (2 * 2) = 2.25 m to brake from; the path is 0.6 m long.
+        fast = dataclasses.replace(LIM, v_max_mps=5.0)
+        with self.assertRaises(ProfileError):
+            self.profile([(-0.3, 0), (0.3, 0)], limits=fast, v_end_mps=3.0)
+
+    def test_reachable_end_speed_is_matched(self):
+        path, prof = self.profile([(-8, 0), (8, 0)], v_end_mps=0.5)
+        self.assertAlmostEqual(prof.v[-1], 0.5, places=3)
+        self.assertEqual(check_profile(path, prof, LIM)["violations"], [])
 
     def test_coupled_acceleration(self):
         tight = dataclasses.replace(LIM, v_max_mps=2.0, a_lat_mps2=1.0, a_horizontal_mps2=1.2)

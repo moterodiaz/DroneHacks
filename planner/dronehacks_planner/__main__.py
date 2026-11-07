@@ -21,18 +21,21 @@ def main(argv=None) -> int:
     ap.add_argument("--out", help="write the route as JSON here")
     ap.add_argument("--svg", help="write a picture of the map and route here")
     ap.add_argument("--prefer", nargs="*", default=[], metavar="NAME",
-                    help="goal names to take when a group offers them (e.g. window)")
+                    help="goal names to take when a group offers them (e.g. gate_b)")
+    ap.add_argument("--allow-windows", action="store_true",
+                    help="also consider window (rect) goals; off by default (contracts/course.md "
+                         "leaves the window's clearance_radius unreviewed)")
     defaults = PlannerConfig()
     for f in dataclasses.fields(PlannerConfig):
-        if f.name == "prefer":
+        if f.name in ("prefer", "allow_windows"):
             continue
         ap.add_argument("--" + f.name.replace("_", "-"), type=type(getattr(defaults, f.name) or 0.0),
                         default=None, help=f"default {getattr(defaults, f.name)}")
     args = ap.parse_args(argv)
 
     overrides = {f.name: getattr(args, f.name) for f in dataclasses.fields(PlannerConfig)
-                 if f.name != "prefer" and getattr(args, f.name, None) is not None}
-    config = dataclasses.replace(defaults, prefer=tuple(args.prefer), **overrides)
+                 if f.name not in ("prefer", "allow_windows") and getattr(args, f.name, None) is not None}
+    config = dataclasses.replace(defaults, prefer=tuple(args.prefer), allow_windows=args.allow_windows, **overrides)
     try:
         cmap = load_map(args.map)
         route = plan(cmap, config)

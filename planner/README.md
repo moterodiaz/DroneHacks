@@ -37,8 +37,8 @@ kit's real controller gains and limits (see "The simulator" below). At the
 |---|---|---|---|---|---|
 | A: waypoints, as in the kit example | — | 30.0 s | 0 | 0.37 m | 0.13 m |
 | B: smoothed path, one speed throughout | 65.6 s | 65.6 s | 0 | 0.41 m | 0.05 m |
-| **C: smoothed path, speed profile, lead (the Follower)** | **23.0 s** | **23.5 s** | **0** | **0.35 m** | **0.18 m** |
-| C0: C without the lead | 23.0 s | 51.0 s | 0 | 0.41 m | 0.04 m |
+| **C: smoothed path, speed profile, lead (the Follower, `lead=True` as then)** | **23.0 s** | **23.5 s** | **0** | **0.35 m** | **0.18 m** |
+| C0: C without the lead (= the shipped default now) | 23.0 s | 51.0 s | 0 | 0.41 m | 0.04 m |
 | L: the lidar stream's follower, its defaults | — | 54.8 s | 0 | 0.41 m | 0.06 m |
 | L, with a 1.0 m carrot (our tuning, not theirs) | — | 39.5 s | 0 | 0.40 m | 0.12 m |
 
@@ -46,6 +46,12 @@ kit's real controller gains and limits (see "The simulator" below). At the
 method passed both openings whole-drone and landed inside the pad's ring.
 "Max off-path" is measured against the path each follower flies: the
 smoothed path for B and C, the planner's polyline for A and L.
+
+Defaults changed after issue #25: the window is now opt-in
+(`PlannerConfig.allow_windows`) and the lead is off by default, so the
+default route is Gate B and the default follower publishes plain poses. The
+numbers above were measured with the window route and the lead on; `bench`
+now labels the lead-on run "C1" and flies plain poses for C.
 
 ### Two followers: both kept, ours flagged as faster
 
@@ -70,8 +76,11 @@ Its speed comes from the carrot distance, about 0.95 × carrot, so it does not
 get faster with a higher speed cap: 54.8 s at 2 m/s too. Both followers are
 kept. The obvious combination is the lidar stream's mission states, with
 this Follower doing the flying in its FOLLOW state.
-At an unvalidated 2 m/s cap, C takes 22.2 s and A 28.2 s. The window route
-beats Gate B on planned time: 23.0 s to 24.5 s.
+At an unvalidated 2 m/s cap, C takes 22.2 s and A 28.2 s. On planned time
+the window route is faster than Gate B (23.0 s to 24.5 s), but
+`contracts/course.md` leaves the window's `clearance_radius` unreviewed, so
+Gate B is the default and the window is opt-in
+(`PlannerConfig.allow_windows`).
 
 What the comparison shows:
 
@@ -100,8 +109,8 @@ to `runs/bench/`, which git ignores.
 | Smooth | `smoothing.py` | Corner fillets, then curvature smoothing; proven clearance bound; repairs |
 | Speed | `speed.py` | Speed caps, forward-backward acceleration pass, jerk limits, timestamps |
 | Trajectory | `trajectory.py` | Position, velocity, acceleration and heading at any time t |
-| Follow | `follower.py` | Lead-formula poses, collision-checked lead, progress governor, yaw |
-| Choose | `pipeline.py` | Builds every alternative (window or Gate B) and keeps the fastest that passes every check |
+| Follow | `follower.py` | Plain poses by default, progress governor, yaw; the withdrawn lead formula stays as an opt-in |
+| Choose | `pipeline.py` | Builds every allowed alternative (Gate B by default; the window only with `allow_windows`) and keeps the fastest that passes every check |
 | Check | `sim.py`, `bench.py` | PX4 stand-in, benchmark, figures |
 
 ### Route (planner)
@@ -178,14 +187,21 @@ An earlier jerk method (erode, then average) also had a guarantee, but cost
 
 The kit's interface sends PX4 a position *or* a velocity, never both, so the
 trajectory's velocity and acceleration can't be passed directly.
-`contracts/ros-graph.md`'s lead formula,
-`pose + v/0.95 + a/(0.95·1.8)` (`MPC_XY_P`, `MPC_XY_VEL_P_ACC`), offsets the
-pose so PX4's own loops produce them. The Follower adds:
+The kit's interface sends PX4 a position *or* a velocity, never both, so the
+trajectory's velocity and acceleration can't be passed directly.
+By default the Follower publishes the trajectory's plain poses. The lead
+formula from `contracts/ros-graph.md`,
+`pose + v/0.95 + a/(0.95·1.8)` (`MPC_XY_P`, `MPC_XY_VEL_P_ACC`), is marked
+withdrawn there ("not an alternative implementation path"), so it is off by
+default and stays only as an explicit opt-in (`FollowerConfig(lead=True)`)
+for offline research. The Follower always adds:
 
-* **Collision-checked lead.** If our node dies, the interface keeps resending
-  the last pose and PX4 flies straight to it. So the lead is cut back until
-  the straight lines from the reference, and from the drone, to the led pose
-  are clear. It is also capped at 2.5 m. This cuts back about 30% of poses.
+* **No unsafe target.** The interface keeps resending the last pose if our
+  node dies, and PX4 flies straight to it. So the line from the drone to the
+  pose actually published must be clear. If it is not - the drone drifted
+  round an inside corner and every approach is blocked - the reference is
+  not commanded: the Follower freezes the reference clock, holds where the
+  drone is, and sets the `no_safe_target` flag.
 * **Delay compensation.** The drone's position is predicted forward 68.7 ms
   using odometry velocity, and the lead looks a further half interface tick
   (0.05 s) ahead.
@@ -194,10 +210,14 @@ pose so PX4's own loops produce them. The Follower adds:
 * **Heading** looks 0.8 m ahead (field guide), is locked to the axis inside
   openings, and turns at most 1 rad/s.
 
-`lead_mode="path"` publishes the trajectory's own position `1/MPC_XY_P`
-seconds ahead. That expands to `pose + v/kp + a/(2kp²)`, the contract's
+With the lead opted in, it is also **collision-checked and bounded**: cut
+back until the straight lines from the reference, and from the drone, to the
+led pose are clear, and capped at 2.5 m. This cuts back about 30% of poses.
+
+`lead_mode="path"` (also opt-in) publishes the trajectory's own position
+`1/MPC_XY_P` seconds ahead. That expands to `pose + v/kp + a/(2kp²)`, the
 formula to second order (0.554 s² vs 0.585 s²), and stays on the path. It was
-about 1 s slower in simulation, so the contract formula stays the default.
+about 1 s slower in simulation.
 
 The Follower works in course-frame `(east, north)`. The ROS node, not yet
 written, must apply `contracts/frames.md`'s transform to the `odom` frame.
@@ -255,8 +275,10 @@ python -m dronehacks_planner.convert course_v3_map.json course_v3_rules.json --l
   Barrier 2. The contract wins (AGENTS.md §3.1).
 
 On it, the planner gives 17.46 m through the window (17.49 m on the
-provisional map) and 18.75 m via Gate B (18.78 m). The generated map and its
-inputs live with the flight package: `nav_traj/maps/`.
+provisional map) and 18.75 m via Gate B (18.78 m). The default route is
+Gate B; the window needs `PlannerConfig(allow_windows=True)` or
+`--allow-windows`. The generated map and its inputs live with the flight
+package: `nav_traj/maps/`.
 
 ## Input: the map file
 
@@ -279,8 +301,9 @@ entry before they are normative (AGENTS.md §3.1).
 
 There are no course coordinates in the code; `test_package_has_no_course_numbers`
 enforces this against the fixture. The tests plan, smooth and profile:
-- the published layout with boulders moved up to ±15 cm (it switches to Gate B
-  when a boulder blocks the window's exit);
+- the published layout with boulders moved up to ±15 cm (with the window
+  allowed, it switches to Gate B when a boulder blocks the window's exit);
+  by default the window is opt-in and the route is Gate B;
 - the whole course rotated 90°;
 - random serpentine mazes it has never seen.
 
