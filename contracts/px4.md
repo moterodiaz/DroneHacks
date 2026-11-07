@@ -14,7 +14,7 @@ Tools › Save to file) before any change.
 | parameter | value | why | source |
 |---|---|---|---|
 | `EKF2_EVA_NOISE` | `0.01` | PX4 1.16 uses this noise unsquared, weighting vision yaw 5× weaker than 1.18 | `measured` |
-| `EKF2_EV_DELAY` | `0` | Simulator-only result (vision innovations at 0 against their 70 in sim); their bridge already stamps at capture, so their `70` double-counts latency — kit and first-hover confirmation still pending | `measured` |
+| `EKF2_EV_DELAY` | `0` | Simulator-only candidate (vision innovations at 0 against 70 in sim); capture timestamps do not eliminate pipeline latency. Measure kit latency and confirm in an approved first-hover log before relying on this value | `measured` |
 | `EKF2_EV_QMIN` | `0` (keep, do not raise) | Their bridge sends quality 0; a higher QMIN refuses every sample | `measured` |
 
 Nothing else under `EKF2_*`, `COM_*`, `NAV_*`, `MIS_*`, or `MPC_*` may be
@@ -47,5 +47,13 @@ reference — do not set them.
 ## Prohibition
 
 Do not publish to `/fmu/in/*` directly. All setpoints go through
-`skybeta_flight_interface`, which never arms or changes mode on its own
-(their guide, quoted at `docs/field-guide.html` §architecture).
+`skybeta_flight_interface`. It has no arm path. With
+`auto_offboard_on_arm:=true`, it enters Offboard once after the safety
+pilot arms on the ground in Altitude and switches to Position, subject
+to the kit's readiness checks. Pilot takeover prevents automatic re-entry
+until disarm/rearm. The default altitude floor is 0.3 m; pose/twist input
+is not a supported land/disarm/rearm API. Landing and autonomous return
+after disarm remain blocked pending an organizer-supported procedure.
+Do not bypass the clamp, publish raw PX4 commands, or patch the interface.
+Source: `drone-snapshot/home/dronehacks/skybeta/README.md` §Flight sequence
+and the supplied `flight_interface.py`.

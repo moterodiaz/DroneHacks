@@ -2,6 +2,32 @@
 
 Newest entries first. One entry per contract-affecting change, linking the PR.
 
+## 2026-11-07 — reconcile published kit interfaces and frame alignment (PR #5)
+
+Supersedes the earlier ENU/no-rotation startup assumption: distinguish world
+from body frames, require measured course→odom and odom→PX4 alignment, and
+make the lab-height/pad arithmetic a conditional example, not a kit calibration.
+Correct window sill/head comments to floor-relative heights, require its wall
+reference and directed traversal axis, and define launch heading clockwise
+from course north. Remove the nonexistent tunnel-yaw rule.
+
+Reconcile the ROS graph with the published kit: direct cuVSLAM→organizer bridge,
+10 Hz default interface with pose **and** twist, no 50 Hz lead formula or
+interface patch. Mark Guard insertion, tunnel vision-loss guarantees and
+unsupported landing/disarm/rearm as blocked proposals. Describe the actual
+safety-pilot arming/automatic Offboard sequence. The PX4 allowlist and version
+pin are unchanged; the running firmware/configuration still needs verification.
+Clarify that capture timestamps alone do not justify a zero vision delay;
+the simulator candidate still needs measured kit latency/hover confirmation.
+
+Evidence: read-only organizer README and bridge/interface/frame source in
+`drone-snapshot/home/dronehacks/skybeta/`. Earlier x500 findings below remain
+historical simulator evidence, not approval to deploy or guaranteed kit safety.
+Affected owners: @moterodiaz (contracts, course, localization, navigation and
+docs). Maintainer authorized finishing this correction in the session; new
+head still requires independent review. Props-off alignment, vision-loss and
+flight acceptance checks have **not** been performed by this documentation PR.
+
 ## 2026-11-06 — ENU competitor output, course goal schema, Q1/Q2 answered
 Fixes PR #5's two open review findings: `contracts/frames.md` now states the
 ENU output path to `/skybeta/setpoint/pose` (the NED/FRD transform is

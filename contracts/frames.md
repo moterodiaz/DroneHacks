@@ -6,89 +6,88 @@ this file wins (AGENTS.md §3.1).
 
 ## Frame table
 
-| frame | convention | x | y | z | timestamp | source |
-|---|---|---|---|---|---|---|
-| PX4 | NED / FRD | north / forward | east / right | down | microseconds | `organisers` |
-| ROS | ENU / FLU | east / forward | north / left | up | ROS clock | `organisers` |
+| frame | convention | axes | source |
+|---|---|---|---|
+| Course | surveyed world | east, north, up; floor-centred origin | `contracts/course.md` |
+| cuVSLAM `odom` | local world, ENU-labelled | startup-relative, not compass-aligned | `organisers` |
+| ROS `base_link` | body FLU | forward, left, up; Pixhawk primary IMU origin | `organisers` |
+| PX4 local | world NED | north, east, down; EKF2's own origin/yaw | `organisers` |
+| PX4 body | body FRD | forward, right, down | `organisers` |
 
-A 90° mixup between these two is the failure mode this file exists to kill.
+World ENU → NED maps `(x, y, z)` to `(y, x, -z)`. Body FLU → FRD maps it
+to `(x, -y, -z)`. These are different proper 3-D rotations, not a reflection
+or an interchangeable "forward/north" frame. ROS messages use ROS timestamps;
+PX4 messages use microseconds, with time-domain handling owned by the kit.
 
-## Origin
+## Course → odom (normative)
 
-The tracker's frame starts at the drone's body resting on the launch mark
-`(−2.515, 0.914)` (course `(east, north)`, metres), facing north up the first
-corridor. Source: `organisers` (launch mark), `surveyed`/`measured` once the
-team places and checks it.
+The launch mark is `(−2.515, 0.914)` in course `(east, north)` metres,
+facing north. This physical heading is not sufficient to establish the
+vision axes: stereo-only cuVSLAM starts at the rig's startup pose, without
+compass or gravity alignment. Arming does not define or reset that origin.
 
-## The transform (normative)
+Measure a rigid course-to-odom transform at each tracking initialization:
 
-Course point `(east, north)` → PX4 NED/FRD, for log/bench comparison only:
+    p_odom = o_odom + R_odom_course * (p_course - o_course)
 
-1. Subtract the launch mark: `(east − (−2.515), north − 0.914)`.
-2. Axis map, no rotation, a reflection: `world north → PX4 +x (forward)`,
-   `world east → PX4 +y (right)`. Output frame is PX4 NED/FRD (x forward, y
-   right, z down).
-3. `body_resting_height = 0.07 m` (tape-measured, FlyX lab). Source:
-   `measured`. `z = 0.8 m − 0.07 m = 0.73 m (= HEIGHT_M)`. PX4 NED
-   z-positive is down, so the down setpoint is `−HEIGHT_M = −0.73 m`.
+Here `o_course` is the surveyed position of the tracked IMU at the reference
+pose, `o_odom` is its simultaneous odometry reading, and `R_odom_course`
+rotates course-world vectors into odom-world vectors. Use level setup and
+known independent east/north/up displacements to check orientation, scale
+and height. Do not assume an identity rotation from the launch heading.
+Course heading is clockwise from north; transform its direction by the
+same rotation before extracting odom yaw (about +z, from +x toward +y).
+If leveling/alignment cannot be established, flight remains blocked.
 
-**Worked example — landing pad `(−2.042, −0.792)`:**
+The field guide's `body_resting_height = 0.07 m` was measured on the lab
+stand-in. It is not automatically this kit's IMU height above the floor.
+Only with that height and a level, aligned startup origin verified does
+`0.8 - 0.07 = 0.73 m` give the desired upward displacement.
 
-Step 1 — subtract launch mark `(−2.515, 0.914)`:
+### Conditional worked example
+
+For the published pad `(−2.042, −0.792)` and launch mark:
 
     Δeast  = −2.042 − (−2.515) = +0.473 m
     Δnorth = −0.792 − 0.914   = −1.706 m
 
-Step 2 — axis map (drone faces north; PX4 NED/FRD output):
+Only if `R_odom_course` is identity, `o_odom` is zero, and the measured
+reference height is `0.07 m`, the odom target at `0.8 m` above the floor is
+`(+0.473, −1.706, +0.73) m`. The plain ENU → NED conversion of this vector
+is `(−1.706, +0.473, −0.73) m`, for bench comparison only. Neither example
+establishes actual odom/PX4 origin or heading agreement.
 
-    forward (PX4 +x) = Δnorth = −1.706 m
-    right   (PX4 +y) = Δeast  = +0.473 m
+## The competitor output (normative)
 
-Step 3 — height (body_resting_height = 0.07 m; desired floor clearance = 0.8 m):
+Publish odom-frame ENU `geometry_msgs/PoseStamped` position/yaw on
+`/skybeta/setpoint/pose`, or world-frame ENU `geometry_msgs/TwistStamped`
+velocity/yaw-rate on `/skybeta/setpoint/twist`. Team code never publishes to
+`/fmu/in/*` or modifies `skybeta_flight_interface`.
 
-    down    (PX4 +z) = −HEIGHT_M = −0.73 m
+The kit performs ENU → NED internally. That axis conversion alone does not
+align odom with EKF2. The bridge declares vision `POSE_FRAME_FRD` (arbitrary
+world heading, not a body-relative position), allowing EKF2 to estimate a
+rotation. The interface defaults to `anchor_setpoints=False` and
+`odom_to_ned_yaw_offset_rad=0.0`: it does not automatically apply that EKF
+rotation. Its optional anchoring subtracts an odom reference, rotates the
+converted displacement about NED down by the configured residual yaw,
+and adds a simultaneous PX4 reference. Measure and verify the residual yaw
+and origins, using only organizer-permitted configuration; do not patch the
+interface or assume zero offset is valid. Block flight if the supplied
+configuration cannot represent the measured transform.
 
-PX4 NED/FRD setpoint: (−1.706, +0.473, −0.73) m.
-Verify via the bench carry test in the Acceptance check section below.
+Source: read-only `drone-snapshot/home/dronehacks/skybeta/README.md` §Frames,
+`src/oakd_vslam_bringup/oakd_vslam_bringup/px4_odom_bridge.py`, and
+`src/skybeta_flight_interface/skybeta_flight_interface/{frames,flight_interface}.py`
+under that snapshot.
 
-Any code claiming to implement this transform must cite this section. A
-different sign, or a different height source is a contract break, not a
-bug fix — open a PR against this file first.
+## Acceptance check (required before flight, not performed by this PR)
 
-## The competitor output (normative — this is what actually ships)
-
-The kit's `skybeta_flight_interface` does the PX4 conversion above
-internally. Team code never does it and never publishes to `/fmu/in/*` —
-that is banned by the kit
-(`drone-snapshot/home/dronehacks/skybeta/README.md`). The competitor's
-entire output is ENU, published as `geometry_msgs/PoseStamped` on
-`/skybeta/setpoint/pose` (position + yaw; `/skybeta/setpoint/twist` for the
-velocity track):
-
-1. Subtract the launch mark, same as step 1 above: `(Δeast, Δnorth)`.
-2. No axis map needed — ROS ENU is already `(east, north, up)` per the frame
-   table: `x = Δeast`, `y = Δnorth`, `z = +HEIGHT_M` (ENU up is positive, the
-   opposite sign of the NED example above).
-3. Yaw is **not** free: cuVSLAM's `odom` frame is relative to the drone's
-   startup pose, not north-referenced (no compass/gravity fusion — see
-   `skybeta`'s `CLAUDE.md`). "North" in the course frame only equals vision
-   `+y` if the drone is physically placed on the launch mark facing up the
-   first corridor at the moment tracking starts. There is no software fix
-   for a drone placed facing the wrong way — get the physical heading
-   right, then treat vision `+y` as course north for the rest of the
-   flight.
-
-**Worked example — landing pad `(−2.042, −0.792)`, same Δeast/Δnorth as above:**
-
-    ENU setpoint = (x=+0.473, y=−1.706, z=+0.73) m
-
-Note this is the NED worked example's numbers with x/y swapped and z's sign
-flipped — same transform, ENU output. Verify via the same bench carry test,
-reading `/visual_slam/tracking/odometry` instead of `vehicle_local_position`.
-
-## Acceptance check
-
-The bench carry test: hold the drone level at the launch mark, facing north,
-and walk it to a known course point by hand. The computed setpoint must match
-that point within the course's survey tolerance (`contracts/course.md`). Any
-code that publishes vision or setpoints must pass this check before flying.
+With props off, record the reference and hand-carry the level drone through
+known independent course east/north/up displacements. Compare predicted
+odom position and yaw against `/visual_slam/tracking/odometry`, and the
+interface's converted target against simultaneous PX4 local position.
+Repeat from a different startup heading and after a tracker restart;
+invalidate alignment after any reset. Require agreement within the 5 cm
+course survey tolerance (`contracts/course.md`), not just matching vector
+magnitudes. Do not arm or fly on an unverified transform.

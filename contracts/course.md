@@ -19,7 +19,8 @@ file is the normative statement; where they disagree, this file wins
 | Launch mark | `(−2.515, 0.914)`, facing north | `organisers` |
 
 Coordinates are course-frame `(east, north)` metres, origin at the floor
-centre. See `contracts/frames.md` for the transform into PX4 setpoints.
+centre. See `contracts/frames.md` for the measured transform into competitor
+odom-frame setpoints; the kit alone performs the PX4 conversion.
 
 ## Checkpoints
 
@@ -76,9 +77,9 @@ yaw reference, not a routed waypoint.
 
 ### Required `params` by goal name
 
-- **`tunnel`** (shape `oval`): straight-line axis through the tube, so the
-  follower locks heading on the axis and skips yaw tracking inside
-  (`contracts/frames.md`'s no-yaw-inside rule).
+- **`tunnel`** (shape `oval`): straight-line axis through the tube for
+  route/heading planning. This does not establish safe vision-loss traversal;
+  that remains blocked by the validation requirements in `contracts/ros-graph.md`.
   ```yaml
   params:
     axis_start: [<east_m>, <north_m>]  # tube entrance centre
@@ -87,23 +88,35 @@ yaw reference, not a routed waypoint.
     height: 1.524   # 60 in
   ```
 - **`window`** (shape `rect`): relaxed to the inscribed-circle radius for
-  costmap clearance, not the full square.
+  costmap clearance, not the full square. The traversal axis is a directed
+  normal through the opening centre in course east/north coordinates.
+  `wall_segment_index` identifies the containing segment in `segments`;
+  the opening is a portal in that wall, not an additional obstacle disc.
   ```yaml
   params:
+    wall_segment_index: <nonnegative_int> # index into segments
+    axis_start: [<east_m>, <north_m>]     # approach side of the opening
+    axis_end:   [<east_m>, <north_m>]     # departure side; not equal to start
     side: 0.914            # 0.914 m square opening
-    sill_height: 0.305     # metres above slice_height=0.8 the opening starts
-    head_height: 1.219     # metres above slice_height=0.8 the opening ends
+    sill_height: 0.305     # metres above the floor where the opening starts
+    head_height: 1.219     # metres above the floor where the opening ends
     inscribed_radius: 0.29 # relaxed clearance radius used by the costmap
   ```
 - **`pad`** (shape `disc`): see worked example below.
 - **`launch`** (shape `point`): the drone starts here, facing the heading
-  below. Not a planner waypoint — it anchors the course frame to the vision
-  `odom` frame at arm time (`contracts/frames.md`'s competitor-output
-  section).
+  below. Not a planner waypoint. Use the measured course-to-odom transform
+  in `contracts/frames.md`; arming does not reset the vision origin or
+  prove its alignment.
   ```yaml
   params:
-    heading_deg: 0   # facing north, per the geometry table
+    heading_deg: 0   # clockwise from course north (east = 90 degrees)
   ```
+
+Every listed goal parameter is required. Reject an invalid wall index,
+non-finite geometry, zero-length traversal axis, or an axis that does not
+cross the opening centre normally to the referenced wall. A flight slice
+must lie between floor-relative sill/head heights with airframe and tracking
+clearance; do not infer a traversable portal from the centre height alone.
 
 ### Worked example — pad goal
 

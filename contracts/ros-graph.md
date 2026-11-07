@@ -4,32 +4,33 @@ Reasoning and background: `docs/field-guide.html` §architecture (the four
 lanes) and §kit. This file is the normative statement; where they disagree,
 this file wins (AGENTS.md §3.1).
 
-## Nodes
+## Published kit path and planned team nodes
 
 | node | owner | subscribes | publishes | msg type | rate | QoS |
 |---|---|---|---|---|---|---|
 | `depthai-ros` | kit (Luxonis driver) | — | stereo image pair, IMU | `sensor_msgs/Image`, `sensor_msgs/Imu` | 1024×640 @ 30 fps image, 200 Hz IMU | default |
 | cuVSLAM (`visual_slam`) | library (Isaac ROS, NVIDIA) | stereo image pair, IMU | pose | `nav_msgs/Odometry` (pose+covariance) | ~30 Hz, stereo-only mode | default |
-| **Guard** | **ours** | cuVSLAM pose, stereo image pair (texture check), IMU/gyro (rotation cross-check), cuVSLAM tracking status, PX4 estimate (re-anchor on vision return) | filtered pose | `nav_msgs/Odometry` | passthrough, with withholds | default |
-| `px4_odom_bridge.py` | kit | Guard's filtered pose (ENU) | `VehicleOdometry` (FRD) | `px4_msgs/VehicleOdometry` | passthrough | best-effort out |
+| `px4_odom_bridge.py` | kit | `/visual_slam/tracking/odometry`, tracking status | `VehicleOdometry` (world-fixed arbitrary-heading FRD) | `px4_msgs/VehicleOdometry` | passthrough | best-effort out |
 | **Planner** | **ours** | `contracts/course.md` map file | route | internal | once per run / re-plan | — |
-| **Follower** | **ours** | Planner's route, PX4 estimate | led pose setpoints | ENU pose/twist | 50 Hz | — |
-| `skybeta_flight_interface` | kit | Follower's setpoints | PX4 setpoints (never `/fmu/in/*` directly) | ENU pose/twist, clamped 1.5 m/s and 0.3–3 m | ≤50 Hz | — |
+| **Follower** (planned) | **ours** | Planner's route, odometry, kit state | `/skybeta/setpoint/pose` or `/skybeta/setpoint/twist` | `geometry_msgs/PoseStamped` / `geometry_msgs/TwistStamped`, world ENU | see below | match kit |
+| `skybeta_flight_interface` | kit | competitor pose/twist | PX4 setpoints and heartbeat (kit alone writes `/fmu/in/*`) | clamped 1.5 m/s twist and 0.3–3 m altitude by default; no horizontal geofence | 10 Hz default | kit-owned |
 
-## Guard (ours) — withhold conditions
+## Guard proposal (blocked, not in the shipped data path)
 
-The guard sits between cuVSLAM and `px4_odom_bridge.py`. It withholds a frame
-when any of:
-- image texture under 1%,
-- cuVSLAM reports tracking failed,
-- the implied motion exceeds 10 m/s or 720°/s,
-- the implied rotation disagrees with the gyro.
+The organizer bridge consumes cuVSLAM directly. The field guide's upstream
+Guard is a simulator proposal, not a deployed node or permission to remap,
+replace, or publish competing vision. It remains blocked pending organizer
+permission, a reviewed contract change and kit validation.
 
-On vision return after a withhold, the guard continues from PX4's own
-estimate — no jump. It writes fixed, honest variances on every pose it
-passes (cuVSLAM's own covariance is not a real uncertainty and must not be
-forwarded as one). After 30 consecutively withheld frames, restart the
-tracker. Source: `measured` (x500 stand-in sim).
+The proposed texture <1%, failed-tracking, 10 m/s and 720°/s gates, gyro
+cross-check, fixed variances, re-anchor and restart-after-30-frames policy
+are simulator observations/design inputs, not a flight-safety bound.
+These permissive motion gates do not protect the course's ±0.18 m error
+budget. Re-anchoring to a drifting EKF estimate cannot guarantee continuity
+or clearance. Tunnel traversal during vision loss remains blocked until a
+measured loss-duration/drift bound fits the clearance budget, with a
+pilot-approved abort procedure. Do not infer that withholding or resetting
+the tracker makes a run safe.
 
 ## Planner (ours) — map-only goals
 
@@ -38,16 +39,23 @@ A* on a 5 cm grid, Nav2 inflation cost, impassable within 0.32 m of a wall.
 Goals, in order, come from the map: tunnel middle, window, pad. This is
 rule 9.5's generality requirement; see AGENTS.md §3.7.
 
-## Follower (ours) — lead formula
+## Follower (planned) — supplied interface only
 
-Route in, led pose setpoints out at 50 Hz:
+The previous fixed-gain, 50 Hz led-pose design is dropped, as recorded in
+the changelog. The interface accepts both pose and twist, but no competitor
+acceleration input. Do not modify it or require an increased output rate.
+Its published defaults are `setpoint_rate_hz=10.0` (10 Hz) and
+`setpoint_timeout_s=1.0` s. Publish fresh inputs with margin inside that timeout;
+the organizer startup procedure requires setpoints before arming, at least
+once per second. Merely matching the timeout boundary is not a robust
+ongoing cadence. Verify the actual launch configuration and timeout behavior
+with props off before choosing the follower cadence. PX4's documented
+1.0 m/s cap still applies; the interface's 1.5 m/s twist clamp does not
+override it.
 
-```
-led_pose = pose + v / 0.95 + a / (0.95 × 1.8)
-```
-
-This compensates for `skybeta_flight_interface`'s pose-only API lagging the
-true trajectory. Source: `measured`.
+Sources: read-only `drone-snapshot/home/dronehacks/skybeta/README.md` and
+`src/skybeta_flight_interface/skybeta_flight_interface/flight_interface.py`
+under that snapshot. Use `contracts/frames.md` for measured frame alignment.
 
 ## QoS / DDS traps (normative, not advisory)
 
