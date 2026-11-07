@@ -165,6 +165,8 @@ class Mission:
         if self.state == STOPPED:
             return None
         if self._was_offboard and not offboard_active:
+            if self.state == LANDED:
+                return self._stop("done: landed, and PX4 disarmed (COM_DISARM_LAND)")
             return self._stop("Offboard ended: the pilot has the vehicle")
         fresh = pose is not None and 0.0 <= t - pose.t <= self.config.pose_timeout_s
         if not offboard_active:

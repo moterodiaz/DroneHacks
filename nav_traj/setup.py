@@ -20,6 +20,7 @@ setup(
         ("share/" + PACKAGE + "/launch", glob("launch/*.launch.py")),
         ("share/" + PACKAGE + "/config", ["config/traj_nav.example.yaml"]),
         ("share/" + PACKAGE + "/docs", ["docs/deploy.md"]),
+        ("share/" + PACKAGE + "/maps", ["maps/course_v3_step.yaml", "maps/README.md"]),
     ],
     install_requires=["setuptools"],
     zip_safe=True,

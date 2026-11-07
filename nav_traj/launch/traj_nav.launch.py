@@ -1,13 +1,15 @@
 """Launch the kit's flight interface, the Guard and the mission, without the 360 lidar.
 
+    ros2 launch dronehacks_traj traj_nav.launch.py                                   # the packaged STEP map
     ros2 launch dronehacks_traj traj_nav.launch.py map_file:=/root/team_ws/course_map.yaml
-    ros2 launch dronehacks_traj traj_nav.launch.py map_file:=... guard_package:=none   # raw cuVSLAM
+    ros2 launch dronehacks_traj traj_nav.launch.py guard_package:=none               # raw cuVSLAM
 
-``map_file`` has no default. Without it the launch fails and nothing starts,
-not even the flight interface, so the vehicle stays in Position under the
-pilot. For the stack's ``competitor`` window, which launches with no
-arguments, use ``traj_nav_competitor.launch.py`` as ``COMPETITOR_LAUNCH``
-(docs/deploy.md).
+``map_file`` defaults to the map generated from the organisers' STEP model and
+installed with the package (``maps/course_v3_step.yaml``; it is not
+surveyed). The launch logs which map it uses. If the mission node can't plan
+on it, it exits and publishes nothing: the kit then refuses Offboard and the
+pilot keeps the vehicle. For the stack's ``competitor`` window use
+``traj_nav_competitor.launch.py`` as ``COMPETITOR_LAUNCH`` (docs/deploy.md).
 
 Started:
 
@@ -16,12 +18,15 @@ Started:
   arguments and defaults. ``auto_offboard_on_arm`` is true;
   ``allow_mode_request`` is false (SIM ONLY). It owns the Offboard heartbeat
   and the safety envelope.
-* ``vo_guard``: from ``guard_package`` (default ``dronehacks_vo``, the
-  lidar-free build on branch ``core/vo-nav-no-lidar``). It withholds cuVSLAM
-  poses that can't be trusted. Both no-lidar variants then run the same
-  Guard and differ only in the follower. ``guard_package:=none`` skips it,
-  and the mission reads cuVSLAM directly. If the named package isn't
-  installed, the launch fails before anything starts.
+* ``vo_guard``: from ``guard_package``. It withholds cuVSLAM poses that
+  can't be trusted. Both no-lidar variants then run the same Guard and
+  differ only in the follower.
+  * ``auto`` (the default): ``dronehacks_vo``'s Guard (the lidar-free build
+    on branch ``core/vo-nav-no-lidar``) if that package is installed;
+    otherwise none, with a warning in the log.
+  * ``none``: no Guard; the mission reads cuVSLAM directly.
+  * A package name: that package's ``vo_guard``. If it isn't installed, the
+    launch fails before anything starts.
 * ``mission``: plans from the map, then flies takeoff, the route with this
   repo's Follower, the hold and the landing. Its setpoints go straight to the
   flight interface.
@@ -33,13 +38,15 @@ import os
 
 from ament_index_python.packages import get_package_prefix, get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, OpaqueFunction
+from launch.actions import DeclareLaunchArgument, LogInfo, OpaqueFunction
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 
 SHARE = get_package_share_directory("dronehacks_traj")
 CUVSLAM = "/visual_slam/tracking/odometry"
 GUARDED = "/vo_guard/odometry"
+STEP_MAP = os.path.join(SHARE, "maps", "course_v3_step.yaml")
+AUTO_GUARD = "dronehacks_vo"
 
 # The kit's arguments for flight_interface, with its defaults (competitor.launch.py)
 FLIGHT_INTERFACE_ARGUMENTS = [
@@ -53,31 +60,49 @@ FLIGHT_INTERFACE_ARGUMENTS = [
 ]
 
 
+def _installed(package: str) -> bool:
+    try:
+        get_package_prefix(package)
+        return True
+    except Exception:  # noqa: BLE001 - PackageNotFoundError, whatever its module
+        return False
+
+
 def _nodes(context):
     guard_package = LaunchConfiguration("guard_package").perform(context).strip()
     params = LaunchConfiguration("params_file").perform(context)
-    nodes = []
+    map_file = LaunchConfiguration("map_file").perform(context)
+    actions = [LogInfo(msg=f"dronehacks_traj: map {map_file}")]
+    if guard_package == "auto":
+        if _installed(AUTO_GUARD):
+            guard_package = AUTO_GUARD
+        else:
+            guard_package = "none"
+            actions.append(LogInfo(msg=f"dronehacks_traj: WARNING {AUTO_GUARD} is not installed, so there is no "
+                                       "Guard: the mission flies on raw cuVSLAM odometry"))
     if guard_package and guard_package != "none":
-        get_package_prefix(guard_package)   # raises, and so aborts the launch, if it isn't installed
-        nodes.append(Node(package=guard_package, executable="vo_guard", name="vo_guard", output="screen",
-                          parameters=[{"odom_in": CUVSLAM, "output_topic": GUARDED}]))
+        get_package_prefix(guard_package)   # raises, and so aborts the launch, if a named package isn't installed
+        actions.append(Node(package=guard_package, executable="vo_guard", name="vo_guard", output="screen",
+                            parameters=[{"odom_in": CUVSLAM, "output_topic": GUARDED}]))
+        actions.append(LogInfo(msg=f"dronehacks_traj: Guard {guard_package}/vo_guard -> {GUARDED}"))
         pose_topic = GUARDED
     else:
         pose_topic = CUVSLAM
-    nodes.append(Node(package="dronehacks_traj", executable="mission", name="mission", output="screen",
-                      emulate_tty=True,
-                      parameters=[params, {"map_file": LaunchConfiguration("map_file").perform(context),
-                                           "odometry_topic": pose_topic}]))
-    return nodes
+    actions.append(Node(package="dronehacks_traj", executable="mission", name="mission", output="screen",
+                        emulate_tty=True,
+                        parameters=[params, {"map_file": map_file, "odometry_topic": pose_topic}]))
+    return actions
 
 
 def generate_launch_description():
     declared = [DeclareLaunchArgument(name, default_value=default, description=help_)
                 for name, default, help_ in FLIGHT_INTERFACE_ARGUMENTS]
     declared += [
-        DeclareLaunchArgument("map_file", description="the course map, contracts/course.md format (no default)"),
-        DeclareLaunchArgument("guard_package", default_value="dronehacks_vo",
-                              description="package providing vo_guard, or 'none' to fly on raw cuVSLAM"),
+        DeclareLaunchArgument("map_file", default_value=STEP_MAP,
+                              description="the course map, contracts/course.md format (default: from the STEP model)"),
+        DeclareLaunchArgument("guard_package", default_value="auto",
+                              description="'auto' (dronehacks_vo if installed), 'none' (raw cuVSLAM) or a package "
+                                          "providing vo_guard"),
         DeclareLaunchArgument("params_file", default_value=os.path.join(SHARE, "config", "traj_nav.example.yaml"),
                               description="parameters for the mission node"),
     ]

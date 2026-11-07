@@ -5,49 +5,46 @@ the drone's host shell unless marked *(container)*. `~/team_ws` on the host is
 `/root/team_ws` in the containers (competitor_guide.md §5). Nothing here
 touches the organisers' PX4 parameters (rule 8.5).
 
-## 1. Copy the packages into the team workspace
+## 1. Install, build and dry-run
 
 ```sh
-# on the drone (host shell), from a checkout of this repo on branch core/vo-nav-traj-follower
-cp -r planner  ~/team_ws/src/dronehacks_planner
-cp -r nav_traj ~/team_ws/src/dronehacks_traj
-# For the Guard: the lidar-free build's package (branch core/vo-nav-no-lidar):
-cp -r <that checkout>/depthcam ~/team_ws/src/dronehacks_vo
+# on the drone (host shell)
+git clone <the fork> DroneHacks && cd DroneHacks && git checkout core/vo-nav-traj-follower
+nav_traj/scripts/install_on_drone.sh
+# with the Guard from the lidar-free build (branch core/vo-nav-no-lidar):
+GUARD_SRC=<that checkout>/depthcam nav_traj/scripts/install_on_drone.sh
 ```
 
-Copy only these directories. In particular, don't copy `drone-snapshot/`: its
-skybeta packages would shadow the image's (`team_build.sh` warns about
-shadowed packages). Without `dronehacks_vo`, use
-`traj_nav_competitor_raw.launch.py` in step 5.
+The script does all of this:
+1. Copies `planner/` to `~/team_ws/src/dronehacks_planner` and `nav_traj/` to
+   `~/team_ws/src/dronehacks_traj`, plus `dronehacks_vo` if `GUARD_SRC` is set.
+2. Builds them in the running `skybeta-stack` container with `team_build.sh`.
+3. Checks that `numpy`, `yaml` and both packages import there. Both libraries
+   ship with the image, so no team image is needed.
+4. Dry-runs the whole mission on the map the competitor window will fly. It
+   must end with `dry run: PASS`.
 
-## 2. Build
+Don't copy `drone-snapshot/` into the workspace: its skybeta packages would
+shadow the image's.
 
-```sh
-docker exec -it skybeta-stack bash                       # (container)
-team_build.sh --packages-select dronehacks_planner dronehacks_traj
-python3 -c "import numpy, yaml; print('ok')"             # both ship with the image; no team image needed
-```
+## 2. The map
 
-The stack's `competitor` window also builds `~/team_ws` when it starts.
+The competitor window flies `~/team_ws/course_map.yaml` if it exists.
+Otherwise it flies the map generated from the STEP model, installed with the
+package (`share/dronehacks_traj/maps/course_v3_step.yaml`). The launch log says
+which. The STEP map isn't surveyed, so before relying on it:
 
-## 3. The map and the dry run
+* **Tape-measure** the window's edges, the maze wall ends and Gate B against
+  `nav_traj/maps/course_v3_step.yaml`. Coordinates are course `(east, north)`
+  metres, origin at the floor centre. Off by more than 5 cm means touches
+  (`course.md`).
+* **If the course is off,** write a corrected map in the same format to
+  `~/team_ws/course_map.yaml`, then rerun the script: its dry run then uses it.
 
-Put the **surveyed** course map, in contracts/course.md format, at
-`~/team_ws/course_map.yaml`. The competitor launch always reads that path: the
-kit passes no `DRONEHACKS_*` keys from drone.env into the container. Then, in
-the container:
+## 3. Parameters
 
-```sh
-ros2 run dronehacks_traj dry_run /root/team_ws/course_map.yaml --rest-height 0.07 --v-max <live MPC_XY_VEL_MAX>
-```
-
-It must print `dry run: PASS`. It plans exactly as the node will, and flies the
-whole mission against the stand-in PX4.
-
-## 4. Parameters
-
-Edit `config/traj_nav.example.yaml` in `~/team_ws/src/dronehacks_traj`, then
-rebuild:
+Edit `~/team_ws/src/dronehacks_traj/config/traj_nav.example.yaml`, then rerun
+the script with the same values (`V_MAX=... REST_HEIGHT=...`):
 
 * `v_max_mps`: the live `MPC_XY_VEL_MAX`, from QGroundControl > Parameters.
   The SN0001 file says 1.0, the baseline file 12.
@@ -56,21 +53,33 @@ rebuild:
   PX4's and vision's headings differ by a constant (competitor_guide.md §1).
   In that case, set the interface's offset first.
 
-## 5. Launch
+## 4. Launch
 
-In `/etc/skybeta/drone.env`:
+In `/etc/skybeta/drone.env` (sudo):
 
 ```sh
 COMPETITOR_PKG=dronehacks_traj
-COMPETITOR_LAUNCH=traj_nav_competitor.launch.py        # or traj_nav_competitor_raw.launch.py: no Guard
+COMPETITOR_LAUNCH=traj_nav_competitor.launch.py        # Guard if dronehacks_vo is installed, else raw cuVSLAM
+# COMPETITOR_LAUNCH=traj_nav_competitor_raw.launch.py  # always raw cuVSLAM
 ```
 
-Then restart the stack on the ground, with the drone still on the launch
-mark: `docker rm -f skybeta-stack`. By hand instead, after stopping the
+The kit passes only its own drone.env keys into the container, so don't put
+`DRONEHACKS_*` settings there; they never arrive. Restart the stack on the
+ground, with the drone still on the launch mark facing north:
+`docker rm -f skybeta-stack`. By hand instead, after stopping the
 `competitor` window (Ctrl-C there):
 
 ```sh
-ros2 launch dronehacks_traj traj_nav.launch.py map_file:=/root/team_ws/course_map.yaml   # (container)
+ros2 launch dronehacks_traj traj_nav.launch.py                    # (container) the packaged map
+ros2 launch dronehacks_traj traj_nav.launch.py map_file:=/root/team_ws/course_map.yaml guard_package:=none
+```
+
+## 5. What the log should say
+
+```
+dronehacks_traj: map .../course_v3_step.yaml
+dronehacks_traj: Guard dronehacks_vo/vo_guard -> /vo_guard/odometry      (or the WARNING: no Guard)
+[mission]: map ...: route tunnel > window > pad, 16.62 m, planned 22.80 s at v_max 1.0 m/s ...
 ```
 
 ## 6. Before the first flight
