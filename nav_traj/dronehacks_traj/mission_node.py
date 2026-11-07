@@ -41,8 +41,9 @@ Parameters:
     state_timeout_s       /skybeta/state older than this counts as no Offboard 1.0
     prefer                goal names to force among alternatives ([] = fastest) []
     track_speed_mps       fly the course at this speed: the plan is capped at it,   0.0
-                          and the Follower's governor allows PX4's lag at it
-                          (factory.for_track_speed); 0 = the plan at v_max_mps
+                          and FOLLOW flies it by velocity, with a hold pose
+                          refreshed alongside (factory.for_track_speed);
+                          0 = the plan at v_max_mps on reference poses
     avoid_boulders        plan around the boulders (False: drop them from the     true
                           map, so the route may fly over them: they are 0.53 m
                           tall, under the flight slice; PX4's rangefinder height
@@ -239,6 +240,12 @@ class MissionNode(Node):
         if cmd.kind == "pose":
             self._pose_pub.publish(pose_msg(cmd, self._frame_id, stamp))
         else:
+            if cmd.fallback is not None:
+                # the place to hold if the twists stop: the interface keeps the last pose for that.
+                # Sent first, so the twist right after it is what the interface flies.
+                fx, fy, fz, fyaw = cmd.fallback
+                self._pose_pub.publish(pose_msg(Command("pose", fx, fy, fz, fyaw), self._frame_id, stamp))
+                self._sent["pose"] += 1
             self._twist_pub.publish(twist_msg(cmd, self._frame_id, stamp))
         self._sent[cmd.kind] += 1
 

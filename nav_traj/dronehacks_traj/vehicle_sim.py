@@ -168,6 +168,9 @@ def fly(mission: Mission, limits: VehicleLimits = VehicleLimits(),
                     pose_target = np.array([cmd.x, cmd.y, z, yaw if cmd.yaw is None else cmd.yaw])
                     twist_target = None
                 else:
+                    if getattr(cmd, "fallback", None) is not None:
+                        fx, fy, fz, fyaw = cmd.fallback      # the node sends it as a pose just before
+                        pose_target = np.array([fx, fy, max(fz, cfg.min_altitude_m), fyaw])
                     vel = np.array([cmd.vx, cmd.vy, cmd.vz])
                     n = float(np.linalg.norm(vel))
                     if n > cfg.twist_speed_cap_mps:

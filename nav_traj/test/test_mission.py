@@ -261,27 +261,41 @@ class WholeFlightTest(unittest.TestCase):
         self.assertEqual(errors[True], (1, 0, True), errors)
 
     def test_a_track_speed_flies_the_whole_course_faster(self):
-        # The default governor holds the reference poses back to about 0.3 m/s (it slows the
-        # reference once PX4 trails it by 0.15 m); with a track speed it allows PX4's lag at it.
+        # Reference poses alone are held near 0.3 m/s by the governor (PX4 trails them by v/kp);
+        # with a track speed FOLLOW flies the trajectory by velocity and keeps up with it.
         from dronehacks_traj.factory import for_track_speed
-        from dronehacks_planner.follower import FollowerConfig
         from dronehacks_planner.limits import VehicleLimits
-        limits, fol = for_track_speed(0.8, VehicleLimits(), FollowerConfig())
-        self.assertEqual(limits.v_max_mps, 0.8)
-        self.assertAlmostEqual(fol.lag_ok_m, 0.15 + 0.8 * (1 / 0.95 + 0.05))
-        self.assertAlmostEqual(fol.lag_stop_m - fol.lag_ok_m, 0.35)
-        self.assertEqual(for_track_speed(3.0, VehicleLimits(), FollowerConfig())[0].v_max_mps, 1.0)   # PX4's cap
-        led = FollowerConfig(lead=True, lead_mode="path")
-        self.assertEqual(for_track_speed(0.8, VehicleLimits(), led)[1], led)       # a lead already compensates
+        limits, cfg = for_track_speed(0.8, VehicleLimits(), CONFIG)
+        self.assertEqual((limits.v_max_mps, cfg.velocity_follow), (0.8, True))
+        self.assertEqual(for_track_speed(3.0, VehicleLimits(), CONFIG)[0].v_max_mps, 1.0)   # PX4's cap
         times = {}
         for track in (0.0, 0.8):
             prepared = prep(l_course(), CONFIG, track_speed_mps=track)
             log = fly(prepared.mission)
+            checks = flight_checks(prepared, log.pos)
             self.assertIn("disarm", log.events)
-            self.assertEqual(flight_checks(prepared, log.pos)["wall_touches"], 0)
-            self.assertTrue(flight_checks(prepared, log.pos)["on_pad"])
+            self.assertEqual(checks["wall_touches"], 0, track)
+            self.assertTrue(checks["on_pad"], track)
             times[track] = log.events["disarm"] - log.events["takeoff"]
         self.assertLess(times[0.8], 0.8 * times[0.0], times)
+        self.assertTrue(any("following by velocity" in r for r in log.reasons))
+
+    def test_a_velocity_follow_keeps_a_hold_pose_under_the_drone(self):
+        # if the twists stop, the interface holds its last pose: it must be where the drone is,
+        # never the takeoff pose behind the walls
+        prepared = prep(l_course(), CONFIG, track_speed_mps=0.8)
+        m = prepared.mission
+        m.update(0.0, False, OdomPose(0.0, 0, 0, 0, 0), True, 0.0)
+        m.update(0.02, True, OdomPose(0.02, 0, 0, 0, 0), True, 0.0)
+        m.update(1.0, True, OdomPose(1.0, 0, 0, 0.73, 0), False, 0.0)
+        cmds = [m.update(1.0 + k * 0.02, True, OdomPose(1.0 + k * 0.02, 0.01 * k, 0, 0.73, 0), False, 0.0)
+                for k in range(1, 60)]
+        self.assertTrue(all(c.kind == "twist" for c in cmds))
+        holds = [c for c in cmds if c.fallback is not None]
+        self.assertGreaterEqual(len(holds), 2)
+        last = holds[-1]
+        self.assertLess(abs(last.fallback[0] - 0.01 * (cmds.index(last) + 1)), 0.05)
+        self.assertAlmostEqual(last.fallback[2], m.z_fly)
 
     def test_odometry_dropout_while_landing_never_climbs(self):
         # If the twist stopped, the interface would expire it into its last pose, the pad at

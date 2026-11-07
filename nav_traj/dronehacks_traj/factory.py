@@ -27,29 +27,23 @@ class Prepared:
     seconds: float
 
 
-def for_track_speed(track_speed_mps: float, limits: VehicleLimits, follower: FollowerConfig):
-    """The plan's limits and the Follower for a set track speed: ``(limits, follower)``.
+def for_track_speed(track_speed_mps: float, limits: VehicleLimits, config: MissionConfig):
+    """The plan's limits and the mission config for a set track speed: ``(limits, config)``.
 
     * The trajectory's speed profile is capped at the track speed, never above ``v_max_mps``
       (PX4's own ``MPC_XY_VEL_MAX``).
-    * The Follower still publishes the reference pose itself (no lead: contracts/ros-graph.md). PX4
-      flies a pose setpoint at ``MPC_XY_P`` x its distance, and the interface holds each pose for
-      a 10 Hz tick, so tracking a reference that moves at v it trails by about
-      ``v (1/kp_pos + hold_compensation_s)``. The governor slows the reference once the drone is
-      more than ``lag_ok_m`` behind and stops it at ``lag_stop_m`` -- 0.15 / 0.50 m by default,
-      which holds the whole flight near 0.3 m/s whatever the plan says (only a coast, which flies
-      the reference velocity itself, ran at the planned speed). So both thresholds move out by
-      that expected lag. A follower with a lead already compensates the lag and is left as it is.
+    * FOLLOW flies it by velocity (``MissionConfig.velocity_follow``): the reference pose alone
+      can't go faster here. PX4 flies a pose setpoint at ``MPC_XY_P`` x its distance, so it trails a
+      reference moving at v by about v/``MPC_XY_P``: the governor then holds the flight near
+      0.3 m/s, and relaxing it only lets PX4 cut the corners by that lag until the cross-track
+      abort stops the drone (SITL, 2026-11-07). The kit accepts twists (contracts/ros-graph.md),
+      and the reference velocity plus a pull onto the reference keeps the drone on the path at
+      the planned speed: the law the dropout coast already flies.
     """
     if not (math.isfinite(track_speed_mps) and track_speed_mps > 0.0):
         raise ValueError(f"track_speed_mps must be > 0 (got {track_speed_mps!r})")
-    v = min(track_speed_mps, limits.v_max_mps)
-    limits = dataclasses.replace(limits, v_max_mps=v)
-    if not follower.lead:
-        lag = v * (1.0 / limits.kp_pos + follower.hold_compensation_s)
-        follower = dataclasses.replace(follower, lag_ok_m=follower.lag_ok_m + lag,
-                                       lag_stop_m=follower.lag_stop_m + lag)
-    return limits, follower
+    limits = dataclasses.replace(limits, v_max_mps=min(track_speed_mps, limits.v_max_mps))
+    return limits, dataclasses.replace(config, velocity_follow=True)
 
 
 def prepare(map_source, mission_config: MissionConfig, limits: VehicleLimits = VehicleLimits(),
@@ -58,14 +52,14 @@ def prepare(map_source, mission_config: MissionConfig, limits: VehicleLimits = V
     """``map_source``: a path or a CourseMap. Raises on anything that can't be planned or verified.
 
     ``track_speed_mps`` > 0 flies the course at that speed (:func:`for_track_speed`); 0 keeps
-    the plan at ``limits.v_max_mps`` and the Follower as given.
+    the plan at ``limits.v_max_mps`` and FOLLOW on reference poses (the shipped behaviour).
 
     ``frame`` is the **measured** course->odom transform (contracts/frames.md), and it is
     required: it is never derived from the map's launch heading. The node passes it from its
     required parameters; the offline model builds it with ``frames.model_odom_frame``."""
     t0 = time.perf_counter()
     if track_speed_mps:
-        limits, follower = for_track_speed(track_speed_mps, limits, follower)
+        limits, mission_config = for_track_speed(track_speed_mps, limits, mission_config)
     cmap = map_source if isinstance(map_source, CourseMap) else load_map(map_source)
     if frame is None:
         raise ValueError("the measured course->odom transform is required (contracts/frames.md): "

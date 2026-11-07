@@ -146,6 +146,22 @@ class MissionConfig:
     stitch_fraction: float = 0.5
     #: A jump larger than the coast plus this can't be explained: hold for the pilot.
     stitch_margin_m: float = 0.5
+    #: FOLLOW by velocity (factory.for_track_speed sets it with a track speed): the reference
+    #: velocity times the Follower's clock rate, plus ``follow_gain`` times the offset from the
+    #: reference, capped at ``v_max_mps``. False: the reference pose itself (the shipped behaviour).
+    velocity_follow: bool = False
+    #: 1/s: the pull onto the reference while following by velocity.
+    follow_gain: float = 1.0
+    #: The velocity commanded is the reference's this much later: PX4's velocity loop takes about
+    #: 1/MPC_XY_VEL_P_ACC (1.8 on drone 1) to reach a new one, so without it the drone runs on
+    #: past a turn by that much (twists only: no led pose, contracts/ros-graph.md).
+    follow_anticipation_s: float = 0.55
+    #: 1/s and m/s: holding the flight height by velocity.
+    follow_z_gain: float = 1.0
+    follow_vz_max_mps: float = 0.5
+    #: How often a velocity FOLLOW also sends a hold pose at the drone's position, so that if the
+    #: twists stop the interface falls back to holding there, not to the takeoff pose.
+    fallback_pose_period_s: float = 0.5
 
     def __post_init__(self) -> None:
         for f in dataclasses.fields(self):
@@ -184,6 +200,10 @@ class Command:
     vy: float = 0.0
     vz: float = 0.0
     yaw_rate: float = 0.0
+    #: With a twist: a pose to send just before it, (x, y, z, yaw) in the odom frame. The
+    #: interface keeps the last pose as the place to hold once a twist expires
+    #: (flight_interface._expire_stale_velocity), so this keeps that place under the drone.
+    fallback: Optional[Tuple[float, float, float, float]] = None
 
 
 class _DeadReckoning:
@@ -261,6 +281,7 @@ class Mission:
         self._dr: Optional[_DeadReckoning] = None        # from a coast's start to the resume
         self._frame_lost: Optional[float] = None         # an unexplained jump (m): never fly on
         self._px4_velocity: Optional[Tuple[float, float, float]] = None   # (t, forward, left)
+        self._fallback_t = -math.inf                     # when a velocity FOLLOW last sent its hold pose
 
     # -- the tick ------------------------------------------------------------------
 
@@ -277,8 +298,12 @@ class Mission:
         if pose is not None and self.offset != (0.0, 0.0):
             pose = dataclasses.replace(pose, x=pose.x + self.offset[0], y=pose.y + self.offset[1])
         cmd = self._update(t, offboard_active, pose, landed, px4_yaw)
-        if cmd is not None and cmd.kind == "pose" and self.offset != (0.0, 0.0):
-            cmd = dataclasses.replace(cmd, x=cmd.x - self.offset[0], y=cmd.y - self.offset[1])
+        if cmd is not None and self.offset != (0.0, 0.0):
+            if cmd.kind == "pose":
+                cmd = dataclasses.replace(cmd, x=cmd.x - self.offset[0], y=cmd.y - self.offset[1])
+            elif cmd.fallback is not None:
+                fx, fy, fz, fyaw = cmd.fallback
+                cmd = dataclasses.replace(cmd, fallback=(fx - self.offset[0], fy - self.offset[1], fz, fyaw))
         return cmd
 
     def _update(self, t: float, offboard_active: bool, pose: Optional[OdomPose],
@@ -393,9 +418,36 @@ class Mission:
             self.reason = "over the pad"
             self._hold_since = None
             return self._hold(t, pose, landed)
-        sx, sy = self.frame.to_odom(*sp.position)
         self._yaw_cmd = self.frame.yaw_to_odom(sp.yaw)
+        if self.config.velocity_follow and isinstance(self.follower, Follower):
+            return self._follow_by_velocity(t, sp, (x, y), pose)
+        sx, sy = self.frame.to_odom(*sp.position)
         return Command("pose", sx, sy, self.z_fly, self._yaw_cmd)
+
+    def _follow_by_velocity(self, t: float, sp: Setpoint, xy: Tuple[float, float], pose: OdomPose) -> Command:
+        """The trajectory by velocity: the reference's ``follow_anticipation_s`` ahead (times the
+        governor's clock rate), plus a pull onto the reference, capped at ``v_max_mps``; height and
+        heading held by rate."""
+        cfg = self.config
+        ref = self.plan.trajectory.at(sp.ref_time)
+        ahead = self.plan.trajectory.at(sp.ref_time + sp.clock_rate * cfg.follow_anticipation_s)
+        here = self.frame.to_course(*xy)
+        ff = 0.0 if "no_safe_target" in sp.flags else sp.clock_rate
+        ve = ff * ahead.velocity[0] + cfg.follow_gain * (ref.position[0] - here[0])
+        vn = ff * ahead.velocity[1] + cfg.follow_gain * (ref.position[1] - here[1])
+        speed = math.hypot(ve, vn)
+        if speed > self.limits.v_max_mps:
+            ve, vn = ve * self.limits.v_max_mps / speed, vn * self.limits.v_max_mps / speed
+        vx, vy = self.frame.rotate_to_odom(ve, vn)
+        vz = max(-cfg.follow_vz_max_mps, min(cfg.follow_vz_max_mps, cfg.follow_z_gain * (self.z_fly - pose.z)))
+        yaw_rate = max(-self.follower_config.yaw_rate_max_rps,
+                       min(self.follower_config.yaw_rate_max_rps, 2.0 * wrap(self._yaw_cmd - pose.yaw)))
+        fallback = None
+        if t - self._fallback_t >= cfg.fallback_pose_period_s:
+            self._fallback_t = t
+            fallback = (xy[0], xy[1], self.z_fly, self._yaw_cmd)
+        self.reason = "following by velocity"
+        return Command("twist", vx=vx, vy=vy, vz=vz, yaw_rate=yaw_rate, fallback=fallback)
 
     def _hold(self, t: float, pose: OdomPose, landed: Optional[bool]) -> Command:
         cmd = Command("pose", self.end_odom[0], self.end_odom[1], self.z_fly, self._yaw_cmd)
