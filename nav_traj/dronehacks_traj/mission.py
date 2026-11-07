@@ -162,6 +162,12 @@ class MissionConfig:
     #: How often a velocity FOLLOW also sends a hold pose at the drone's position, so that if the
     #: twists stop the interface falls back to holding there, not to the takeoff pose.
     fallback_pose_period_s: float = 0.5
+    #: The interface's max_speed_mps: it clamps every twist to this (competitor.launch.py: 1.5).
+    twist_speed_max_mps: float = 1.5
+    #: HELD: brake by zero velocity while faster than this (and at most held_brake_s), then hold
+    #: where the drone stopped. A pose hold set while moving fast would make PX4 fly back to it.
+    held_brake_speed_mps: float = 0.15
+    held_brake_s: float = 2.0
 
     def __post_init__(self) -> None:
         for f in dataclasses.fields(self):
@@ -282,6 +288,7 @@ class Mission:
         self._frame_lost: Optional[float] = None         # an unexplained jump (m): never fly on
         self._px4_velocity: Optional[Tuple[float, float, float]] = None   # (t, forward, left)
         self._fallback_t = -math.inf                     # when a velocity FOLLOW last sent its hold pose
+        self._held_since = 0.0                           # when HELD began (it brakes first)
 
     # -- the tick ------------------------------------------------------------------
 
@@ -329,7 +336,7 @@ class Mission:
         if self.state == GROUNDED:
             return Command("twist")
         if self.state == HELD:
-            return self._hold_cmd
+            return self._held(t, pose if fresh else None)
         if self.state == FOLLOW:
             flowing = fresh and (pose.received is None or t - pose.received <= self.config.pose_gap_s)
             if not flowing:
@@ -411,8 +418,9 @@ class Mission:
             self.state = HELD
             self.reason = (f"{sp.cross_track_m:.2f} m off the path (limit {self.config.abort_cross_track_m:.2f} m):"
                            " holding here for the pilot")
-            self._hold_cmd = Command("pose", pose.x, pose.y, self.z_fly, pose.yaw)
-            return self._hold_cmd
+            self._hold_cmd = None
+            self._held_since = t
+            return self._held(t, pose)
         if sp.done:
             self.state = HOLD
             self.reason = "over the pad"
@@ -436,8 +444,9 @@ class Mission:
         ve = ff * ahead.velocity[0] + cfg.follow_gain * (ref.position[0] - here[0])
         vn = ff * ahead.velocity[1] + cfg.follow_gain * (ref.position[1] - here[1])
         speed = math.hypot(ve, vn)
-        if speed > self.limits.v_max_mps:
-            ve, vn = ve * self.limits.v_max_mps / speed, vn * self.limits.v_max_mps / speed
+        cap = min(self.limits.v_max_mps, cfg.twist_speed_max_mps)
+        if speed > cap:
+            ve, vn = ve * cap / speed, vn * cap / speed
         vx, vy = self.frame.rotate_to_odom(ve, vn)
         vz = max(-cfg.follow_vz_max_mps, min(cfg.follow_vz_max_mps, cfg.follow_z_gain * (self.z_fly - pose.z)))
         yaw_rate = max(-self.follower_config.yaw_rate_max_rps,
@@ -448,6 +457,23 @@ class Mission:
             fallback = (xy[0], xy[1], self.z_fly, self._yaw_cmd)
         self.reason = "following by velocity"
         return Command("twist", vx=vx, vy=vy, vz=vz, yaw_rate=yaw_rate, fallback=fallback)
+
+    def _held(self, t: float, pose: Optional[OdomPose]) -> Command:
+        """HELD for the pilot: brake by zero velocity, then hold the pose where the drone stopped.
+
+        Holding the pose where the abort fired, at speed, makes PX4 overshoot it and fly back."""
+        cfg = self.config
+        if self._hold_cmd is not None:
+            return self._hold_cmd
+        moving = pose is None or math.hypot(pose.vx, pose.vy) > cfg.held_brake_speed_mps
+        if moving and t - self._held_since < cfg.held_brake_s:
+            return Command("twist")
+        last = pose or self._last_good
+        if last is None:
+            return Command("twist")
+        age = min(max(t - last.t, 0.0), cfg.max_prediction_s)
+        self._hold_cmd = Command("pose", last.x + last.vx * age, last.y + last.vy * age, self.z_fly, last.yaw)
+        return self._hold_cmd
 
     def _hold(self, t: float, pose: OdomPose, landed: Optional[bool]) -> Command:
         cmd = Command("pose", self.end_odom[0], self.end_odom[1], self.z_fly, self._yaw_cmd)
@@ -516,12 +542,14 @@ class Mission:
             self.last_setpoint = sp
             if not sp.done:
                 ref = self.plan.trajectory.at(sp.ref_time)
+                ahead = self.plan.trajectory.at(sp.ref_time + sp.clock_rate * cfg.follow_anticipation_s)
                 ff = 0.0 if "no_safe_target" in sp.flags else sp.clock_rate
-                ve = ff * ref.velocity[0] + cfg.coast_gain * (ref.position[0] - here[0])
-                vn = ff * ref.velocity[1] + cfg.coast_gain * (ref.position[1] - here[1])
+                ve = ff * ahead.velocity[0] + cfg.coast_gain * (ref.position[0] - here[0])
+                vn = ff * ahead.velocity[1] + cfg.coast_gain * (ref.position[1] - here[1])
                 speed = math.hypot(ve, vn)
-                if speed > self.limits.v_max_mps:
-                    ve, vn = ve * self.limits.v_max_mps / speed, vn * self.limits.v_max_mps / speed
+                cap = min(self.limits.v_max_mps, cfg.twist_speed_max_mps)
+                if speed > cap:
+                    ve, vn = ve * cap / speed, vn * cap / speed
                 vx, vy = self.frame.rotate_to_odom(ve, vn)
                 dr.cmd = (vx, vy)
                 self._still_since = None

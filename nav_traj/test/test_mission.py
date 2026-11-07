@@ -159,6 +159,21 @@ class StateMachineTest(unittest.TestCase):
         self.assertEqual((cmd.kind, cmd.vx, cmd.vy, cmd.vz), ("twist", 0.0, 0.0, 0.0))
         self.assertIn("holding still", m.reason)
 
+    def test_held_brakes_before_holding_where_it_stopped(self):
+        # at speed, a pose hold where the abort fired makes PX4 overshoot it and fly back
+        self.m.update(0.0, False, self.pose(), True, 0.0)
+        self.m.update(0.02, True, self.pose(t=0.02), True, 0.0)
+        self.m.update(1.0, True, self.pose(t=1.0, z=0.73), False, 0.0)
+        fast = OdomPose(t=1.1, x=0.1, y=0.5, z=0.73, yaw=0.0, vx=1.0, vy=0.0)
+        cmd = self.m.update(1.1, True, fast, False, 0.0)
+        self.assertEqual(self.m.state, HELD)
+        self.assertEqual((cmd.kind, cmd.vx, cmd.vy), ("twist", 0.0, 0.0))          # braking
+        stopped = OdomPose(t=1.6, x=0.45, y=0.5, z=0.73, yaw=0.0)
+        cmd = self.m.update(1.6, True, stopped, False, 0.0)
+        self.assertEqual(cmd.kind, "pose")
+        self.assertAlmostEqual(cmd.x, 0.45)                                       # where it stopped
+        self.assertEqual(self.m.update(1.7, True, self.pose(t=1.7), False, 0.0), cmd)
+
     def test_stale_pose_in_the_air_sends_nothing(self):
         self.m.update(0.0, False, self.pose(), True, 0.0)
         self.m.update(0.02, True, self.pose(t=0.02), True, 0.0)
@@ -268,6 +283,8 @@ class WholeFlightTest(unittest.TestCase):
         limits, cfg = for_track_speed(0.8, VehicleLimits(), CONFIG)
         self.assertEqual((limits.v_max_mps, cfg.velocity_follow), (0.8, True))
         self.assertEqual(for_track_speed(3.0, VehicleLimits(), CONFIG)[0].v_max_mps, 1.0)   # PX4's cap
+        fast = dataclasses.replace(VehicleLimits(), v_max_mps=2.0)
+        self.assertEqual(for_track_speed(2.0, fast, CONFIG)[0].v_max_mps, 1.5)  # the interface's twist clamp
         times = {}
         for track in (0.0, 0.8):
             prepared = prep(l_course(), CONFIG, track_speed_mps=track)
@@ -279,6 +296,19 @@ class WholeFlightTest(unittest.TestCase):
             times[track] = log.events["disarm"] - log.events["takeoff"]
         self.assertLess(times[0.8], 0.8 * times[0.0], times)
         self.assertTrue(any("following by velocity" in r for r in log.reasons))
+
+    def test_a_plan_that_fails_its_checks_at_a_speed_is_planned_slower_not_refused(self):
+        # the STEP map's window route over the boulders breaks the jerk limit at 1.5 m/s and up:
+        # refusing would leave the node silent, so the kit never grants Offboard
+        from dronehacks_planner.limits import VehicleLimits
+        from dronehacks_planner.route import PlannerConfig
+        from dronehacks_traj.factory import prepare
+        cmap = dataclasses.replace(load_map(_paths.PACKAGE_ROOT / "maps" / "course_v3_step.yaml"), boulders=())
+        prepared = prep(cmap, CONFIG, limits=dataclasses.replace(VehicleLimits(), v_max_mps=2.0),
+                        planner=dataclasses.replace(PlannerConfig(), prefer=("window",)))
+        self.assertEqual(prepared.plan.route.goals, ["tunnel", "window", "pad"])
+        self.assertLess(prepared.v_max_mps, 2.0)
+        self.assertIn("no plan verified at 2 m/s", prepared.speed_note)
 
     def test_a_velocity_follow_keeps_a_hold_pose_under_the_drone(self):
         # if the twists stop, the interface holds its last pose: it must be where the drone is,

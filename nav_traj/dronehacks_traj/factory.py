@@ -11,7 +11,7 @@ from dronehacks_planner.course_map import CourseMap, load_map
 from dronehacks_planner.follower import FollowerConfig
 from dronehacks_planner.limits import VehicleLimits
 from dronehacks_planner.pipeline import FlightPlan, fastest
-from dronehacks_planner.route import PlannerConfig, make_field
+from dronehacks_planner.route import PlannerConfig, PlanningError, make_field
 
 from .frames import OdomFrame
 from .mission import Mission, MissionConfig
@@ -25,6 +25,9 @@ class Prepared:
     mission: Mission
     alternatives: list
     seconds: float
+    #: The speed the trajectory was planned at, and why it is lower than asked (None: as asked).
+    v_max_mps: float = 0.0
+    speed_note: Optional[str] = None
 
 
 def for_track_speed(track_speed_mps: float, limits: VehicleLimits, config: MissionConfig):
@@ -42,8 +45,39 @@ def for_track_speed(track_speed_mps: float, limits: VehicleLimits, config: Missi
     """
     if not (math.isfinite(track_speed_mps) and track_speed_mps > 0.0):
         raise ValueError(f"track_speed_mps must be > 0 (got {track_speed_mps!r})")
-    limits = dataclasses.replace(limits, v_max_mps=min(track_speed_mps, limits.v_max_mps))
+    # by twist, the interface clamps every command to its max_speed_mps: a plan above it would run
+    # away from the drone
+    v = min(track_speed_mps, limits.v_max_mps, config.twist_speed_max_mps)
+    limits = dataclasses.replace(limits, v_max_mps=v)
     return limits, dataclasses.replace(config, velocity_follow=True)
+
+
+#: The slowest a plan is tried at when a faster one fails its own checks.
+MIN_PLAN_SPEED_MPS = 0.3
+
+
+def plan_fastest_verified(cmap, planner: PlannerConfig, limits: VehicleLimits):
+    """``fastest`` at ``limits.v_max_mps``, or, if no plan verifies at that speed, 10 % slower each
+    time down to MIN_PLAN_SPEED_MPS: ``(plan, alternatives, limits, note)``. A faster speed
+    profile can break a limit of its own (along-path jerk at a sharp turn: the window route over
+    the boulders at 1.5 m/s and up) that a slower one keeps; without this the node stops before
+    it publishes anything, so the kit refuses Offboard and the drone never takes off."""
+    asked = limits.v_max_mps
+    v = asked
+    first_error = None
+    while True:
+        try:
+            plan, alternatives = fastest(cmap, planner, dataclasses.replace(limits, v_max_mps=v))
+        except PlanningError as exc:
+            slower = round(v * 0.9, 3)
+            if slower < MIN_PLAN_SPEED_MPS:
+                raise
+            first_error = first_error or str(exc)
+            v = slower
+            continue
+        note = None if v == asked else (f"no plan verified at {asked:g} m/s ({first_error}); "
+                                        f"planned at {v:g} m/s")
+        return plan, alternatives, dataclasses.replace(limits, v_max_mps=v), note
 
 
 def prepare(map_source, mission_config: MissionConfig, limits: VehicleLimits = VehicleLimits(),
@@ -68,10 +102,11 @@ def prepare(map_source, mission_config: MissionConfig, limits: VehicleLimits = V
     launch = cmap.launch
     launch_heading = None if launch is None or launch.heading is None else math.atan2(
         float(launch.heading[1]), float(launch.heading[0]))
-    plan, alternatives = fastest(cmap, planner, limits)
+    plan, alternatives, limits, note = plan_fastest_verified(cmap, planner, limits)
     mission = Mission(plan, frame, make_field(cmap, planner), cmap.slice_height, limits, mission_config,
                       follower, launch_heading=launch_heading)
-    return Prepared(cmap, plan, frame, mission, alternatives, time.perf_counter() - t0)
+    return Prepared(cmap, plan, frame, mission, alternatives, time.perf_counter() - t0,
+                    limits.v_max_mps, note)
 
 
 def flight_checks(prepared: Prepared, positions_odom, planner: PlannerConfig = PlannerConfig()) -> dict:

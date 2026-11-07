@@ -176,9 +176,11 @@ class MissionNode(Node):
         self.create_timer(1.0 / rate, self._tick)
         self.create_timer(1.0, self._publish_status)
         plan = self.prepared.plan
+        if self.prepared.speed_note:
+            self.get_logger().warn(self.prepared.speed_note)
         self.get_logger().info(
             f"map {map_file}: route {' > '.join(plan.route.goals)}, {plan.path.length_m:.2f} m, planned "
-            f"{plan.duration:.2f} s at v_max {limits.v_max_mps} m/s (built in {self.prepared.seconds:.2f} s); "
+            f"{plan.duration:.2f} s at v_max {self.prepared.v_max_mps:g} m/s (built in {self.prepared.seconds:.2f} s); "
             f"fly z {self.mission.z_fly:.2f} m; alternatives: "
             + "; ".join(f"{c}: {o}" for c, o in self.prepared.alternatives))
 
