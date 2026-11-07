@@ -232,6 +232,30 @@ def test_time_profile_respects_caller_bounds():
         trajectory.build_time_profile(0.5, 0.0)
 
 
+def test_time_profile_never_exceeds_arc_length_speed_cap():
+    course = synthetic_map()
+    route = plan_route(course, build_costmap(course))
+    trajectory = build_trajectory(route, course, clearance_at=lambda p: obstacle_clearance(p, course))
+    t, s, v = trajectory.build_time_profile(0.6, 1.2)
+    tol = 5e-3  # integration/interp error only
+    # The positional speed cap (V_MAX plus the corner bands) must hold at
+    # every profile sample. The old code sampled its target only at the far
+    # end of the look-ahead window, so it accelerated out of corner bands
+    # early: measured overshoot 0.0516 m/s over a 0.7246 m/s band cap at
+    # s ~= 1.20, while the clamped profile stays >= 0.1186 m/s below it.
+    cap = np.interp(s, trajectory.s, trajectory._speed_ceiling)
+    assert np.all(v <= cap + tol)
+    # Mid-course the time profile must also stay under the arc-length speed
+    # profile the default follower flies. The first/last 0.5 m are excluded:
+    # there the arc profile carries its smoothstep rest-to-rest envelope,
+    # which the time profile replaces with its own jerk-limited ramps, and
+    # which no a_lon-bounded profile can track all the way to the end (the
+    # envelope speed falls as distance^2 to zero, faster than any linear
+    # deceleration can bleed speed).
+    mid = (s >= 0.5) & (s <= trajectory.length - 0.5)
+    assert np.all(v[mid] <= np.interp(s[mid], trajectory.s, trajectory.speed) + tol)
+
+
 def test_prune_goal_snap_contract():
     # Hand-built flat costmap: 0.2 m cells, lower-left corner at (1.0, 2.0).
     flat = Costmap(costs=np.ones((8, 8)), origin=(1.8, 2.8), resolution=0.2)

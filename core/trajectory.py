@@ -193,7 +193,33 @@ class Trajectory:
             # ramp (worst case from +a_lon to -a_lon) completes before the
             # ceiling declines instead of overshooting it.
             offset = 3.0 * v_cur * a_lon / jerk_max + 0.5 * a_lon * TIME_STEP ** 2
-            v_target = float(np.interp(min(self.length, s_cur + offset), self.s, jerk_ceiling))
+            # Clamp against the jerk-aware ceiling over the whole window
+            # [s_cur, s_cur + offset], not only its far end: while the drone
+            # is still inside a corner band shorter than the offset, the
+            # far-end ceiling is already back up, and a far-end-only target
+            # would accelerate out of the band early. A corner band shorter
+            # than the offset can also dip between the two window endpoints,
+            # so take the min over the sampled interior too, not just of the
+            # endpoints. The endpoints use the same interpolated values as
+            # before so the rest-to-rest start and terminal decel behave
+            # identically.
+            i_lo = self._index(s_cur)
+            i_hi = self._index(min(self.length, s_cur + offset))
+            v_target = min(
+                float(np.interp(s_cur, self.s, jerk_ceiling)),
+                float(np.interp(min(self.length, s_cur + offset), self.s, jerk_ceiling)),
+            )
+            if i_hi > i_lo + 1:
+                v_target = min(v_target, float(np.min(jerk_ceiling[i_lo + 1:i_hi])))
+            # Absorb the up-inertia: while a_cur > 0 the speed still rises by
+            # a_cur^2 / (2 * jerk_max) before a ramp down at jerk_max stops the
+            # climb, so an uncorrected target lets v cross the ceiling at the
+            # drone's own position. Subtract that overshoot from the target so
+            # the profile respects the cap at every position it passes.
+            if a_cur > 0.0:
+                v_target -= a_cur ** 2 / (2.0 * jerk_max)
+                if v_target < 0.0:
+                    v_target = 0.0
             a_target = min(a_lon, max(-a_lon, (v_target - v_cur) / (5.0 * TIME_STEP)))
             a_cur += min(jerk_max * TIME_STEP, max(-jerk_max * TIME_STEP, a_target - a_cur))
             a_cur = max(a_cur, -decay_gain * v_cur)
