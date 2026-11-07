@@ -52,11 +52,43 @@ def _astar(costmap: Costmap, start, target):
     raise ValueError("no collision-free route to goal")
 
 
+def _crossed_cells(start, end):
+    """Yield every unit grid cell the segment ``start`` -> ``end`` crosses.
+
+    ``start``/``end`` are float grid coordinates; cell ``i`` spans ``[i, i+1)``.
+    Sampling rounded points at unit steps can skip a cell whose interior the
+    segment crosses when it hugs a row or column boundary, so a chord could
+    pass through a blocked cell that was never sampled. This boundary-
+    crossing walk visits every crossed cell. Cells touched only at a grid
+    corner are included, which rejects more chords, never fewer.
+    """
+    x0, y0 = float(start[0]), float(start[1])
+    x1, y1 = float(end[0]), float(end[1])
+    ix, iy = math.floor(x0), math.floor(y0)
+    final = (math.floor(x1), math.floor(y1))
+    yield (ix, iy)
+    if (ix, iy) == final:
+        return
+    dx, dy = x1 - x0, y1 - y0
+    sx = 1 if dx > 0 else -1
+    sy = 1 if dy > 0 else -1
+    t_max_x = ((ix + (sx > 0)) - x0) / dx if dx else math.inf
+    t_max_y = ((iy + (sy > 0)) - y0) / dy if dy else math.inf
+    t_dx = abs(1.0 / dx) if dx else math.inf
+    t_dy = abs(1.0 / dy) if dy else math.inf
+    while (ix, iy) != final:
+        if t_max_x < t_max_y:
+            ix += sx
+            t_max_x += t_dx
+        else:
+            iy += sy
+            t_max_y += t_dy
+        yield (ix, iy)
+
+
 def _line_cells(a, b):
-    distance = max(abs(b[0] - a[0]), abs(b[1] - a[1]))
-    if distance == 0:
-        return [a]
-    return list(dict.fromkeys((int(round(a[0] + (b[0] - a[0]) * i / distance)), int(round(a[1] + (b[1] - a[1]) * i / distance))) for i in range(distance + 1)))
+    """Every cell crossed by the cell-centre-to-cell-centre chord ``a`` -> ``b``."""
+    return list(_crossed_cells((a[0] + 0.5, a[1] + 0.5), (b[0] + 0.5, b[1] + 0.5)))
 
 
 def shortcut_path(cells, costs):
@@ -102,16 +134,21 @@ def _passage_axis(goal):
     return start, end
 
 
-def _sampled_cells(costmap: Costmap, a, b):
-    count = max(2, int(math.ceil(float(np.linalg.norm(b - a)) / (costmap.resolution / 2.0))) + 1)
-    for t in np.linspace(0.0, 1.0, count):
-        yield costmap.world_to_grid(a + t * (b - a))
+def _segment_cells(costmap: Costmap, a, b):
+    """Every costmap cell the world-space segment ``a`` -> ``b`` crosses."""
+    costmap.world_to_grid(a)  # bounds check with the usual error
+    costmap.world_to_grid(b)
+    lo, res = costmap.lower_left, costmap.resolution
+    # Grid floats in (row, col) order, matching world_to_grid's cell tuples.
+    start = ((float(a[1]) - lo[1]) / res, (float(a[0]) - lo[0]) / res)
+    end = ((float(b[1]) - lo[1]) / res, (float(b[0]) - lo[0]) / res)
+    return _crossed_cells(start, end)
 
 
 def _polyline_max_cost(costmap: Costmap, points):
     worst = 0.0
     for a, b in zip(points, points[1:]):
-        for cell in _sampled_cells(costmap, a, b):
+        for cell in _segment_cells(costmap, a, b):
             worst = max(worst, float(costmap.costs[cell]))
     return worst
 
@@ -119,7 +156,7 @@ def _polyline_max_cost(costmap: Costmap, points):
 def _chord_acceptable(costmap: Costmap, a, b, replaced_max):
     """Same rule as :func:`shortcut_path`: every crossed cell is finite and no
     costlier than the subpath the chord replaces."""
-    for cell in _sampled_cells(costmap, a, b):
+    for cell in _segment_cells(costmap, a, b):
         cost = float(costmap.costs[cell])
         if not math.isfinite(cost) or cost > replaced_max + 1e-12:
             return False

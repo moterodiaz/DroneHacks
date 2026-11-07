@@ -7,9 +7,9 @@ try:
 except ModuleNotFoundError as exc:  # the CI sandbox installs no third-party packages
     raise unittest.SkipTest("third-party test dependencies missing: {}".format(exc))
 
-from core.costmap import LETHAL_CLEARANCE, Costmap, build_costmap, obstacle_clearance
+from core.costmap import LETHAL_CLEARANCE, RASTER_BUFFER, Costmap, build_costmap, obstacle_clearance
 from core.frames import course_to_odom, enu_to_ned, flu_to_frd, odom_to_course
-from core.planner import _prune_goal_snap, plan_route
+from core.planner import _chord_acceptable, _line_cells, _prune_goal_snap, plan_route, shortcut_path
 from core.trajectory import V_MAX, build_trajectory
 
 
@@ -290,3 +290,78 @@ def test_tunnel_yaw_corridor_comes_from_map_width():
     del course["goals"][1]["params"]["width"]
     with pytest.raises(ValueError, match="width"):
         build_trajectory(route, course, clearance_at=lambda _: 0.70)
+
+
+def test_window_portal_cells_keep_reviewed_clearance():
+    course = synthetic_map()
+    costmap = build_costmap(course)
+    window = course["goals"][2]
+    params = window["params"]
+    wall = course["segments"][params["wall_segment_index"]]
+    centre = np.asarray(window["centre"], dtype=float)
+    wall_unit = (np.asarray(wall["end"]) - np.asarray(wall["start"])) / np.linalg.norm(
+        np.asarray(wall["end"]) - np.asarray(wall["start"])
+    )
+    safe_half = params["side"] / 2 - params["clearance_radius"]
+    # Every cell the portal frees inside the window wall's own footprint must
+    # keep the reviewed clearance radius to the opening edge at every point of
+    # the cell, not only at its centre: the old centre-only cut-out freed the
+    # cell at lateral offset 0.175 m, whose far edge reaches 0.20 m and leaves
+    # only 0.30 m of margin to the opening edge.
+    worst = 0.0
+    for cell in map(tuple, np.argwhere(np.isfinite(costmap.costs))):
+        world = costmap.grid_to_world(cell)
+        if _segment_surface(world, wall) > 0:
+            continue  # outside the wall's footprint: not a portal-freed cell
+        worst = max(worst, abs(float((world - centre) @ wall_unit)))
+    assert worst + RASTER_BUFFER <= safe_half + 1e-12
+
+
+def test_shortcut_never_crosses_blocked_cell():
+    costs = np.ones((4, 4))
+    costs[(1, 0)] = np.inf  # crossed by the (0,0)->(3,2) chord's interior
+    costs[(2, 2)] = np.inf  # crossed by the (1,1)->(3,2) chord's interior
+    cells = [(0, 0), (1, 1), (2, 1), (3, 2)]
+    # The straight chord (0,0)->(3,2) crosses the interior of blocked (1,0),
+    # but the old point-sampled _line_cells returned only (0,0),(1,1),(2,1),
+    # (3,2) and shortcut_path replaced the subpath with a segment through it.
+    assert (1, 0) in _line_cells((0, 0), (3, 2))
+    assert shortcut_path(cells, costs) == cells
+
+
+def test_chord_acceptable_checks_every_crossed_cell():
+    costs = np.ones((4, 4))
+    costs[(1, 0)] = np.inf
+    costmap = Costmap(costs=costs, origin=(2.0, 2.0), resolution=1.0)  # lower-left corner (0, 0)
+    a, b = np.array([0.7, 2.3]), np.array([1.0, 1.8])
+    # The chord clips the interior of blocked cell (1, 0) between the old
+    # half-resolution sample points; every crossed cell must be checked.
+    assert not _chord_acceptable(costmap, a, b, replaced_max=1.0)
+
+
+def test_fillet_arc_keeps_lethal_clearance():
+    # A 150-degree turn with 3 m legs at the 0.35 m radius cap cuts the fillet
+    # 0.35 * (1 / cos(75 deg) - 1) = 1.002 m into the corner. A small boulder
+    # 1.28 m from the vertex along the interior bisector sits 0.321 m from
+    # both legs and 1.27 m from the vertex, so the vertex clearance gate
+    # passes, but the arc passes only 0.268 m from its surface: the turn must
+    # fail closed instead of returning a trajectory that breaks the 0.32 m rule.
+    course = synthetic_map()
+    boulder = 1.28 * np.array([-math.sin(math.radians(75)), math.cos(math.radians(75))])
+
+    def clearance_at(p):
+        return float(np.linalg.norm(np.asarray(p, dtype=float) - boulder) - 0.01)
+
+    waypoints = [
+        (-3.0, 0.0),
+        (0.0, 0.0),
+        tuple(3.0 * np.array([math.cos(math.radians(150)), math.sin(math.radians(150))])),
+    ]
+    # The premise of the scenario: both legs and the vertex keep the lethal
+    # clearance, so only the arc can violate it.
+    leg2 = np.array([math.cos(math.radians(150)), math.sin(math.radians(150))])
+    assert abs(boulder[1]) - 0.01 >= LETHAL_CLEARANCE  # distance to leg 1 (the x-axis)
+    assert abs(leg2[0] * boulder[1] - leg2[1] * boulder[0]) - 0.01 >= LETHAL_CLEARANCE  # distance to leg 2
+    assert clearance_at((0.0, 0.0)) >= LETHAL_CLEARANCE  # vertex clearance
+    with pytest.raises(ValueError, match="rounded turn"):
+        build_trajectory(waypoints, course, clearance_at=clearance_at)

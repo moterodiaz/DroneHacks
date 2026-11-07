@@ -66,11 +66,22 @@ class Trajectory:
             start_angle = math.atan2(*(entry - centre)[::-1])
             sweep = math.copysign(turn, cross)
             arc_count = max(3, int(math.ceil(radius * turn / ds)))
-            geometry.append(entry)
-            geometry.extend(
+            fillet = [entry]
+            fillet.extend(
                 centre + radius * np.array([math.cos(start_angle + sweep * j / arc_count), math.sin(start_angle + sweep * j / arc_count)])
                 for j in range(1, arc_count + 1)
             )
+            if clearance_at is not None:
+                # Vertex clearance alone does not establish clearance along the
+                # fillet: a sharp turn's arc cuts up to radius * (1 / cos(turn/2)
+                # - 1) metres into the corner interior and can approach an
+                # obstacle the vertex check never sees. The flown path is the
+                # polyline through these fillet points, so checking them is
+                # checking the turn; a violation fails closed.
+                if any(float(clearance_at(point)) < 0.32 - 1e-6 for point in fillet):
+                    raise ValueError("rounded turn fillet breaks the 0.32 m clearance")
+            geometry.append(entry)
+            geometry.extend(fillet[1:])
             corner_positions.append(centre + radius * np.array([math.cos(start_angle + sweep / 2), math.sin(start_angle + sweep / 2)]))
         self.corner_radii = np.asarray(radii)
         geometry.append(points[-1])

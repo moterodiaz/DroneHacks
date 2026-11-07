@@ -116,6 +116,12 @@ def build_costmap(course_map: dict) -> Costmap:
     # clearance_radius is a reviewed robot-centre exclusion radius. It must fit the portal.
     if clearance_radius >= window_side / 2:
         raise ValueError("window clearance_radius must be smaller than side / 2")
+    portal_half = window_side / 2 - clearance_radius - RASTER_BUFFER
+    if portal_half < RASTER_BUFFER:
+        # Fail closed here instead of letting the planner find a lethal goal cell:
+        # at this resolution not even the opening-centre cell is guaranteed to
+        # keep the reviewed clearance radius to the opening edge.
+        raise ValueError("window opening cannot hold the reviewed clearance radius at this grid resolution")
 
     offsets = -GRID_SIZE * RESOLUTION / 2 + RESOLUTION * (np.arange(GRID_SIZE) + 0.5)
     xx, yy = np.meshgrid(origin[0] + offsets, origin[1] + offsets)
@@ -133,9 +139,13 @@ def build_costmap(course_map: dict) -> Costmap:
         distance = _point_segment_distance(points, start, end) - thickness / 2
         if i == window_index:
             along = np.abs(np.sum((points - window_centre) * wall_unit, axis=-1))
-            # The portal removes this wall's footprint across its physical side. The reviewed
-            # clearance radius is retained as the minimum remaining lateral centre margin.
-            portal = along <= window_side / 2 - clearance_radius
+            # The portal removes this wall's footprint across its physical side. The
+            # reviewed clearance radius is the minimum remaining lateral centre
+            # margin to the opening edge, and the raster buffer extends that
+            # margin over the whole freed cell, not only its centre: any point
+            # of a freed cell stays clearance_radius from the edge, so a route
+            # inside freed cells cannot break the reviewed clearance.
+            portal = along <= portal_half
             distance = np.where(portal, np.inf, distance)
         add_obstacle(distance)
 
@@ -151,10 +161,12 @@ def build_costmap(course_map: dict) -> Costmap:
 def obstacle_clearance(point, course_map: dict) -> float:
     """Return distance from a point to the nearest wall/boulder surface.
 
-    Portal-aware, with the same cut-out semantics as :func:`build_costmap`:
-    inside the window's opening strip the containing wall is absent, so the
-    clearance at the window opening reflects the free opening rather than the
-    wall that holds it.
+    Portal-aware: inside the window's opening strip the containing wall is
+    absent, so the clearance at the window opening reflects the free opening
+    rather than the wall that holds it. The strip here is the exact point
+    margin ``side / 2 - clearance_radius``; :func:`build_costmap` narrows it
+    by one raster buffer because it certifies whole cells, so every cell it
+    marks free lies inside this strip.
     """
     segments = _segments_of(course_map)
     window_index, window_centre, window_side, clearance_radius, wall_unit = _validated_window(course_map, segments)
@@ -162,7 +174,7 @@ def obstacle_clearance(point, course_map: dict) -> float:
     distances = []
     for i, (start, end, thickness) in enumerate(segments):
         if i == window_index and abs(float((p - window_centre) @ wall_unit)) <= window_side / 2 - clearance_radius:
-            continue  # window portal cut-out, identical to build_costmap
+            continue  # window portal cut-out; the costmap narrows its strip by one raster buffer to cover cell extent
         distances.append(float(_point_segment_distance(p[None, :], start, end)[0]) - thickness / 2)
     for boulder in course_map.get("boulders", []):
         distances.append(float(np.linalg.norm(p - _finite_pair(boulder["centre"], "centre")) - float(boulder["radius"])))
