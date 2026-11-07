@@ -143,6 +143,28 @@ class NodeConfigErrorTest(unittest.TestCase):
         with self.assertRaises(fake_ros.ParameterTypeError):
             mod.MissionNode()
 
+    def make_return(self, **params):
+        mod = self.make(map_file=STEP_MAP, rest_height_m=0.07, **MEASURED, **params)
+        return mod, mod.MissionNode
+
+    def test_return_leg_needs_the_land_detector(self):
+        # The land detector's flag is what starts the return, so turning it off cannot be allowed.
+        mod, node = self.make_return(land=True, return_leg=True, return_height_m=2.2, land_detected_topic="")
+        with self.assertRaisesRegex(mod.ConfigError, "land_detected_topic"):
+            node()
+
+    def test_return_leg_without_land_is_a_config_error(self):
+        mod, node = self.make_return(return_leg=True, return_height_m=2.2)
+        with self.assertRaisesRegex(mod.ConfigError, "needs land"):
+            node()
+
+    def test_return_parameters_reach_the_mission(self):
+        _, node = self.make_return(land=True, return_leg=True, return_height_m=2.2, return_speed_mps=0.4)
+        mission = node().mission
+        self.assertTrue(mission.config.return_leg)
+        self.assertAlmostEqual(mission.z_return, 2.2 - 0.07)
+        self.assertAlmostEqual(mission.config.return_speed_mps, 0.4)
+
     def test_main_returns_2_and_publishes_nothing(self):
         mod = self.make(map_file="/nonexistent.yaml", rest_height_m=0.07, **MEASURED)
         self.assertEqual(mod.main([]), 2)

@@ -47,3 +47,10 @@ mission:
     # other than abort ends it). contracts/px4.md blocks the twist descent until the organisers
     # confirm a landing procedure. Set true in autonomy_params.yaml once they have.
     land: false
+    # Touch the pad, lift off without disarming and land at the launch mark (needs land: true). The
+    # organisers said the drone does not disarm on the pad. contracts/px4.md still blocks this until
+    # it is updated with that answer.
+    return_leg: false
+    return_height_m: 2.2             # above the floor; must clear this course's walls (68 in here)
+    return_speed_mps: 0.5
+    return_lag_m: 0.5

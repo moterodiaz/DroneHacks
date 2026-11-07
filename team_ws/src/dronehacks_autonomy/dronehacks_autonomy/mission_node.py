@@ -138,6 +138,8 @@ class MissionNode(Node):
         self.create_subscription(Odometry, str(self._param("odometry_topic")), self._on_odom, BEST_EFFORT)
         self.create_subscription(String, str(self._param("state_topic")), self._on_state, QUEUE_DEPTH)
         land_topic = self._fmu_topic("land_detected_topic", "vehicle_land_detected", "VehicleLandDetected")
+        if self.mission.config.return_leg and not land_topic:
+            raise ConfigError("return_leg needs land_detected_topic: the touchdown on the pad starts the return")
         if land_topic:
             from px4_msgs.msg import VehicleLandDetected
             self.create_subscription(VehicleLandDetected, land_topic, self._on_land, BEST_EFFORT)

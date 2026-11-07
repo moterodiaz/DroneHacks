@@ -35,6 +35,7 @@ From this directory, with numpy, PyYAML and pytest installed:
 ```sh
 python3 -m pytest test -q
 python3 -m dronehacks_autonomy.dry_run maps/course_v3_layout.yaml --rest-height 0.07
+python3 -m dronehacks_autonomy.dry_run maps/course_v3_layout.yaml --rest-height 0.07 --return-height 2.2
 ```
 
 ## Put it on drone 1
@@ -79,6 +80,14 @@ These can't be tested offline.
   any pilot input other than abort ends a scored run, so this can't finish one. `contracts/px4.md`
   blocks the velocity descent until the organisers confirm a procedure. Once they have, set
   `land: true` in `autonomy_params.yaml`.
+- **The return leg is off by default** (`return_leg: false`). The organisers told the team the drone
+  does not disarm on the pad, so it is a touch-and-go: PX4's landed flag triggers an immediate climb,
+  before `COM_DISARM_LAND` (2 s) disarms it. This has only flown offline. Whether PX4 lets a landed
+  drone climb straight out of Offboard, and how the rangefinder reacts to passing over a wall at
+  return height (it gives EKF2 its height), are unknown until tried. Keep `return_height_m` under the
+  interface's `max_altitude_m`: it clamps poses instead of refusing them, so a higher value would hover
+  over the pad and never finish the climb. `contracts/px4.md` still blocks
+  landing and the return and has to be updated with the organisers' answer.
 - **The window is off by default.** It needs `use_window: true` and a reviewed `clearance_radius`
   in the map.
 - **The map is trusted.** Nothing senses walls in flight, so a course laid differently from its

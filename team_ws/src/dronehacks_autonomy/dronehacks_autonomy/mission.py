@@ -1,4 +1,4 @@
-"""The flight, arming to disarm: wait, take off, follow, hold over the pad, land.
+"""The flight, arming to disarm: wait, take off, follow, hold over the pad, land, optionally return.
 
 **FOLLOW flies the Follower** (``planning.follower``): the smoothed trajectory with its speed
 profile and progress governor. The pose is cuVSLAM's odometry in the ``odom`` frame, and setpoints
@@ -26,6 +26,14 @@ Rules from competitor_guide.md §3-§4:
   default: the mission then holds over the pad for the pilot, px4.md). The
   kit floors poses at ``min_altitude_m``, but only caps twists. PX4 disarms
   itself ``COM_DISARM_LAND`` after landing.
+
+**The return leg** (``return_leg: true``, needs ``land: true``). The organisers said the drone does
+not disarm on the pad, and the kit could not re-arm it anyway. So the pad is a touch-and-go: on PX4's
+land-detected flag the mission commands a climb at once, inside ``COM_DISARM_LAND``. It climbs straight
+up to ``return_height_m``, flies a straight line to the launch mark at that height with a reference
+that waits for the drone, holds, descends, and PX4 disarms there. The line needs no route planning:
+the net is convex and the height clears what is below, which ``return_height_m`` has to guarantee.
+If PX4 disarms on the pad anyway (the window was missed), the mission stops there.
 
 Added for safety:
 * **GROUNDED.** Offboard starts but the pose is stale or a precheck now
@@ -63,6 +71,8 @@ LANDED = "LANDED"
 STOPPED = "STOPPED"
 GROUNDED = "GROUNDED"
 HELD = "HELD"
+RETURN_CLIMB = "RETURN_CLIMB"
+RETURN_TRANSIT = "RETURN_TRANSIT"
 
 
 @dataclasses.dataclass(frozen=True)
@@ -90,6 +100,15 @@ class MissionConfig:
     #: for the pilot, because contracts/px4.md blocks the twist descent until a landing
     #: API is contracted. Set true only per that contract.
     land: bool = False
+    #: After touching the pad, take off again without disarming and land at the launch mark.
+    return_leg: bool = False
+    #: Height above the floor to fly the return at. It must clear everything under the straight
+    #: line from pad to launch. The map is sliced at flight height and has no wall heights, so
+    #: this is set per course. Required with return_leg.
+    return_height_m: float = 0.0
+    return_speed_mps: float = 0.5
+    #: The return's reference waits while the drone is further behind it than this.
+    return_lag_m: float = 0.5
 
     def __post_init__(self) -> None:
         for f in dataclasses.fields(self):
@@ -152,6 +171,20 @@ class Mission:
         traj = plan.trajectory
         self.start_odom = frame.to_odom(*traj.xy[0])
         self.end_odom = frame.to_odom(*traj.xy[-1])
+        self.z_return = config.return_height_m - config.rest_height_m
+        if config.return_leg:
+            if not config.land:
+                raise ValueError("return_leg needs land: true (the return starts from a touchdown)")
+            if config.return_height_m <= slice_height_m:
+                raise ValueError(f"return_height_m {config.return_height_m:.2f} m must be above the flight "
+                                 f"height {slice_height_m:.2f} m; set it for this course (it has no default)")
+            if config.return_speed_mps <= 0.0:
+                raise ValueError("return_speed_mps must be > 0")
+        self._land_xy: Tuple[float, float] = self.end_odom
+        self._hold_z = self.z_fly
+        self._returning = False
+        self._return_s = 0.0
+        self._return_t: Optional[float] = None
         self.state = WAIT
         self.reason = "waiting for the prechecks"
         self.follower: Optional[Follower] = None
@@ -197,7 +230,8 @@ class Mission:
             self.reason = "no fresh pose: sending nothing, so the interface holds the last checked pose"
             return None
         handler = {TAKEOFF: self._takeoff, FOLLOW: self._follow, HOLD: self._hold, LAND: self._land,
-                   LANDED: self._landed}[self.state]
+                   LANDED: self._landed, RETURN_CLIMB: self._return_climb,
+                   RETURN_TRANSIT: self._return_transit}[self.state]
         return handler(t, pose, landed)
 
     # -- states --------------------------------------------------------------------
@@ -273,10 +307,10 @@ class Mission:
         return Command("pose", sx, sy, self.z_fly, self._yaw_cmd)
 
     def _hold(self, t: float, pose: OdomPose, landed: Optional[bool]) -> Command:
-        cmd = Command("pose", self.end_odom[0], self.end_odom[1], self.z_fly, self._yaw_cmd)
+        cmd = Command("pose", self._land_xy[0], self._land_xy[1], self._hold_z, self._yaw_cmd)
         if not self.config.land:
             return cmd
-        near = math.hypot(self.end_odom[0] - pose.x, self.end_odom[1] - pose.y) < self.config.land_tolerance_m
+        near = math.hypot(self._land_xy[0] - pose.x, self._land_xy[1] - pose.y) < self.config.land_tolerance_m
         if not near:
             self._hold_since = None
             return cmd
@@ -290,6 +324,8 @@ class Mission:
 
     def _land(self, t: float, pose: Optional[OdomPose], landed: Optional[bool]) -> Command:
         if landed:
+            if self.config.return_leg and not self._returning:
+                return self._begin_return()
             self.state = LANDED
             return self._landed(t, pose, landed)
         self.reason = "landing"
@@ -298,6 +334,49 @@ class Mission:
     def _landed(self, t: float, pose: Optional[OdomPose], landed: Optional[bool]) -> Command:
         self.reason = "landed: pressing down until PX4 disarms (COM_DISARM_LAND)"
         return self._descend(pose, 0.3 * self.config.descent_mps)
+
+    def _begin_return(self) -> Command:
+        """Touched the pad and PX4 says landed: climb now, before COM_DISARM_LAND disarms it."""
+        self._returning = True
+        self.state = RETURN_CLIMB
+        self.reason = "touched the pad: climbing for the return without disarming"
+        return Command("pose", self.end_odom[0], self.end_odom[1], self.z_return, self._yaw_cmd)
+
+    def _return_climb(self, t: float, pose: OdomPose, landed: Optional[bool]) -> Command:
+        if abs(pose.z - self.z_return) < self.config.takeoff_tolerance_m:
+            self.state = RETURN_TRANSIT
+            self.reason = "returning to the launch mark"
+            self._return_t = t
+            return self._return_transit(t, pose, landed)
+        return Command("pose", self.end_odom[0], self.end_odom[1], self.z_return, self._yaw_cmd)
+
+    def _return_transit(self, t: float, pose: OdomPose, landed: Optional[bool]) -> Command:
+        ax, ay = self.end_odom
+        bx, by = self.start_odom
+        length = max(math.hypot(bx - ax, by - ay), 1e-9)
+        ux, uy = (bx - ax) / length, (by - ay) / length
+        rx, ry = pose.x - ax, pose.y - ay
+        along, across = rx * ux + ry * uy, abs(rx * uy - ry * ux)
+        if across > self.config.abort_cross_track_m:
+            self.state = HELD
+            self.reason = (f"{across:.2f} m off the return line (limit {self.config.abort_cross_track_m:.2f} m):"
+                           " holding here for the pilot")
+            self._hold_cmd = Command("pose", pose.x, pose.y, self.z_return, self._yaw_cmd)
+            return self._hold_cmd
+        dt = max(t - self._return_t, 0.0)
+        self._return_t = t
+        # Capped by the drone's own position, so a vision gap (a large dt) cannot throw the reference
+        # far ahead: a far pose setpoint is a fast flight, the kit does not limit its speed.
+        advanced = min(self._return_s + self.config.return_speed_mps * dt, along + self.config.return_lag_m)
+        self._return_s = min(max(self._return_s, advanced), length)
+        if self._return_s >= length and math.hypot(bx - pose.x, by - pose.y) < self.config.land_tolerance_m:
+            self._land_xy = self.start_odom
+            self._hold_z = self.z_return
+            self._hold_since = None
+            self.state = HOLD
+            self.reason = "over the launch mark"
+            return self._hold(t, pose, landed)
+        return Command("pose", ax + ux * self._return_s, ay + uy * self._return_s, self.z_return, self._yaw_cmd)
 
     def _descend_without_pose(self, t: float, landed: Optional[bool]) -> Command:
         """No fresh pose while landing: keep descending, straight down. Sending
@@ -312,8 +391,8 @@ class Mission:
         if pose is None:
             return Command("twist", vz=-rate)
         cfg = self.config
-        vx = cfg.land_xy_gain * (self.end_odom[0] - pose.x)
-        vy = cfg.land_xy_gain * (self.end_odom[1] - pose.y)
+        vx = cfg.land_xy_gain * (self._land_xy[0] - pose.x)
+        vy = cfg.land_xy_gain * (self._land_xy[1] - pose.y)
         speed = math.hypot(vx, vy)
         if speed > cfg.land_xy_max_mps:
             vx, vy = vx * cfg.land_xy_max_mps / speed, vy * cfg.land_xy_max_mps / speed

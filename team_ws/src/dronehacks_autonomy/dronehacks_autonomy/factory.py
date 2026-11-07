@@ -68,22 +68,32 @@ def _check_window_budget(cmap: CourseMap, plan: FlightPlan, planner: PlannerConf
                              f"inside the reviewed clearance_radius {needed:.3f} m")
 
 
-def flight_checks(prepared: Prepared, positions_odom, planner: PlannerConfig = PlannerConfig()) -> dict:
-    """Wall touches, openings and pad landing for a flown path given in the odom frame."""
+def flight_checks(prepared: Prepared, positions_odom, planner: PlannerConfig = PlannerConfig(),
+                  pad_touch_odom=None) -> dict:
+    """Wall touches, openings and pad landing for a flown path given in the odom frame.
+    ``pad_touch_odom``: where it touched the pad, if the flight did not end there (the return)."""
     import numpy as np
 
     from dronehacks_autonomy.planning.sim import landed_on, openings_crossed
 
     frame, cmap, route = prepared.frame, prepared.cmap, prepared.plan.route
     xy = np.array([frame.to_course(float(p[0]), float(p[1])) for p in positions_odom])
-    airborne = np.asarray(positions_odom)[:, 2] > 0.05
+    height = np.asarray(positions_odom)[:, 2]
+    airborne = height > 0.05
+    mission = prepared.mission
+    if mission.config.return_leg:   # the return flies over the walls on purpose
+        airborne = airborne & (height < mission.z_fly + 0.3)
     field = make_field(cmap, planner)
     wall = field.wall_distance(xy[airborne]) if airborne.any() else np.array([np.inf])
     touching = wall < planner.drone_extent_m
     pad = next((g.name for g in cmap.goals if g.shape == "disc"), None)
-    return {
+    touch = xy[-1] if pad_touch_odom is None else frame.to_course(float(pad_touch_odom[0]), float(pad_touch_odom[1]))
+    checks = {
         "wall_touches": int(np.sum(touching[1:] & ~touching[:-1]) + (1 if touching[:1].any() else 0)),
         "min_wall_clearance_m": round(float(wall.min()), 3),
         "openings": openings_crossed(xy, route, cmap, planner.drone_extent_m),
-        "on_pad": landed_on(xy[-1], cmap, pad, planner.drone_extent_m) if pad else None,
+        "on_pad": landed_on(touch, cmap, pad, planner.drone_extent_m) if pad else None,
     }
+    if mission.config.return_leg and cmap.launch is not None:
+        checks["launch_miss_m"] = round(float(np.hypot(*(xy[-1] - np.asarray(cmap.launch.position)))), 3)
+    return checks

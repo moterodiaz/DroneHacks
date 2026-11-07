@@ -23,6 +23,8 @@ import json
 import math
 import sys
 
+import numpy as np
+
 from dronehacks_autonomy.planning.limits import VehicleLimits
 
 from .contract_map import load_contract_map
@@ -30,6 +32,10 @@ from .factory import flight_checks, prepare
 from .frames import model_odom_frame
 from .mission import MissionConfig
 from .vehicle_sim import VehicleSimConfig, fly, summary
+
+
+#: Rule 7.10: land within 2 ft of the launch mark.
+RETURN_RADIUS_M = 0.6096
 
 
 def main(argv=None) -> int:
@@ -43,6 +49,8 @@ def main(argv=None) -> int:
                     help="PX4's heading minus vision's at the start, for the heading gate")
     ap.add_argument("--use-window", action="store_true",
                     help="fly the window (the map needs a reviewed clearance_radius)")
+    ap.add_argument("--return-height", type=float, default=None,
+                    help="also fly the return leg at this height above the floor, m")
     args = ap.parse_args(argv)
 
     limits = dataclasses.replace(VehicleLimits(), v_max_mps=args.v_max)
@@ -54,7 +62,8 @@ def main(argv=None) -> int:
         frame = model_odom_frame(cmap.launch.position, cmap.launch.heading)
         # land: the default holds over the pad for the pilot (px4.md); the dry run exercises
         # the landing too, so it opts in explicitly.
-        prepared = prepare(cmap, MissionConfig(rest_height_m=args.rest_height, land=True), limits, frame=frame)
+        prepared = prepare(cmap, MissionConfig(rest_height_m=args.rest_height, land=True, return_leg=args.return_height is not None,
+                                                return_height_m=args.return_height or 0.0), limits, frame=frame)
     except Exception as exc:  # noqa: BLE001 - report any planning failure and fail the run
         print(f"dry_run: could not build the mission: {exc}", file=sys.stderr)
         return 2
@@ -65,10 +74,16 @@ def main(argv=None) -> int:
     log = fly(prepared.mission, limits,
               VehicleSimConfig(px4_yaw_offset_rad=math.radians(args.px4_yaw_offset_deg)))
     result = summary(log)
-    result.update(flight_checks(prepared, log.pos))
+    returning = prepared.mission.config.return_leg
+    touch = None
+    if returning and "touchdown" in log.events:
+        touch = log.pos[int(np.searchsorted(log.t, log.events["touchdown"]))]
+    result.update(flight_checks(prepared, log.pos, pad_touch_odom=touch))
     print(json.dumps(result, indent=2))
     ok = (log.final_state == "STOPPED" and "disarm" in log.events and result["wall_touches"] == 0
           and all(result["openings"].values()) and result["on_pad"])
+    if returning:
+        ok = ok and result["launch_miss_m"] <= RETURN_RADIUS_M and log.events.get("last_touchdown", 0.0) > log.events.get("touchdown", float("inf"))
     print("dry run: PASS" if ok else "dry run: FAIL")
     return 0 if ok else 1
 

@@ -68,6 +68,7 @@ class VehicleSimConfig:
     twist_speed_cap_mps: float = 1.5     # the interface's max_speed_mps
     switch_s: float = 2.0                # pilot arms at 0, switches to Position at this time
     disarm_land_s: float = 2.0           # COM_DISARM_LAND
+    land_detect_s: float = 0.5           # on the floor this long before PX4 says landed (GUESSED)
     disarm_preflight_s: float = 10.0     # COM_DISARM_PRFLT
     timeout_s: float = 180.0
     record_rate_hz: float = 25.0
@@ -107,6 +108,7 @@ def fly(mission: Mission, limits: VehicleLimits = VehicleLimits(),
 
     armed, offboard, landed = True, False, True
     landed_since: Optional[float] = None
+    detected_at: Optional[float] = None          # when PX4 declared this landing; each landing restarts it
     ever_airborne = False
     pose_target: Optional[np.ndarray] = None     # what the interface holds (x, y, z, yaw)
     twist_target: Optional[np.ndarray] = None
@@ -212,12 +214,15 @@ def fly(mission: Mission, limits: VehicleLimits = VehicleLimits(),
         on_ground = p[2] < 0.02 and abs(v[2]) < 0.1
         if on_ground:
             landed_since = now if landed_since is None else landed_since
-            landed = now - landed_since >= 0.5 or not ever_airborne
+            landed = now - landed_since >= cfg.land_detect_s or not ever_airborne
         else:
-            landed_since, landed = None, False
+            landed_since, landed, detected_at = None, False, None
         if armed and landed and ever_airborne:
             events.setdefault("touchdown", now)
-            if now - events["touchdown"] >= cfg.disarm_land_s:
+            if detected_at is None:
+                detected_at = now
+                events["last_touchdown"] = now
+            if now - detected_at >= cfg.disarm_land_s:
                 armed, offboard = False, False
                 events["disarm"] = now
         if armed and not ever_airborne and now >= cfg.disarm_preflight_s:
@@ -256,7 +261,7 @@ def summary(log: FlightLog) -> Dict[str, object]:
     ev = log.events
     out: Dict[str, object] = {"final_state": log.final_state, "final_reason": log.final_reason,
                               "offboard_refused": log.offboard_refused, "reasons": log.reasons}
-    for k in ("switch", "offboard", "takeoff", "touchdown", "disarm", "disarm_preflight", "pilot_takeover"):
+    for k in ("switch", "offboard", "takeoff", "touchdown", "last_touchdown", "disarm", "disarm_preflight", "pilot_takeover"):
         if k in ev:
             out[f"{k}_s"] = round(ev[k], 2)
     if "offboard" in ev and "touchdown" in ev:
