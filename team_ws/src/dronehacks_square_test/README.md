@@ -38,17 +38,17 @@ within 10 s.
 
 ## Recording it
 
-Use the flight recorder in this branch (`dronehacks_telemetry`, see its README). Its report's
-per-leg tracking treats each waypoint as a leg, so each side, climb and landing gets its own
-row. On the Jetson host, with `REC` pointing at `dronehacks_telemetry/scripts/record_flight.sh`:
+Automatic. The launch file records a `dronehacks_telemetry` light bag (its exclude regex) from
+stack start into `~/team_ws/flights/<UTC>-light-square/` (`bag/`, `meta/manifest.txt`, an empty
+`px4/`). When the mission is over and PX4 has disarmed, the node exits 5 s later and the launch
+closes the bag with SIGINT (checked on skybeta-11 with the nodes stubbed: "Recording stopped",
+`metadata.yaml` written). Power cut before that: `ros2 bag reindex <run>/bag -s mcap` in the
+container. `record:=false` turns it off. The folder is root-owned (written in the container):
+readable for `scp`, deletable only from inside the container.
 
-```bash
-bash $REC start --label square1     # before arming
-bash $REC stop                      # after landing and disarm
-```
-
-then fetch PX4's `.ulg` with QGroundControl into the run's `px4/` folder and run
-`python3 -m dronehacks_telemetry.analyze <run>` on a laptop.
+Then fetch PX4's `.ulg` with QGroundControl into the run's `px4/` folder and run
+`python3 -m dronehacks_telemetry.analyze <run>` on a laptop; the report's per-leg tracking
+treats each waypoint as a leg, so each side, climb and landing gets its own row.
 
 ## Tests
 
