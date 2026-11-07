@@ -45,6 +45,8 @@ from nav_msgs.msg import Odometry
 from sensor_msgs.msg import CameraInfo, Image, Imu
 from std_msgs.msg import String
 
+from dronehacks_nav.square import SquareEngine
+
 try:
     from isaac_ros_visual_slam_interfaces.msg import VisualSlamStatus
 except ImportError:
@@ -172,17 +174,15 @@ class Mission(Node):
         self.vehicle_land_detected = None
         self.vehicle_attitude = None
 
-        # --- mission state ----------------------------------------------------
-        self.mission_state = 'WAIT_FOR_OFFBOARD'
-        self.start = None
-        self.corners = []
-        self.corner_index = 0
-        self.hold_target = None
+        # --- mission state (pure engine, unit-tested without ROS) ------------
+        self.engine = SquareEngine(
+            side_m=self.side,
+            hover_altitude_m=self.hover_altitude,
+            hover_seconds=self.hover_seconds,
+            corner_timeout_s=self.corner_timeout,
+            arrival_radius_m=self.arrival_radius)
         self._was_armed = None
-        self.hover_started_at = None
-        self.corner_started_at = None
-        self.was_offboard = False
-        self.log_once = set()
+        self._clamped_log_once = set()
 
         self.create_timer(1.0 / rate_hz, self._tick)
         self.get_logger().info(
@@ -207,12 +207,7 @@ class Mission(Node):
         if self._was_armed and not armed:
             # Disarm ends the flight attempt: a re-arm starts a fresh square
             # from wherever the drone then sits, never from stale state.
-            self.mission_state = 'WAIT_FOR_OFFBOARD'
-            self.start = None
-            self.corners = []
-            self.hold_target = None
-            self.hover_started_at = None
-            self.corner_started_at = None
+            self.engine.reset()
             self.get_logger().warning(
                 'Disarm detected — square mission state reset; the next arm '
                 'begins a fresh attempt.')
@@ -287,132 +282,29 @@ class Mission(Node):
         self.setpoint_pub.publish(msg)
 
     # --------------------------------------------------------------------------
-    # geometry helpers
-    # --------------------------------------------------------------------------
-    def _distance_to(self, target):
-        if self.position is None:
-            return float('inf')
-        return math.dist(self.position, target)
-
-    def _arrived_at(self, target):
-        return self._distance_to(target) <= self.arrival_radius
-
-    def _build_square(self):
-        x0, y0, _ = self.start
-        z = self.start[2] + self.hover_altitude
-        s = self.side
-        return [
-            (x0 + s, y0,     z),
-            (x0 + s, y0 + s, z),
-            (x0,     y0 + s, z),
-            (x0,     y0,     z),
-        ]
-
-    # --------------------------------------------------------------------------
-    # 10 Hz state machine
+    # 10 Hz state machine (delegates to the pure, unit-tested SquareEngine)
     # --------------------------------------------------------------------------
     def _tick(self):
-        if self.position is None:
-            self._info_once(
-                'no_odom',
-                'no /visual_slam/tracking/odometry yet — is cuVSLAM up and '
-                'tracking? Nothing will be commanded until it is.')
-            return
-
-        if self.was_offboard and not self.offboard_active:
-            self.get_logger().warn(
-                'Offboard lost — pilot has taken control. Mission paused: '
-                'holding position until Offboard returns. '
-                'Offboard does not return until disarmed and re-armed.')
-            self.was_offboard = False
-        if self.offboard_active and not self.was_offboard:
-            self.was_offboard = True
-
-        # Pause: with Offboard inactive the pilot has control — hold the
-        # current position and advance nothing (the "mission paused" log
-        # above must be true, not cosmetic).
-        if not self.offboard_active and self.mission_state != 'WAIT_FOR_OFFBOARD':
-            self._send(*self.position)
-            return
-
-        handler = getattr(self, f'_ms_{self.mission_state.lower()}')
-        handler()
-
-    # -- states ----------------------------------------------------------------
-    def _ms_wait_for_offboard(self):
-        if not self.offboard_active:
-            self._info_once(
-                'waiting',
-                'holding at current position until the safety pilot arms '
-                'and switches to Position.')
-            self._send(*self.position)
-            return
-        self.start = self.position
-        self.corners = self._build_square()
-        self.hold_target = None
-        self.hover_started_at = self._now_s()
-        self.mission_state = 'HOVER'
-        self.get_logger().info(
-            f'Offboard active. Start ENU '
-            f'({self.start[0]:.2f}, {self.start[1]:.2f}, {self.start[2]:.2f}); '
-            f'climbing to {self.hover_altitude:.2f} m.')
-
-    def _ms_hover(self):
-        target = (self.start[0], self.start[1], self.start[2] + self.hover_altitude)
-        self._send(*target)
-        if not self._arrived_at(target):
-            self.hover_started_at = self._now_s()
-            return
-        if self._now_s() - self.hover_started_at < self.hover_seconds:
-            return
-        self.corner_index = 0
-        self.corner_started_at = self._now_s()
-        self.mission_state = 'SQUARE'
-        self.get_logger().info(
-            f'hover complete — flying the {self.side:.1f} m square, '
-            f'corner 1/{len(self.corners)}')
-
-    def _ms_square(self):
-        target = self.corners[self.corner_index]
-        self._send(*target)
-        if self._arrived_at(target):
-            self.corner_index += 1
-            self.corner_started_at = self._now_s()
-            if self.corner_index >= len(self.corners):
-                self.hold_target = self.position
-                self.mission_state = 'HOLD'
-                self.get_logger().info(
-                    'square complete — holding. Safety pilot can land.')
-                return
-            self.get_logger().info(
-                f'corner reached — next: {self.corner_index + 1}/'
-                f'{len(self.corners)} at ENU '
-                f'({self.corners[self.corner_index][0]:.2f}, '
-                f'{self.corners[self.corner_index][1]:.2f}, '
-                f'{self.corners[self.corner_index][2]:.2f})')
-            return
-        if self._now_s() - self.corner_started_at > self.corner_timeout:
-            self.get_logger().error(
-                f'corner {self.corner_index + 1} not reached within '
-                f'{self.corner_timeout:.0f} s '
-                f'({self._distance_to(target):.2f} m away) — holding. '
-                'Check /skybeta/state for a clamp or cuVSLAM for tracking loss.')
-            self.hold_target = self.position
-            self.mission_state = 'HOLD'
-
-    def _ms_hold(self):
-        # Hold where the drone actually is when HOLD is entered — never
-        # command a corner that was never reached.
-        self._send(*(self.hold_target or self.position))
+        target, events = self.engine.tick(
+            self._now_s(), self.offboard_active, self.position)
+        for event in events:
+            if event.startswith('Offboard lost'):
+                self.get_logger().warn(event)
+            elif 'not reached within' in event:
+                self.get_logger().error(event)
+            else:
+                self.get_logger().info(event)
+        if target is not None:
+            self._send(*target)
 
     # --------------------------------------------------------------------------
     def _now_s(self):
         return self.get_clock().now().nanoseconds * 1e-9
 
     def _info_once(self, key, message):
-        if key in self.log_once:
+        if key in self._clamped_log_once:
             return
-        self.log_once.add(key)
+        self._clamped_log_once.add(key)
         self.get_logger().info(message)
 
 
