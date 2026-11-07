@@ -177,6 +177,7 @@ class Mission(Node):
         self.start = None
         self.corners = []
         self.corner_index = 0
+        self.hold_target = None
         self.hover_started_at = None
         self.corner_started_at = None
         self.was_offboard = False
@@ -305,11 +306,19 @@ class Mission(Node):
 
         if self.was_offboard and not self.offboard_active:
             self.get_logger().warn(
-                'Offboard lost — pilot has taken control. Mission paused. '
+                'Offboard lost — pilot has taken control. Mission paused: '
+                'holding position until Offboard returns. '
                 'Offboard does not return until disarmed and re-armed.')
             self.was_offboard = False
         if self.offboard_active and not self.was_offboard:
             self.was_offboard = True
+
+        # Pause: with Offboard inactive the pilot has control — hold the
+        # current position and advance nothing (the "mission paused" log
+        # above must be true, not cosmetic).
+        if not self.offboard_active and self.mission_state != 'WAIT_FOR_OFFBOARD':
+            self._send(*self.position)
+            return
 
         handler = getattr(self, f'_ms_{self.mission_state.lower()}')
         handler()
@@ -325,6 +334,7 @@ class Mission(Node):
             return
         self.start = self.position
         self.corners = self._build_square()
+        self.hold_target = None
         self.hover_started_at = self._now_s()
         self.mission_state = 'HOVER'
         self.get_logger().info(
@@ -354,6 +364,7 @@ class Mission(Node):
             self.corner_index += 1
             self.corner_started_at = self._now_s()
             if self.corner_index >= len(self.corners):
+                self.hold_target = self.position
                 self.mission_state = 'HOLD'
                 self.get_logger().info(
                     'square complete — holding. Safety pilot can land.')
@@ -371,11 +382,13 @@ class Mission(Node):
                 f'{self.corner_timeout:.0f} s '
                 f'({self._distance_to(target):.2f} m away) — holding. '
                 'Check /skybeta/state for a clamp or cuVSLAM for tracking loss.')
+            self.hold_target = self.position
             self.mission_state = 'HOLD'
 
     def _ms_hold(self):
-        target = self.corners[-1] if self.corners else self.position
-        self._send(*target)
+        # Hold where the drone actually is when HOLD is entered — never
+        # command a corner that was never reached.
+        self._send(*(self.hold_target or self.position))
 
     # --------------------------------------------------------------------------
     def _now_s(self):

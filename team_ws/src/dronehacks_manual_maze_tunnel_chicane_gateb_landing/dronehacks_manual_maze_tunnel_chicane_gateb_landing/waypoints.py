@@ -787,7 +787,9 @@ class MissionEngine:
       still enforces the altitude check) only while the loss count stays
       under ``max_tracking_losses``.
     * **Waypoint timeout faults hold permanently** — the safety pilot takes
-      over; re-entering offboard after a disarm/rearm restarts the mission.
+      over. A disarm (the kit state's ``armed`` flag dropping) resets the
+      engine, so a re-arm always begins a fresh attempt from WAIT; state,
+      waypoint index, deadlines and loss counts never leak across flights.
       A pilot takeover (offboard inactive) pauses the waypoint deadline, so
       re-entering offboard grants a fresh timeout window.
     * **No landing descent** — heights are absolute in the odom frame, so a
@@ -815,6 +817,20 @@ class MissionEngine:
         self._offboard_was_active = False
         self.last_target = None
         self.log_once: set = set()
+
+    def reset(self):
+        """Fresh flight attempt: called on disarm (the kit state's ``armed``
+        flag dropping). A re-arm then begins from WAIT_FOR_OFFBOARD with no
+        waypoint index, deadline or loss count carried over."""
+        self.state = 'WAIT_FOR_OFFBOARD'
+        self.idx = 0
+        self.deadline = None
+        self.tracking_losses = 0
+        self.fault_kind = ''
+        self.resume_state = 'NAVIGATE'
+        self.hold_setpoint = None
+        self._offboard_was_active = False
+        self.log_once.clear()
 
     def tick(self, now, offboard_active, position, tracking_status):
         """Advance the state machine; returns (setpoint-or-None, events)."""

@@ -114,6 +114,7 @@ class FullCourseMission(Node):
         self._dt = 1.0 / rate_hz
         self.position = None
         self.offboard_active = False
+        self._was_armed = None
 
         odom_topic = param('odometry_topic', '/visual_slam/tracking/odometry')
 
@@ -147,6 +148,15 @@ class FullCourseMission(Node):
         except ValueError:
             return
         self.offboard_active = bool(state.get('offboard_active', False))
+        armed = bool(state.get('armed', False))
+        if self._was_armed and not armed:
+            # Disarm ends the flight attempt: a re-arm starts a fresh mission
+            # from WAIT_FOR_OFFBOARD, never from a stale waypoint index.
+            self.engine.reset()
+            self.get_logger().warning(
+                'Disarm detected — mission state reset; the next arm begins '
+                'a fresh attempt from the launch hover.')
+        self._was_armed = armed
 
     # ── publish ─────────────────────────────────────────────────────────────
 

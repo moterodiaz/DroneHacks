@@ -136,6 +136,36 @@ class TestTrackingLoss:
         assert eng.state == 'CLIMB'
 
 
+class TestReset:
+    def test_disarm_reset_starts_a_fresh_attempt(self):
+        eng = make_engine()
+        pos = drive_to_navigate(eng)
+        wp1 = eng.waypoints[1]
+        eng.tick(1.0, True, (wp1[0], wp1[1], 0.8), 'ok')  # reached wp1
+        assert eng.idx == 2
+        eng.tick(2.0, True, pos, 'frozen')
+        assert eng.state == 'HOLD_FAULT'
+        eng.reset()
+        # fresh attempt: WAIT, no index, deadline, or loss carried over
+        assert eng.state == 'WAIT_FOR_OFFBOARD'
+        assert eng.idx == 0 and eng.deadline is None
+        assert eng.tracking_losses == 0 and eng.hold_setpoint is None
+        target, _ = eng.tick(3.0, True, pos, 'ok')
+        assert eng.state == 'CLIMB'  # climbs before any navigation
+        assert eng.idx == 0
+        assert target[2] == pytest.approx(0.8)  # hold at hover, not a descent
+
+    def test_timeout_fault_clears_after_reset(self):
+        eng = make_engine()
+        pos = drive_to_navigate(eng)
+        eng.tick(11.0, True, pos, 'ok')  # past the 10 s deadline
+        assert eng.state == 'HOLD_FAULT'
+        eng.reset()
+        eng.tick(0.0, True, pos, 'ok')
+        eng.tick(0.1, True, pos, 'ok')
+        assert eng.state == 'NAVIGATE'  # not latched in the old fault
+
+
 class TestNoLandingDescent:
     def test_final_state_holds_over_pad_at_hover_height(self):
         eng = make_engine()
