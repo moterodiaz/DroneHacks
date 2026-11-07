@@ -1,0 +1,2 @@
+# Shell scripts run on the drone: keep LF line endings in every checkout.
+*.sh text eol=lf
