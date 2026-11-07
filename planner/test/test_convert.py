@@ -76,6 +76,20 @@ class ConvertTest(unittest.TestCase):
         dz = 0.9 - 0.7
         self.assertAlmostEqual(t["params"]["width"], 2 * 0.68 * math.sqrt(1 - (dz / 0.88) ** 2), places=4)
 
+    def test_tube_outer_wall_uses_the_widest_in_band_width(self):
+        # Review of #24: the outer wall used the narrowest width over the band
+        # (0.70 * sqrt(1 - (0.2 / 0.9)^2) = 0.6825), shrinking the obstacle on
+        # its outside and giving paths beside the tube ~1.75 cm of phantom
+        # clearance. The band 0.7-0.9 contains the outer ellipse's centre (0.9),
+        # so the outer wall must sit at the full half-width 0.70.
+        long_x = sorted({round(s["start"][0], 4) for s in self.doc["segments"]
+                         if {round(s["start"][1], 4), round(s["end"][1], 4)} == {1.0, -1.0}
+                         and math.isclose(s["start"][0], s["end"][0])})
+        self.assertEqual(len(long_x), 4)                       # inner and outer, both sides
+        self.assertAlmostEqual(min(long_x), 2.25 - 0.70, places=3)
+        self.assertAlmostEqual(max(long_x), 2.25 + 0.70, places=3)
+        self.assertNotAlmostEqual(min(long_x), 2.25 - 0.6825, places=3)
+
     def test_rock_launch_pad_and_checkpoints(self):
         self.assertEqual(self.doc["boulders"], [{"centre": [-2.0, 2.0], "radius": 0.2, "height": 0.5}])
         self.assertEqual(self.doc["launch"], {"position": [-2.0, -2.0], "heading": [0.0, 1.0]})

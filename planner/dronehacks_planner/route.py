@@ -95,6 +95,11 @@ class PlannerConfig:
     verify_step_m: float = 0.01
     #: Goal names to take whenever a group of alternatives offers one.
     prefer: Tuple[str, ...] = ()
+    #: Fly a window (a ``rect`` goal). Off by default: ``contracts/course.md``
+    #: leaves the window's ``clearance_radius`` unreviewed, so the route goes
+    #: via the reviewed alternative (e.g. Gate B) unless this is set. A stage
+    #: whose only option is a window keeps it; there is no alternative.
+    allow_windows: bool = False
 
     def cost_model(self) -> CostModel:
         return CostModel(
@@ -274,6 +279,16 @@ class _Planner:
             self._cache[key] = search(mult, self.grid.nx, self.grid.ny, self.grid.res, src_cell, cells)
         return self._cache[key], cells
 
+    def _stage(self, stage: Tuple[Goal, ...]) -> Tuple[Goal, ...]:
+        """Drop window (``rect``) goals unless the config allows them or
+        explicitly prefers one by name. A stage with no other goal keeps
+        its window; the caller falls back to it if nothing else flies."""
+        cfg = self.config
+        if cfg.allow_windows or any(g.name in cfg.prefer for g in stage):
+            return stage
+        rest = tuple(g for g in stage if g.shape != "rect")
+        return rest or stage
+
     # -- goals ---------------------------------------------------------------
 
     def _options(self, stage: Tuple[Goal, ...]) -> Tuple[List[_Option], Dict[str, str]]:
@@ -410,7 +425,21 @@ class _Planner:
         stage_options: List[List[_Option]] = []
         rejected: Dict[str, str] = {}
         for stage in self.cmap.stages():
-            options, why = self._options(stage)
+            use = self._stage(stage)
+            try:
+                options, why = self._options(use)
+            except PlanningError:
+                if use is stage:
+                    raise
+                # No reviewed alternative in this stage is flyable: fall back
+                # to the windows rather than refusing to plan at all.
+                options, why = self._options(stage)
+            else:
+                if use is not stage:
+                    for g in stage:
+                        if g.shape == "rect":
+                            why[g.name] = why.get(g.name, "skipped: windows are opt-in "
+                                                               "(PlannerConfig.allow_windows)")
             stage_options.append(options)
             rejected.update(why)
 

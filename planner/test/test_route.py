@@ -135,15 +135,27 @@ class AlternativesTest(unittest.TestCase):
         return make_map(segs, goals, launch=(0, -1.4))
 
     def test_cheapest_alternative(self):
+        # The window is opt-in (issue #25): the reviewed gate is the default
+        # route, and the window is taken only when allowed.
         route = plan(self.room())
         assert_route_ok(self, route)
+        self.assertEqual(route.choices, {"entry": "far"})
+        self.assertEqual(route.goals, ["far", "pad"])
+        self.assertIn("near", route.rejected)
+        route = plan(self.room(), dataclasses.replace(CFG, allow_windows=True))
+        assert_route_ok(self, route)
         self.assertEqual(route.choices, {"entry": "near"})
-        self.assertEqual(route.goals, ["near", "pad"])
 
     def test_preferred_alternative(self):
         route = plan(self.room(), dataclasses.replace(CFG, prefer=("far",)))
         assert_route_ok(self, route)
         self.assertEqual(route.choices, {"entry": "far"})
+
+    def test_preferred_window_is_flown(self):
+        # Naming a window in prefer is an explicit opt-in for it.
+        route = plan(self.room(), dataclasses.replace(CFG, prefer=("near",)))
+        assert_route_ok(self, route)
+        self.assertEqual(route.choices, {"entry": "near"})
 
     def test_blocked_alternative_is_reported(self):
         route = plan(self.room(near_width=0.55))

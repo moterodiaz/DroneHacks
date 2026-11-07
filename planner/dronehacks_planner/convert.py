@@ -13,8 +13,10 @@ slices at the flight height across the drone's whole vertical band
   outline edges, thickness 0, so square ends stay square. A wall is split
   wherever an opening covers the band.
 * **Nets** become their footprint edges.
-* **The tube** becomes two thin side walls along its axis. Its inner and
-  outer walls are placed at their narrowest within the band, which errs safe.
+* **The tube** becomes two thin side walls along its axis. The inner wall is
+  placed at the tube's narrowest within the band, which errs safe; the outer
+  wall at the widest in the band, so paths beside the tube are not credited
+  with clearance the obstacle does not have.
 * **Rocks** become boulders, with their height.
 * **Supports and markings** below the band are left out. The start and
   finish markings give the launch position and the pad.
@@ -166,9 +168,19 @@ def _wall_pieces(f: dict, covers) -> List[List[Pt]]:
     return rects
 
 
-def _ellipse_half_width(half_width: float, half_height: float, centre_z: float, lo: float, hi: float) -> float:
-    """Narrowest half-width of an elliptical section over heights lo..hi."""
-    dz = max(abs(lo - centre_z), abs(hi - centre_z))
+def _ellipse_half_width(half_width: float, half_height: float, centre_z: float, lo: float, hi: float,
+                        widest: bool = False) -> float:
+    """Half-width of an elliptical section over heights lo..hi.
+
+    ``widest=False``: the narrowest width in the band - for the tube's inner
+    wall, which errs safe. ``widest=True``: the width at the height closest
+    to the ellipse centre (the full half-width if the band contains it) -
+    for the outer wall, so paths beside the tube are not given clearance
+    the obstacle does not have."""
+    if widest:
+        dz = 0.0 if lo <= centre_z <= hi else min(abs(lo - centre_z), abs(hi - centre_z))
+    else:
+        dz = max(abs(lo - centre_z), abs(hi - centre_z))
     if dz >= half_height:
         return 0.0
     return half_width * math.sqrt(1.0 - (dz / half_height) ** 2)
@@ -178,7 +190,8 @@ def _tube_walls(f: dict, lo: float, hi: float) -> List[List[Pt]]:
     p0, p1, zc = f["p0"][:2], f["p1"][:2], f["p0"][2]
     u, nrm, length = _frame(p0, p1)
     inner = _ellipse_half_width(f["inner"]["half_width"], f["inner"]["half_height"], zc, lo, hi)
-    outer = max(inner, _ellipse_half_width(f["outer"]["half_width"], f["outer"]["half_height"], zc, lo, hi))
+    outer = _ellipse_half_width(f["outer"]["half_width"], f["outer"]["half_height"], zc, lo, hi, widest=True)
+    outer = max(inner, outer)
     rects = []
     for side in (1.0, -1.0):
         a = (p0[0] + nrm[0] * side * inner, p0[1] + nrm[1] * side * inner)

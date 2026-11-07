@@ -57,7 +57,9 @@ class FollowerTest(unittest.TestCase):
         cls.fp = build(cls.cmap)
 
     def test_lead_never_points_through_a_wall(self):
-        f = Follower(self.fp.trajectory, self.field, LIM)
+        # The lead is off by default (withdrawn in contracts/ros-graph.md);
+        # this tests the opt-in lead's own guard.
+        f = Follower(self.fp.trajectory, self.field, LIM, FollowerConfig(lead=True))
         t, clipped = 0.0, 0
         while t < self.fp.duration:
             ref = self.fp.trajectory.at(t).position
@@ -66,6 +68,12 @@ class FollowerTest(unittest.TestCase):
             clipped += sp.lead_scale < 1.0
             t += 0.02
         self.assertGreater(clipped, 0)   # the corner does clip the lead
+
+    def test_default_follower_publishes_plain_poses(self):
+        f = Follower(self.fp.trajectory, self.field, LIM)
+        sp = f.update(0.0, self.fp.trajectory.xy[0])
+        self.assertEqual(sp.lead_m, 0.0)
+        self.assertEqual(tuple(sp.position), tuple(sp.reference))
 
     def test_reference_waits_for_a_stuck_drone(self):
         f = Follower(self.fp.trajectory, self.field, LIM)
@@ -77,24 +85,54 @@ class FollowerTest(unittest.TestCase):
         self.assertIn("held", sp.flags)
 
     def test_flies_the_corridor_without_touching(self):
+        # Plain poses (the default) lag a moving reference by v / MPC_XY_P, so
+        # the governor holds the reference back and the flight takes longer
+        # than the plan; it must still finish with no touch.
         res = simulate(Follower(self.fp.trajectory, self.field, LIM), self.fp.route.waypoints[0].position, LIM)
         m = flown_metrics(res, self.field, PC.drone_extent_m, self.fp.path.xy)
         self.assertTrue(m["finished"])
         self.assertEqual(m["wall_touches"], 0)
-        self.assertLess(m["time_s"], self.fp.duration * 1.25)
+        self.assertLess(m["time_s"], self.fp.duration * 2.5)
 
     def test_lead_beats_plain_poses(self):
         start = self.fp.route.waypoints[0].position
-        led = simulate(Follower(self.fp.trajectory, self.field, LIM), start, LIM)
-        plain = simulate(Follower(self.fp.trajectory, self.field, LIM, FollowerConfig(lead=False)), start, LIM)
+        led = simulate(Follower(self.fp.trajectory, self.field, LIM, FollowerConfig(lead=True)), start, LIM)
+        plain = simulate(Follower(self.fp.trajectory, self.field, LIM), start, LIM)
         self.assertTrue(led.finished and plain.finished)
         self.assertLess(led.time_s, plain.time_s * 0.8)
 
     def test_path_lead_mode_also_flies(self):
-        res = simulate(Follower(self.fp.trajectory, self.field, LIM, FollowerConfig(lead_mode="path")),
+        res = simulate(Follower(self.fp.trajectory, self.field, LIM, FollowerConfig(lead=True, lead_mode="path")),
                        self.fp.route.waypoints[0].position, LIM)
         self.assertTrue(res.finished)
         self.assertEqual(flown_metrics(res, self.field, PC.drone_extent_m)["wall_touches"], 0)
+
+    def test_drifted_behind_a_corner_gets_no_command_through_a_wall(self):
+        # Review of #24: with every lead blocked, _clear_fraction returned 0 and
+        # the follower commanded the reference pose itself, straight through
+        # the wall from wherever the drone had drifted. It must hold instead.
+        traj = self.fp.trajectory
+        for cfg in (FollowerConfig(), FollowerConfig(lead=True)):   # plain poses and zero-offset lead too
+            with self.subTest(lead=cfg.lead):
+                f = Follower(traj, self.field, LIM, cfg)
+                t = 0.0
+                while t < traj.duration:      # fly normally until the reference is round the corner
+                    sp = f.update(t, tuple(traj.at(t).position))
+                    t += 0.02
+                    if traj.at(f._tau).position[0] > 1.3 and traj.at(f._tau).position[1] > 1.0:
+                        break
+                # The drone is back in the south leg, clear of walls, but the
+                # reference is up the north leg: every straight line from the
+                # drone to it crosses the corner wall.
+                est = (0.0, 0.2)
+                self.assertGreaterEqual(self.field.query(np.asarray(est))[1][0], 0.0)   # itself clear
+                ref_before = f._tau
+                sp = f.update(t + 0.02, est)
+                self.assertIn("no_safe_target", sp.flags)
+                self.assertLessEqual(f._tau, ref_before + 1e-9)                        # clock frozen
+                self.assertEqual(tuple(sp.position), est)                               # hold, don't chase the reference
+                self.assertGreaterEqual(self.field.segment_query(est, tuple(sp.position))[1], 0.0)
+                self.assertNotEqual(tuple(sp.position), tuple(sp.reference))
 
     def test_waypoint_baseline_advances_at_arrival_radius(self):
         wf = WaypointFollower([(0, 0), (1, 0), (2, 0)], arrival_radius_m=0.3)
@@ -104,15 +142,24 @@ class FollowerTest(unittest.TestCase):
 
 
 class PipelineTest(unittest.TestCase):
-    def test_fastest_picks_by_flight_time(self):
+    def test_fastest_defaults_to_gate_b(self):
+        # The window is opt-in (contracts/course.md leaves its clearance_radius
+        # unreviewed), so the default route is Gate B.
         cmap = load_map(PUBLISHED)
         best, table = fastest(cmap)
-        self.assertEqual(best.route.goals, ["tunnel", "window", "pad"])
-        self.assertEqual(len(table), 2)
+        self.assertEqual(best.route.goals, ["tunnel", "gate_b", "pad"])
+        self.assertEqual(len(table), 1)
         self.assertEqual(best.report["violations"], [])
         self.assertGreaterEqual(best.path.min_margin_m, 0.0)
+        self.assertIn("window", best.route.rejected)
+
+    def test_fastest_picks_by_flight_time_when_windows_are_allowed(self):
+        cmap = load_map(PUBLISHED)
+        best, table = fastest(cmap, PlannerConfig(allow_windows=True))
+        self.assertEqual(len(table), 2)
         times = {c["landing_entry"]: float(o.split()[0]) for c, o in table}
         self.assertLess(times["window"], times["gate_b"])
+        self.assertEqual(best.route.goals, ["tunnel", "window", "pad"])
 
     def test_random_mazes_build_cleanly(self):
         for seed in range(3):

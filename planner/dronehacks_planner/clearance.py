@@ -120,8 +120,12 @@ class ObstacleField:
         straight segment ``a -> b``, with no sampling.
 
         Segment-to-segment distance in 2D is 0 if they cross, else the
-        smallest of the four endpoint-to-segment distances. Collinear
-        overlapping segments count as crossing, which errs safe.
+        smallest of the four endpoint-to-segment distances. Only a proper
+        crossing (each segment strictly straddles the other's line) takes the
+        shortcut. Segments that touch, overlap while collinear, or have zero
+        length are measured exactly by the endpoint distances, one of which is
+        0 whenever they meet. Collinear segments that don't overlap are
+        measured by their gap.
         """
         a_ = np.asarray(a, dtype=float)
         b_ = np.asarray(b, dtype=float)
@@ -142,7 +146,7 @@ class ObstacleField:
             o2 = _cross(e, B - a_)
             o3 = _cross(D, a_ - A)
             o4 = _cross(D, b_ - A)
-            crossing = (o1 * o2 <= 0) & (o3 * o4 <= 0)
+            crossing = (o1 * o2 < 0) & (o3 * o4 < 0)
             stacked = np.stack([d1, d2, d3, d4])                       # (4, m)
             which = np.argmin(stacked, axis=0)
             dist = np.where(crossing, 0.0, stacked[which, np.arange(m)])

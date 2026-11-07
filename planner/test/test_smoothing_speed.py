@@ -53,6 +53,30 @@ class ExactClearanceTest(unittest.TestCase):
         self.assertAlmostEqual(at[0], 0.0, places=9)
         self.assertLess(margin, 0)
 
+    def test_collinear_and_degenerate_segments_are_exact(self):
+        # On one line, a leg that doesn't overlap the wall is measured by its gap,
+        # not reported as crossing (review of #24 at f644ace, clearance.py:145).
+        cmap = make_map([((0, 3), (2, 3)), ((5, -2), (5, -2))], [pad((0, 0))], thickness=0.2)
+        field = make_field(cmap)
+        cases = {
+            ((4, 3), (6, 3)): 2.0 - 0.1,       # collinear, 2 m past the wall's end
+            ((-3, 3), (-1, 3)): 1.0 - 0.1,     # collinear, 1 m before its start
+            ((1, 3), (6, 3)): -0.1,            # collinear and overlapping: inside
+            ((2, 3), (4, 3)): -0.1,            # collinear, touching at an end
+            ((4, 3), (4, 3)): 2.0 - 0.1,       # a zero-length leg on the wall's line
+            ((1, 3), (1, 3)): -0.1,            # a zero-length leg on the wall
+            ((1, 2), (1, 4)): -0.1,            # a proper crossing
+            ((2, 2), (2, 4)): -0.1,            # crossing through the wall's end point
+            ((5, 0), (5, 1)): 2.0 - 0.1,       # in line with a post, past it
+            ((5, -3), (5, -1)): -0.1,          # through the post
+        }
+        for (a, b), want in cases.items():
+            surface, margin, _ = field.segment_query(a, b)
+            s, _ = field.query(sample_segment(a, b, 0.0005))
+            self.assertAlmostEqual(surface, want, places=9, msg=f"{a} -> {b}")
+            self.assertAlmostEqual(surface, s.min(), delta=1e-3, msg=f"{a} -> {b}")
+            self.assertAlmostEqual(margin, surface - PC.inscribed_radius_m, places=9)
+
     def test_conservative_bound_catches_what_samples_miss(self):
         # A thin post between two samples 0.3 m apart: both samples look clear.
         cmap = make_map([((0, 0), (0, 0))], [pad((2, 0))], thickness=0.0)
@@ -118,10 +142,10 @@ class SmoothingTest(unittest.TestCase):
         from dronehacks_planner import load_map
         from dronehacks_planner.sim import openings_crossed
         cmap = load_map(PUBLISHED)
-        route = plan(cmap)
+        route = plan(cmap)          # Gate B by default; the window is opt-in
         path = smooth_route(route, cmap, make_field(cmap))
         self.assertGreaterEqual(path.min_margin_m, 0.0)
-        self.assertEqual(openings_crossed(path.xy, route, cmap, PC.drone_extent_m), {"tunnel": True, "window": True})
+        self.assertEqual(openings_crossed(path.xy, route, cmap, PC.drone_extent_m), {"tunnel": True, "gate_b": True})
 
 
 class SpeedTest(unittest.TestCase):
@@ -165,6 +189,19 @@ class SpeedTest(unittest.TestCase):
         fast = dataclasses.replace(LIM, v_max_mps=3.0)
         with self.assertRaises(ProfileError):
             self.profile([(-0.3, 0), (0.3, 0)], limits=fast, v_start_mps=2.5)
+
+    def test_end_speed_too_fast_to_reach_is_infeasible(self):
+        # Review of #24: an unreachable v_end_mps used to be silently clamped,
+        # so a caller joining trajectories got a different end speed than asked.
+        # 3.0 m/s needs 9 / (2 * 2) = 2.25 m to brake from; the path is 0.6 m long.
+        fast = dataclasses.replace(LIM, v_max_mps=5.0)
+        with self.assertRaises(ProfileError):
+            self.profile([(-0.3, 0), (0.3, 0)], limits=fast, v_end_mps=3.0)
+
+    def test_reachable_end_speed_is_matched(self):
+        path, prof = self.profile([(-8, 0), (8, 0)], v_end_mps=0.5)
+        self.assertAlmostEqual(prof.v[-1], 0.5, places=3)
+        self.assertEqual(check_profile(path, prof, LIM)["violations"], [])
 
     def test_coupled_acceleration(self):
         tight = dataclasses.replace(LIM, v_max_mps=2.0, a_lat_mps2=1.0, a_horizontal_mps2=1.2)

@@ -9,10 +9,12 @@ Methods (each adds one thing to the one before):
 * **A, waypoints**: the kit example's approach. The planner's polyline, one
   pose per waypoint, advance at 0.3 m.
 * **B, smooth + one speed**: the smoothed path at a single speed (the lowest
-  cap anywhere), lead poses.
+  cap anywhere), plain poses.
 * **C, smooth + speed profile**: per-point speed limits, forward-backward
-  acceleration and jerk limits, lead poses. This is the Follower as built.
-* **C0, C with plain poses**: no lead. Shows what the lead is worth.
+  acceleration and jerk limits, plain poses. This is the Follower as built.
+* **C1, C with the lead formula on**: the lead is opt-in (withdrawn in
+  ``contracts/ros-graph.md``), flown here for offline research. Shows what
+  it would be worth.
 
 Plus planned-only variants of C: with only acceleration limits (no jerk
 limit), and with ``j_max`` = 8 (``MPC_JERK_MAX``).
@@ -156,7 +158,8 @@ def run(map_path: str, speeds: List[float], out: Path, plots: bool = True,
             "A waypoints": (WaypointFollower([w.position for w in route.waypoints]), None),
             "B smooth + one speed": (Follower(const.trajectory, field, limits), const),
             "C smooth + speed profile": (Follower(best.trajectory, field, limits), best),
-            "C0 C with plain poses": (Follower(best.trajectory, field, limits, FollowerConfig(lead=False)), best),
+            "C1 C with the lead formula on (opt-in)": (
+                Follower(best.trajectory, field, limits, FollowerConfig(lead=True)), best),
         }
         if lidar_follower:
             runs["L lidar-stream follower (its defaults)"] = (LidarStreamFollower(lidar_follower, route, cmap), None)
