@@ -16,7 +16,7 @@ Wall geometry (ENU, metres):
 
 Stage 4 scores via the WINDOW route (+5 bonus pts vs Gate B).
 
-States: WAIT_FOR_OFFBOARD → NAVIGATE → LAND → HOLD_LANDED
+States: WAIT_FOR_OFFBOARD → CLIMB → NAVIGATE → LAND → HOLD_LANDED
 
 Subscriptions:
   /visual_slam/tracking/odometry    nav_msgs/Odometry  30 Hz
@@ -38,10 +38,10 @@ from std_msgs.msg import String
 
 # ── Waypoint table ───────────────────────────────────────────────────────────
 # (ENU_x, ENU_y) pairs; z = hover_altitude_m throughout except LAND state.
-# Each entry has a comment explaining the geometric constraint it satisfies.
+# Clearances account for arrival_radius_m=0.25 so turns don't start early.
 _WAYPOINTS_XY: list[tuple[float, float]] = [
     # MAZE ── zig-zag through M1/M2/M3 dividers ─────────────────────────────
-    (0.000,  0.000),   # WP0  ascend above launch mark (west corridor centre x=0)
+    (0.000,  0.000),   # WP0  hover above launch mark — CLIMB state reaches alt first
     (0.000,  1.606),   # WP1  north past M1 top (1.206) — 40 cm clear; stay x=0
     (1.143,  1.606),   # WP2  east past M1; centred in M1-M2 corridor (x=1.143)
     (1.143,  0.261),   # WP3  south past M2 south (0.521) — 26 cm clear
@@ -53,18 +53,18 @@ _WAYPOINTS_XY: list[tuple[float, float]] = [
     (4.826,  1.606),   # WP7  east; x-align with tunnel centre (4.826)
     (4.826,  0.600),   # WP8  south; stage 30 cm north of tunnel entrance (y=0.305)
 
-    # TUNNEL — dark, VIO unreliable; dead-reckoning straight south ───────────
+    # TUNNEL — dark, VIO unreliable; timeout forces advance after _TUNNEL_TIMEOUT_S
     # Tunnel: y=0.305 (N entrance) to y=-1.219 (S exit), length 1.524 m
     (4.826, -1.500),   # WP9  through tunnel — overshoot 28 cm past S exit
 
     # CHICANE — navigate C1 / C2b / C2a-window ───────────────────────────────
-    (4.100, -1.500),   # WP10 west; east of C1 (C1 east face x=4.087), same y
-    (4.100, -2.200),   # WP11 south past C1 bottom (y=-2.060); x=4.100>C1
-    (2.750, -2.200),   # WP12 west; east of C2b (C2b east face x=2.719)
-    (2.750, -2.900),   # WP13 south into window y-range (window y∈[-3.633,-2.739])
-    # WP13→WP14: fly WEST through C2a window at y=-2.900 (within range), z=0.80 m
-    # Window allows east-wall (x=2.272-2.367) + west-wall (x=1.720-1.816) passage
-    (1.600, -2.900),   # WP14 through C2a window; x<1.720 = west of C2a — STAGE 4 ✓
+    # Clearances: face + arrival_radius (0.25 m) + 5 cm body margin
+    (4.400, -1.500),   # WP10 west; 31 cm east of C1 east face (4.087)
+    (4.400, -2.400),   # WP11 south; 34 cm past C1 south face (2.060); clears corner
+    (3.100, -2.400),   # WP12 west; 38 cm east of C2b east face (2.719)
+    (3.100, -2.900),   # WP13 south into C2a window y-range [-3.633,-2.739]
+    # WP13→WP14: fly WEST through C2a window at y=-2.900, z=0.80 m
+    (1.600, -2.900),   # WP14 through C2a window; x<1.720 — STAGE 4 ✓
 
     # LANDING APPROACH ───────────────────────────────────────────────────────
     (0.472, -2.900),   # WP15 west to landing pad x; y=-2.900 clears all boulders
@@ -73,9 +73,12 @@ _WAYPOINTS_XY: list[tuple[float, float]] = [
 
 _LANDING_PAD_XY = (0.472, -1.707)   # landing pad centre (ENU)
 
+# VIO commonly freezes inside the dark tunnel; force-advance WP9 after this long.
+_TUNNEL_TIMEOUT_S = 5.0
+
 
 class FullCourseMission(Node):
-    """WAIT_FOR_OFFBOARD → NAVIGATE → LAND → HOLD_LANDED."""
+    """WAIT_FOR_OFFBOARD → CLIMB → NAVIGATE → LAND → HOLD_LANDED."""
 
     def __init__(self, **kwargs):
         super().__init__('dronehacks_full_mission', **kwargs)
@@ -84,7 +87,7 @@ class FullCourseMission(Node):
         self.declare_parameter('hover_altitude_m', 0.80)
         self.declare_parameter('arrival_radius_m', 0.25)
         self.declare_parameter('publish_rate_hz', 10.0)
-        self.declare_parameter('land_speed_mps', 0.10)   # descent rate m/s
+        self.declare_parameter('land_speed_mps', 0.10)
 
         odom_topic = self.get_parameter('odometry_topic').get_parameter_value().string_value
         self.hover_alt  = float(self.get_parameter('hover_altitude_m').value)
@@ -105,7 +108,8 @@ class FullCourseMission(Node):
         self.start_z  = 0.0
         self.waypoints: list[tuple[float, float, float]] = []
         self.wp_idx   = 0
-        self.land_z   = 0.0   # current commanded z during LAND
+        self.land_z   = 0.0
+        self.tunnel_entry_time: float | None = None
         self.log_once: set[str] = set()
 
         self.create_timer(self._dt, self._tick)
@@ -135,8 +139,7 @@ class FullCourseMission(Node):
         msg.pose.position.x = float(x)
         msg.pose.position.y = float(y)
         msg.pose.position.z = float(z)
-        # w=0 → flight_interface ignores yaw; keep current heading throughout
-        msg.pose.orientation.w = 0.0
+        msg.pose.orientation.w = 0.0  # w=0 → flight_interface holds current heading
         self.pub.publish(msg)
 
     # ── geometry ─────────────────────────────────────────────────────────────
@@ -154,10 +157,15 @@ class FullCourseMission(Node):
             return
 
         if self.was_offboard and not self.offboard_active:
-            self.get_logger().warning('Offboard lost — mission paused.')
+            self.get_logger().warning('Offboard lost — holding position.')
             self.was_offboard = False
         if self.offboard_active and not self.was_offboard:
             self.was_offboard = True
+
+        # Hold position when offboard is inactive (except while waiting for it).
+        if not self.offboard_active and self.state != 'WAIT_FOR_OFFBOARD':
+            self._send(*self.position)
+            return
 
         getattr(self, f'_ms_{self.state.lower()}')()
 
@@ -171,48 +179,74 @@ class FullCourseMission(Node):
         self.waypoints = [(x, y, z) for x, y in _WAYPOINTS_XY]
         self.land_z    = z
         self.wp_idx    = 0
-        self.state     = 'NAVIGATE'
+        self.state     = 'CLIMB'
         self.get_logger().info(
             f'Offboard active. ENU start ({self.position[0]:.2f}, '
             f'{self.position[1]:.2f}, {self.position[2]:.2f}). '
-            f'WP0 → ({self.waypoints[0][0]:.2f}, {self.waypoints[0][1]:.2f}, {z:.2f})')
+            f'Climbing to {z:.2f} m before navigating.')
+
+    def _ms_climb(self) -> None:
+        """Hold launch-mark XY and climb to hover altitude before advancing."""
+        target = self.waypoints[0]
+        self._send(*target)
+        if self.position[2] >= target[2] - 0.10:
+            self.state = 'NAVIGATE'
+            self.get_logger().info(
+                f'Climb complete (z={self.position[2]:.2f} m) — entering NAVIGATE. '
+                f'WP0 → WP1 ({self.waypoints[1][0]:.2f}, {self.waypoints[1][1]:.2f})')
+            # WP0 is the climb-hold point; skip it and start at WP1.
+            self.wp_idx = 1
 
     def _ms_navigate(self) -> None:
         target = self.waypoints[self.wp_idx]
         self._send(*target)
 
-        if self._xy_dist(target[0], target[1]) <= self.arrival_r:
-            self.wp_idx += 1
-            if self.wp_idx >= len(self.waypoints):
-                # All course waypoints done — start landing descent
-                self.land_z = self.waypoints[-1][2]
-                self.state  = 'LAND'
-                self.get_logger().info(
-                    f'WP{self.wp_idx - 1} reached — all waypoints done, '
-                    f'descending to land at pad centre.')
+        # Tunnel timeout: if VIO freezes, force-advance after _TUNNEL_TIMEOUT_S.
+        if self.wp_idx == 9:
+            now = self.get_clock().now().nanoseconds * 1e-9
+            if self.tunnel_entry_time is None:
+                self.tunnel_entry_time = now
+            elif now - self.tunnel_entry_time > _TUNNEL_TIMEOUT_S:
+                self.get_logger().warning(
+                    f'Tunnel timeout ({_TUNNEL_TIMEOUT_S:.0f} s) — forcing advance.')
+                self._advance_waypoint()
                 return
-            nxt = self.waypoints[self.wp_idx]
-            label = ''
-            if self.wp_idx == 7:  label = ' [TUNNEL APPROACH]'
-            elif self.wp_idx == 9:  label = ' [TUNNEL EXIT]'
-            elif self.wp_idx == 14: label = ' [STAGE 4 WINDOW ✓]'
-            elif self.wp_idx == 16: label = ' [PAD CENTRE — LAND]'
+
+        if self._xy_dist(target[0], target[1]) <= self.arrival_r:
+            self._advance_waypoint()
+
+    def _advance_waypoint(self) -> None:
+        self.tunnel_entry_time = None
+        self.wp_idx += 1
+        if self.wp_idx >= len(self.waypoints):
+            self.land_z = self.waypoints[-1][2]
+            self.state  = 'LAND'
             self.get_logger().info(
-                f'WP{self.wp_idx - 1} reached → '
-                f'WP{self.wp_idx}/{len(self.waypoints) - 1} '
-                f'ENU ({nxt[0]:.2f}, {nxt[1]:.2f}, {nxt[2]:.2f}){label}')
+                f'WP{self.wp_idx - 1} reached — all waypoints done, '
+                f'descending to land at pad centre.')
+            return
+        nxt = self.waypoints[self.wp_idx]
+        label = ''
+        if self.wp_idx == 7:   label = ' [TUNNEL APPROACH]'
+        elif self.wp_idx == 9:  label = ' [TUNNEL — timeout fallback active]'
+        elif self.wp_idx == 14: label = ' [STAGE 4 WINDOW ✓]'
+        elif self.wp_idx == 16: label = ' [PAD CENTRE — LAND]'
+        self.get_logger().info(
+            f'WP{self.wp_idx - 1} reached → '
+            f'WP{self.wp_idx}/{len(self.waypoints) - 1} '
+            f'ENU ({nxt[0]:.2f}, {nxt[1]:.2f}, {nxt[2]:.2f}){label}')
 
     def _ms_land(self) -> None:
         """Descend at land_speed_mps while holding pad centre XY."""
-        px, py, _ = _LANDING_PAD_XY[0], _LANDING_PAD_XY[1], 0
-        self.land_z = max(0.0, self.land_z - self.land_speed * self._dt)
-        self._send(px, py, self.land_z)
-        if self.land_z <= 0.05:
+        self.land_z = max(self.start_z, self.land_z - self.land_speed * self._dt)
+        self._send(_LANDING_PAD_XY[0], _LANDING_PAD_XY[1], self.land_z)
+        if self.land_z <= self.start_z + 0.05:
             self.state = 'HOLD_LANDED'
-            self.get_logger().info('Touchdown — holding at z=0. Disarm when ready.')
+            self.get_logger().info(
+                f'Touchdown (z={self.land_z:.2f} m) — holding. Disarm when ready.')
 
     def _ms_hold_landed(self) -> None:
-        self._send(_LANDING_PAD_XY[0], _LANDING_PAD_XY[1], 0.0)
+        self._send(_LANDING_PAD_XY[0], _LANDING_PAD_XY[1], self.start_z)
 
     def _once(self, key: str, msg: str) -> None:
         if key not in self.log_once:
