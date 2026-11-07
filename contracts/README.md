@@ -5,6 +5,13 @@ code is wrong. To change a contract: open a PR, add a `contracts/CHANGELOG.md`
 entry, and ping the affected area owners (see docs/BOARD.md) — then change the
 code in the same PR or a follow-up that links back to it.
 
+Repository contract, cross-area and guard decisions may be autonomous: record
+the rationale, alternatives and acceptance checks, notify affected owners, and
+obtain independent exact-head review before guarded merging. No per-PR human
+approval is required for these repository decisions. Spending, live flight,
+deployment and access changes remain manual. Missing physical measurements,
+organizer permissions and safety evidence remain blockers, not assumptions.
+
 `docs/field-guide.html` is background and reasoning for Stanford DroneHacks —
 schedule, scoring, rulebook digest, lessons learned. It is not authoritative.
 The numbers code must agree on are extracted here: `contracts/frames.md`,
