@@ -22,5 +22,3 @@
 
 - Revert a bad merge by opening a new revert PR — never rewrite `main`'s history.
 - If a secret is committed, notify @moterodiaz immediately so it can be rotated before any history cleanup begins.
-
-<!-- deliberate flaw for dry-run test: dangling sentence fragment -->
