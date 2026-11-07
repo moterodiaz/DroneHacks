@@ -64,17 +64,61 @@ class App:
     def _build_layout(self):
         outer = ttk.PanedWindow(self.root, orient='horizontal')
         outer.pack(fill='both', expand=True)
-        left = ttk.Frame(outer, padding=6, width=360)
+        left = ttk.Frame(outer, width=380)
         center = ttk.PanedWindow(outer, orient='vertical')
         right = ttk.Frame(outer, padding=6, width=360)
         outer.add(left, weight=0)
         outer.add(center, weight=1)
         outer.add(right, weight=0)
-        self._build_setup(left)
+        # the run controls stay at the bottom of the left column; the setup above them scrolls
+        footer = ttk.Frame(left, padding=(6, 4, 6, 6))
+        footer.pack(side='bottom', fill='x')
+        ttk.Separator(left, orient='horizontal').pack(side='bottom', fill='x')
+        setup = self._scrollable(left)
+        self._build_setup(setup, footer)
         self._build_center(center)
         self._build_status(right)
 
-    def _build_setup(self, f):
+    def _scrollable(self, parent):
+        """A vertically scrolling frame filling *parent*: the mouse wheel scrolls it while over it."""
+        holder = ttk.Frame(parent)
+        holder.pack(side='top', fill='both', expand=True)
+        canvas = tk.Canvas(holder, highlightthickness=0, borderwidth=0,
+                           background=self.root.cget('background'))
+        bar = ttk.Scrollbar(holder, orient='vertical', command=canvas.yview)
+        canvas.configure(yscrollcommand=bar.set)
+        bar.pack(side='right', fill='y')
+        canvas.pack(side='left', fill='both', expand=True)
+        inner = ttk.Frame(canvas, padding=6)
+        window = canvas.create_window((0, 0), window=inner, anchor='nw')
+        inner.bind('<Configure>', lambda e: canvas.configure(scrollregion=canvas.bbox('all')))
+        canvas.bind('<Configure>', lambda e: canvas.itemconfigure(window, width=e.width))
+        # A wheel turn over a dropdown would otherwise change its value while scrolling past it
+        # (ttk's TCombobox class binding), silently changing the version or an option.
+        for seq in ('<MouseWheel>', '<Button-4>', '<Button-5>'):
+            self.root.unbind_class('TCombobox', seq)
+
+        def wheel(event):
+            # one handler for the whole window: scroll only when the pointer is over this column
+            # (the map keeps its own wheel zoom)
+            try:
+                under = self.root.winfo_containing(event.x_root, event.y_root)
+            except (KeyError, tk.TclError):            # a dropdown's popup list is not a tkinter widget
+                return
+            if under is None or not str(under).startswith(str(holder)):
+                return
+            if inner.winfo_height() <= canvas.winfo_height():
+                return
+            num = getattr(event, 'num', 0)
+            step = -1 if num == 4 else 1 if num == 5 else (-1 if event.delta > 0 else 1) * max(1, abs(event.delta) // 120)
+            canvas.yview_scroll(step * 2, 'units')
+
+        for seq in ('<MouseWheel>', '<Button-4>', '<Button-5>'):
+            self.root.bind_all(seq, wheel, add='+')
+        self.setup_canvas = canvas
+        return inner
+
+    def _build_setup(self, f, footer):
         ttk.Label(f, text='Autonomy version', font=('Segoe UI', 10, 'bold')).pack(anchor='w')
         self.version_ids = list(self.catalog)
         self.version_var = tk.StringVar(value=self.version_ids[0])
@@ -138,6 +182,7 @@ class App:
         ttk.Checkbutton(sc, text='Scripted pilot (organizers\' arm-then-Position procedure)',
                         variable=self.script_var).grid(row=17, column=0, columnspan=2, sticky='w')
         sc.columnconfigure(1, weight=1)
+        f = footer                                       # the run controls: always visible
         sp = ttk.Frame(f)
         sp.pack(fill='x', pady=4)
         ttk.Label(sp, text='Speed').pack(side='left')

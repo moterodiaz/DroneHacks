@@ -58,7 +58,8 @@ on), so `DRONEHACKS_*` variables do not arrive, just as on the drone.
 
 ## The GUI
 
-* **Left: setup.**
+* **Left: setup.** The column scrolls (mouse wheel or its scroll bar); the speed, **Start**,
+  Pause, Stop and Save stay pinned at its bottom. The wheel never changes a dropdown's value.
   * **Autonomy version.** Every entry in `versions.yaml`, with its git ref and the
     `COMPETITOR_PKG`/`COMPETITOR_LAUNCH` it would use.
   * **Follower algorithm.** Followers marked *sim injection* patch the mission module inside
@@ -86,7 +87,7 @@ on), so `DRONEHACKS_*` variables do not arrive, just as on the drone.
     * `EKF2_EV_DELAY` and other PX4 overrides;
     * wind;
     * pilot timing.
-  * **Speed**: 0.5x, real time, 2x, 4x or as fast as the machine allows.
+  * **Speed** (in the pinned footer): 0.5x, real time, 2x, 4x or as fast as the machine allows.
 * **Centre: map.**
   * The STEP geometry and the checkpoint gates.
   * The true drone (props green when armed), where EKF2 thinks it is, where cuVSLAM says it is,
