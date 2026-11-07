@@ -77,11 +77,20 @@ class TestTrackingLoss:
     def test_frozen_pose_holds_instead_of_navigating_blind(self):
         eng = make_engine()
         pos = drive_to_navigate(eng)
-        target, events = eng.tick(1.0, True, pos, 'frozen')
+        # one healthy NAVIGATE tick: the target is now the next waypoint
+        eng.tick(0.5, True, (0.5, 0.0, 0.8), 'ok')
+        assert eng.last_target == (1.0, 0.0, 0.8)
+        frozen_at = (0.5, 0.0, 0.8)
+        target, events = eng.tick(1.0, True, frozen_at, 'frozen')
         assert eng.state == 'HOLD_FAULT'
         assert any('frozen' in e for e in events)
         assert any('take over' in e for e in events)
-        assert target == eng.last_target
+        # the hold is the last KNOWN position, not the next waypoint
+        assert target == (frozen_at[0], frozen_at[1], 0.8)
+        assert target != eng.last_target
+        # and it stays the known position, not the waypoint, while held
+        held, _ = eng.tick(1.5, True, frozen_at, 'frozen')
+        assert held == (frozen_at[0], frozen_at[1], 0.8)
 
     def test_stale_odometry_holds(self):
         eng = make_engine()
@@ -110,6 +119,21 @@ class TestTrackingLoss:
         eng.tick(2.0, True, pos, 'ok')
         assert eng.state == 'NAVIGATE'
         assert eng.idx == 1
+
+    def test_climb_fault_resumes_climb_not_navigate(self):
+        """A loss during CLIMB must not skip the altitude check on resume."""
+        eng = make_engine()
+        low = (0.0, 0.0, 0.30)  # still climbing, below hover
+        eng.tick(0.0, True, low, 'ok')      # → CLIMB
+        assert eng.state == 'CLIMB'
+        eng.tick(0.1, True, low, 'frozen')  # fault during climb
+        assert eng.state == 'HOLD_FAULT'
+        _, events = eng.tick(0.2, True, low, 'ok')
+        assert eng.state == 'CLIMB'  # resumes the climb, not NAVIGATE
+        assert any('resuming CLIMB' in e for e in events)
+        # and the altitude gate still applies before NAVIGATE
+        eng.tick(0.3, True, low, 'ok')
+        assert eng.state == 'CLIMB'
 
 
 class TestNoLandingDescent:
@@ -151,6 +175,16 @@ class TestOffboardAndWaiting:
         assert target == somewhere
         assert eng.state == 'NAVIGATE'  # no state change, just hold
         assert any('Offboard inactive' in e for e in events)
+
+    def test_offboard_gap_grants_fresh_timeout_window(self):
+        eng = make_engine(waypoint_timeout_s=10.0)
+        pos = drive_to_navigate(eng)  # deadline now +10 s
+        # pilot takes over for a long stretch, then hands back
+        eng.tick(20.0, False, pos, 'ok')
+        target, events = eng.tick(30.0, True, pos, 'ok')
+        assert eng.state == 'NAVIGATE'  # not an instant timeout fault
+        assert any('fresh waypoint timeout window' in e for e in events)
+        assert eng.deadline == pytest.approx(40.0)
 
     def test_no_odometry_publishes_nothing(self):
         eng = make_engine()

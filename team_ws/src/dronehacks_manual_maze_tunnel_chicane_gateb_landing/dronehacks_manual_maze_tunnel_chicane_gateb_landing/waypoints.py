@@ -776,15 +776,20 @@ class MissionEngine:
 
     Reviewed-finding fixes, all testable without ROS:
 
-    * **Per-waypoint timeout** — exceeding it holds the last setpoint and
-      stops autonomous advance; the old tunnel-only force-advance published
+    * **Per-waypoint timeout** — exceeding it holds the last known position
+      and stops autonomous advance; the old tunnel-only force-advance published
       stale targets forever once the pose froze, and pushed a healthy-but-slow
       drone out of the tunnel mid-flight.
-    * **Tracking loss** (stale or frozen VIO) holds the last setpoint with a
-      clear abort log instead of navigating on a frozen pose. The mission
-      resumes only while the loss count stays under ``max_tracking_losses``.
+    * **Tracking loss** (stale or frozen VIO) holds the **last known
+      position** — not the next waypoint — so the controller stops
+      progressing the moment tracking is lost, with a clear abort log. The
+      mission resumes (into the state it faulted from, so a climb fault
+      still enforces the altitude check) only while the loss count stays
+      under ``max_tracking_losses``.
     * **Waypoint timeout faults hold permanently** — the safety pilot takes
       over; re-entering offboard after a disarm/rearm restarts the mission.
+      A pilot takeover (offboard inactive) pauses the waypoint deadline, so
+      re-entering offboard grants a fresh timeout window.
     * **No landing descent** — heights are absolute in the odom frame, so a
       pilot who takes off in Position mode first cannot turn an
       odometry-at-Offboard-start "landing floor" airborne. The final state
@@ -805,6 +810,9 @@ class MissionEngine:
         self.deadline = None
         self.tracking_losses = 0
         self.fault_kind = ''
+        self.resume_state = 'NAVIGATE'
+        self.hold_setpoint = None
+        self._offboard_was_active = False
         self.last_target = None
         self.log_once: set = set()
 
@@ -814,6 +822,13 @@ class MissionEngine:
         if position is None:
             self._once(events, 'no_odom', 'waiting for odometry ...')
             return None, events
+        if (offboard_active and not self._offboard_was_active
+                and self.state == 'NAVIGATE'):
+            # Re-entry after a pilot takeover: the deadline must not have
+            # kept running while the pilot had control.
+            self.deadline = now + self.waypoint_timeout_s
+            events.append('Offboard re-entered — fresh waypoint timeout window.')
+        self._offboard_was_active = offboard_active
         if not offboard_active and self.state != 'WAIT_FOR_OFFBOARD':
             self._once(events, 'offboard_lost',
                        'Offboard inactive — holding position.')
@@ -840,8 +855,9 @@ class MissionEngine:
             target = (self.waypoints[0][0], self.waypoints[0][1], self.hover_z)
             self.last_target = target
             if tracking_status != 'ok':
-                self._fault(events, f'tracking {tracking_status} during climb')
-                return target, events
+                self._fault(events, f'tracking {tracking_status} during climb',
+                            position=position)
+                return self.hold_setpoint, events
             if position[2] >= self.hover_z - 0.10:
                 self.state = 'NAVIGATE'
                 self.idx = 1
@@ -851,12 +867,14 @@ class MissionEngine:
 
         if self.state == 'NAVIGATE':
             if tracking_status != 'ok':
-                self._fault(events, f'tracking {tracking_status}')
-                return self.last_target, events
+                self._fault(events, f'tracking {tracking_status}',
+                            position=position)
+                return self.hold_setpoint, events
             if now > self.deadline:
                 self._fault(events, f'waypoint timeout ({self.waypoint_timeout_s:.0f} s) '
-                            f'at waypoint {self.idx}', kind='timeout')
-                return self.last_target, events
+                            f'at waypoint {self.idx}', kind='timeout',
+                            position=position)
+                return self.hold_setpoint, events
             target = (self.waypoints[self.idx][0], self.waypoints[self.idx][1],
                       self.hover_z)
             self.last_target = target
@@ -876,14 +894,15 @@ class MissionEngine:
         if self.state == 'HOLD_FAULT':
             if tracking_status == 'ok' and self.fault_kind == 'tracking':
                 if self.tracking_losses <= self.max_tracking_losses:
-                    self.state = 'NAVIGATE'
-                    self.deadline = now + self.waypoint_timeout_s
-                    events.append('Tracking recovered — resuming NAVIGATE at '
-                                  f'waypoint {self.idx}.')
+                    self.state = self.resume_state
+                    if self.state == 'NAVIGATE':
+                        self.deadline = now + self.waypoint_timeout_s
+                    events.append('Tracking recovered — resuming '
+                                  f'{self.state} at waypoint {self.idx}.')
                 else:
                     self._once(events, 'abort_final',
                                'Too many tracking losses — pilot take over.')
-            return self.last_target, events
+            return self.hold_setpoint, events
 
         if self.state == 'HOLD_OVER_PAD':
             self.last_target = (self.pad_xy[0], self.pad_xy[1], self.hover_z)
@@ -891,12 +910,20 @@ class MissionEngine:
 
         raise RuntimeError(f'unknown state {self.state}')
 
-    def _fault(self, events, reason, kind='tracking'):
+    def _fault(self, events, reason, kind='tracking', position=None):
         if kind == 'tracking':
             self.tracking_losses += 1
         self.fault_kind = kind
+        self.resume_state = self.state
         self.state = 'HOLD_FAULT'
-        events.append(f'ABORT: {reason} — holding the last setpoint '
+        # Hold the last KNOWN position, not the next waypoint: with frozen or
+        # stale VIO, commanding the next waypoint keeps driving the drone on
+        # a dead pose — exactly the tunnel failure this prevents. Height stays
+        # at hover: the kit's height comes from the rangefinder
+        # (contracts/px4.md EKF2_HGT_REF), so z is safe without vision.
+        if position is not None:
+            self.hold_setpoint = (position[0], position[1], self.hover_z)
+        events.append(f'ABORT: {reason} — holding the last known position '
                       f'(loss #{self.tracking_losses}/{self.max_tracking_losses}); '
                       'safety pilot take over.')
 

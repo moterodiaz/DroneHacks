@@ -18,6 +18,7 @@ from launch.actions import DeclareLaunchArgument
 from launch.conditions import IfCondition
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
+from launch_ros.parameter_descriptions import ParameterValue
 
 ARGUMENTS = [
     ('max_altitude_m',       '3.0',   'kit ceiling above the odometry origin, metres'),
@@ -73,14 +74,14 @@ def generate_launch_description():
         emulate_tty=True,
         condition=IfCondition(LaunchConfiguration('competitor')),
         parameters=[{
-            'course_map_yaml':          LaunchConfiguration('course_map_yaml'),
-            'course_to_odom_yaw':       LaunchConfiguration('course_to_odom_yaw'),
-            'course_to_odom_x':         LaunchConfiguration('course_to_odom_x'),
-            'course_to_odom_y':         LaunchConfiguration('course_to_odom_y'),
-            'odometry_topic':           LaunchConfiguration('odometry_topic'),
-            'hover_altitude_m':         LaunchConfiguration('hover_altitude_m'),
-            'arrival_radius_m':        LaunchConfiguration('arrival_radius_m'),
-            'waypoint_timeout_s':       LaunchConfiguration('waypoint_timeout_s'),
+            'course_map_yaml':    ParameterValue(LaunchConfiguration('course_map_yaml'), value_type=str),
+            'course_to_odom_yaw': ParameterValue(LaunchConfiguration('course_to_odom_yaw'), value_type=float),
+            'course_to_odom_x':   ParameterValue(LaunchConfiguration('course_to_odom_x'), value_type=float),
+            'course_to_odom_y':   ParameterValue(LaunchConfiguration('course_to_odom_y'), value_type=float),
+            'odometry_topic':     ParameterValue(LaunchConfiguration('odometry_topic'), value_type=str),
+            'hover_altitude_m':   ParameterValue(LaunchConfiguration('hover_altitude_m'), value_type=float),
+            'arrival_radius_m':   ParameterValue(LaunchConfiguration('arrival_radius_m'), value_type=float),
+            'waypoint_timeout_s': ParameterValue(LaunchConfiguration('waypoint_timeout_s'), value_type=float),
         }],
     )
 
