@@ -2,7 +2,7 @@
 
 ## 1. Branches & commits
 
-- Branch prefixes: `core/`, `docs/`, `infra/`, `contracts/`
+- Branch prefixes: `localization/`, `navigation/`, `course/`, `docs/`, `infra/`, `contracts/`
 - Commit grammar: `<area>: <imperative summary>` — e.g. `core: bound replay catch-up to one tick per frame`
 - Never force-push or rewrite `main`'s history. Revert bad merges via a new PR.
 

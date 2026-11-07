@@ -1,0 +1,986 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+</head>
+<body>
+<title>DroneHacks Field Guide</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&display=swap">
+<style>
+/* Layout: a briefing binder. A sticky section index on the left, one reading column, data in mono */
+:root {
+  --paper: #edf0f3;
+  --sheet: #ffffff;
+  --ink: #14202b;
+  --muted: #566372;
+  --rule: #d2d9e1;
+  --signal: #d9480f;
+  --signal-soft: #fde6dc;
+  --route: #0b7285;
+  --route-soft: #dcf1f4;
+  --good: #2b7a3d;
+  --warn: #a5650a;
+  --bad: #b42318;
+  --wall: #1d2731;
+  --font-display: "Barlow Condensed", "Arial Narrow", "Roboto Condensed", system-ui, sans-serif;
+  --font-body: "IBM Plex Sans", "Segoe UI", system-ui, -apple-system, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
+  --step--1: 0.8125rem;
+  --step-0: 1rem;
+  --step-1: 1.1875rem;
+  --step-2: 1.5rem;
+  --step-3: 2.125rem;
+  --step-4: 3rem;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper: #0e1318; --sheet: #151c23; --ink: #e4e9ee; --muted: #97a4b1; --rule: #2a3540;
+    --signal: #ff7a3d; --signal-soft: #3a2116; --route: #3cc0d2; --route-soft: #11303a;
+    --good: #5cc275; --warn: #e0a440; --bad: #f2776b; --wall: #d7dee5; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --paper: #0e1318; --sheet: #151c23; --ink: #e4e9ee; --muted: #97a4b1; --rule: #2a3540;
+  --signal: #ff7a3d; --signal-soft: #3a2116; --route: #3cc0d2; --route-soft: #11303a;
+  --good: #5cc275; --warn: #e0a440; --bad: #f2776b; --wall: #d7dee5; color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; scroll-padding-top: 1rem; }
+@media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+body {
+  background: var(--paper); color: var(--ink);
+  font-family: var(--font-body); font-size: var(--step-0); line-height: 1.6;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 0 4rem;
+}
+a { color: var(--route); text-underline-offset: 2px; }
+a:focus-visible, button:focus-visible, summary:focus-visible, input:focus-visible {
+  outline: 2px solid var(--signal); outline-offset: 2px; border-radius: 3px;
+}
+h1, h2, h3 { font-family: var(--font-display); line-height: 1.1; text-wrap: balance; margin: 0; letter-spacing: 0.005em; }
+h2 { font-size: var(--step-3); }
+h3 { font-size: var(--step-2); margin-top: 2rem; }
+p, ul, ol { margin: 0; }
+code, .mono { font-family: var(--font-mono); font-size: 0.9em; }
+code { background: var(--paper); border: 1px solid var(--rule); border-radius: 4px; padding: 0 0.3em; overflow-wrap: anywhere; }
+strong { font-weight: 600; }
+
+.frame { max-width: 1240px; margin: 0 auto; display: grid; grid-template-columns: 15rem minmax(0, 1fr); gap: 2.5rem; }
+@media (max-width: 900px) { .frame { grid-template-columns: minmax(0, 1fr); gap: 1rem; } }
+
+/* Masthead */
+.masthead { max-width: 1240px; margin: 0 auto; padding-block: 2.5rem 1.75rem; display: grid; gap: 1rem; border-bottom: 3px solid var(--ink); margin-bottom: 2rem; }
+.masthead .eyebrow { font-family: var(--font-mono); font-size: var(--step--1); letter-spacing: 0.08em; text-transform: uppercase; color: var(--signal); }
+.masthead h1 { font-size: clamp(2.5rem, 7vw, 4.5rem); text-transform: uppercase; letter-spacing: 0.01em; }
+.masthead .lede { max-width: 62ch; font-size: var(--step-1); color: var(--muted); }
+.scoreline { display: flex; flex-wrap: wrap; gap: 0; border: 1px solid var(--rule); background: var(--sheet); border-radius: 6px; overflow: hidden; }
+.scoreline div { flex: 1 1 9rem; padding: 0.75rem 1rem; border-right: 1px solid var(--rule); min-width: 0; }
+.scoreline div:last-child { border-right: 0; }
+.scoreline b { display: block; font-family: var(--font-display); font-size: var(--step-3); line-height: 1; font-variant-numeric: tabular-nums; }
+.scoreline span { font-size: var(--step--1); color: var(--muted); }
+.scoreline .accent b { color: var(--signal); }
+
+/* Index */
+nav.index { position: sticky; top: calc(1rem + env(safe-area-inset-top, 0px)); align-self: start; max-height: calc(100vh - 2rem); overflow: auto; font-size: 0.9375rem; }
+nav.index p { font-family: var(--font-mono); font-size: var(--step--1); letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); margin-bottom: 0.5rem; }
+nav.index ol { list-style: none; padding: 0; display: grid; gap: 0.1rem; }
+nav.index a { display: flex; justify-content: space-between; gap: 0.5rem; padding: 0.3rem 0.6rem; border-left: 2px solid var(--rule); color: var(--ink); text-decoration: none; }
+nav.index a:hover { border-left-color: var(--muted); }
+nav.index a.here { border-left-color: var(--signal); color: var(--signal); font-weight: 600; }
+nav.index a .tick { color: var(--good); font-family: var(--font-mono); }
+@media (max-width: 900px) {
+  nav.index { position: static; max-height: none; background: var(--sheet); border: 1px solid var(--rule); border-radius: 6px; padding: 0.75rem; }
+  nav.index ol { grid-template-columns: repeat(auto-fill, minmax(11rem, 1fr)); }
+}
+
+/* Sections */
+main { display: grid; gap: 3.5rem; min-width: 0; }
+section { display: grid; gap: 1rem; min-width: 0; }
+section > header { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 0.5rem 1rem; border-bottom: 1px solid var(--rule); padding-bottom: 0.5rem; }
+section > header .kicker { font-family: var(--font-mono); font-size: var(--step--1); letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); width: 100%; }
+.studied { font: inherit; font-size: var(--step--1); display: inline-flex; align-items: center; gap: 0.4rem; color: var(--muted); cursor: pointer; user-select: none; }
+.studied input { accent-color: var(--good); width: 1rem; height: 1rem; }
+.prose { display: grid; gap: 0.75rem; max-width: 70ch; }
+.prose ul, .prose ol, .list { padding-left: 1.25rem; display: grid; gap: 0.35rem; }
+
+.callout { background: var(--signal-soft); border-left: 4px solid var(--signal); padding: 0.85rem 1rem; border-radius: 0 6px 6px 0; max-width: 72ch; display: grid; gap: 0.4rem; }
+.callout.route { background: var(--route-soft); border-left-color: var(--route); }
+.callout b.title { font-family: var(--font-display); font-size: var(--step-1); letter-spacing: 0.01em; }
+
+.tag { display: inline-block; font-family: var(--font-mono); font-size: 0.72rem; letter-spacing: 0.04em; text-transform: uppercase; padding: 0.05rem 0.4rem; border-radius: 3px; border: 1px solid currentColor; vertical-align: 0.1em; white-space: nowrap; }
+.tag.m { color: var(--route); }
+.tag.c { color: var(--good); }
+.tag.i { color: var(--warn); }
+.tag.ours { color: var(--signal); }
+.tag.kit { color: var(--muted); }
+
+.table-wrap { overflow-x: auto; border: 1px solid var(--rule); border-radius: 6px; background: var(--sheet); }
+table { border-collapse: collapse; width: 100%; font-size: 0.9375rem; }
+th, td { text-align: left; vertical-align: top; padding: 0.55rem 0.75rem; border-bottom: 1px solid var(--rule); }
+tr:last-child td { border-bottom: 0; }
+th { font-family: var(--font-mono); font-size: var(--step--1); font-weight: 500; letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); background: var(--paper); white-space: nowrap; }
+td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; font-family: var(--font-mono); white-space: nowrap; }
+td .sub { display: block; color: var(--muted); font-size: var(--step--1); }
+
+.grid-2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 22rem), 1fr)); gap: 1rem; }
+.card { background: var(--sheet); border: 1px solid var(--rule); border-radius: 6px; padding: 1rem 1.1rem; display: grid; gap: 0.5rem; align-content: start; min-width: 0; }
+.card h4 { font-family: var(--font-display); font-size: var(--step-1); margin: 0; }
+
+/* Schedule */
+.days { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 19rem), 1fr)); gap: 1rem; align-items: start; }
+.day { background: var(--sheet); border: 1px solid var(--rule); border-radius: 6px; overflow: hidden; min-width: 0; }
+.day h3 { margin: 0; padding: 0.7rem 1rem; font-size: var(--step-2); background: var(--ink); color: var(--paper); }
+.day h3 span { font-family: var(--font-body); font-size: var(--step--1); font-weight: 400; opacity: 0.8; margin-left: 0.5rem; }
+.day ol { list-style: none; padding: 0; margin: 0; }
+.day li { display: grid; grid-template-columns: 4.6rem minmax(0, 1fr); gap: 0.6rem; padding: 0.55rem 1rem; border-top: 1px solid var(--rule); font-size: 0.9375rem; }
+.day li:first-child { border-top: 0; }
+.day time { font-family: var(--font-mono); font-size: var(--step--1); color: var(--muted); padding-top: 0.15rem; font-variant-numeric: tabular-nums; }
+.day li.key { background: var(--signal-soft); }
+.day li.key time { color: var(--signal); font-weight: 500; }
+.day li.ours { background: var(--route-soft); }
+.day li.ours time { color: var(--route); }
+.day .where { display: block; color: var(--muted); font-size: var(--step--1); }
+
+/* Course */
+.course-figure { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); gap: 1.25rem; align-items: start; }
+@media (max-width: 760px) { .course-figure { grid-template-columns: minmax(0, 1fr); } }
+.course-figure figure { margin: 0; background: var(--sheet); border: 1px solid var(--rule); border-radius: 6px; padding: 0.75rem; }
+.course-figure figcaption { font-size: var(--step--1); color: var(--muted); margin-top: 0.5rem; }
+svg.course { width: 100%; height: auto; max-width: 100%; display: block; }
+svg.course .grid { stroke: var(--rule); stroke-width: 1; }
+svg.course .net { fill: none; stroke: var(--muted); stroke-width: 2; stroke-dasharray: 6 4; }
+svg.course .tunnel { fill: var(--wall); fill-opacity: 0.12; stroke: var(--wall); stroke-width: 1.5; stroke-dasharray: 4 3; }
+svg.course .pad { fill: var(--good); fill-opacity: 0.08; stroke: var(--good); stroke-width: 1.5; }
+svg.course .wall { stroke: var(--wall); stroke-width: 3.5; stroke-linecap: round; }
+svg.course .boulder { fill: var(--muted); fill-opacity: 0.35; stroke: var(--muted); stroke-width: 1.5; }
+svg.course .route { fill: none; stroke: var(--route); stroke-width: 3; stroke-linejoin: round; stroke-linecap: round; }
+svg.course .waypoint { fill: var(--sheet); stroke: var(--route); stroke-width: 1.5; }
+svg.course .launch { fill: var(--signal); }
+svg.course .launch-arrow { fill: var(--signal); }
+svg.course .window { fill: var(--sheet); stroke: var(--signal); stroke-width: 2.5; }
+svg.course .unit { font-family: var(--font-mono); font-size: 13px; fill: var(--muted); text-anchor: middle; dominant-baseline: middle; }
+svg.course .callout { font-family: var(--font-display); font-size: 17px; font-weight: 700; fill: var(--ink); }
+svg.course .axis { font-family: var(--font-mono); font-size: 13px; fill: var(--muted); }
+.checkpoints { list-style: none; padding: 0; margin: 0; display: grid; gap: 0.5rem; }
+.checkpoints li { display: grid; grid-template-columns: 2.25rem minmax(0, 1fr) auto; gap: 0.75rem; align-items: center; background: var(--sheet); border: 1px solid var(--rule); border-radius: 6px; padding: 0.6rem 0.8rem; }
+.checkpoints .n { font-family: var(--font-display); font-size: var(--step-2); font-weight: 700; color: var(--signal); text-align: center; }
+.checkpoints .pts { font-family: var(--font-mono); font-weight: 500; white-space: nowrap; }
+.checkpoints small { display: block; color: var(--muted); }
+
+/* Architecture lanes */
+.lanes { display: grid; gap: 0.9rem; }
+.lane { background: var(--sheet); border: 1px solid var(--rule); border-radius: 6px; padding: 0.75rem; display: grid; gap: 0.5rem; min-width: 0; }
+.lane > b { font-family: var(--font-mono); font-size: var(--step--1); letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); font-weight: 500; }
+.flow { display: flex; flex-wrap: wrap; align-items: stretch; gap: 0.4rem; }
+.box { border: 1.5px solid var(--rule); border-radius: 5px; padding: 0.4rem 0.6rem; font-size: 0.875rem; line-height: 1.3; background: var(--paper); display: grid; align-content: center; }
+.box small { color: var(--muted); font-size: 0.75rem; }
+.box.ours { border-color: var(--signal); background: var(--signal-soft); }
+.box.fc { border-color: var(--ink); }
+.arrow { align-self: center; color: var(--muted); font-family: var(--font-mono); }
+
+/* Q&A */
+details.qa { background: var(--sheet); border: 1px solid var(--rule); border-radius: 6px; }
+details.qa + details.qa { margin-top: 0.5rem; }
+details.qa summary { cursor: pointer; padding: 0.7rem 1rem; font-weight: 600; list-style: none; display: flex; gap: 0.6rem; }
+details.qa summary::-webkit-details-marker { display: none; }
+details.qa summary::before { content: "+"; font-family: var(--font-mono); color: var(--signal); width: 1ch; flex: none; }
+details.qa[open] summary::before { content: "−"; }
+details.qa .answer { padding: 0 1rem 0.9rem 2.2rem; display: grid; gap: 0.5rem; max-width: 75ch; }
+
+.people { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 17rem), 1fr)); gap: 0.75rem; }
+.person { background: var(--sheet); border: 1px solid var(--rule); border-radius: 6px; padding: 0.8rem 0.95rem; display: grid; gap: 0.3rem; align-content: start; min-width: 0; }
+.person b { font-size: 1rem; }
+.person .role { font-size: var(--step--1); color: var(--muted); }
+.person p { font-size: 0.9rem; }
+
+.steps { counter-reset: step; list-style: none; padding: 0; display: grid; gap: 0.6rem; max-width: 75ch; }
+.steps li { counter-increment: step; display: grid; grid-template-columns: 2rem minmax(0, 1fr); gap: 0.6rem; }
+.steps li::before { content: counter(step); font-family: var(--font-display); font-weight: 700; font-size: var(--step-1); color: var(--signal); text-align: right; }
+
+pre.diagram { font-family: var(--font-mono); font-size: 0.8rem; line-height: 1.45; background: var(--sheet); border: 1px solid var(--rule); border-radius: 6px; padding: 0.9rem; overflow-x: auto; margin: 0; }
+
+footer.colophon { max-width: 1240px; margin: 3rem auto 0; border-top: 1px solid var(--rule); padding-top: 1rem; color: var(--muted); font-size: var(--step--1); }
+</style>
+
+<header class="masthead">
+  <span class="eyebrow">Stanford DroneHacks · Nov 6–8, 2026 · Tresidder Oak Lounge</span>
+  <h1>DroneHacks Field Guide</h1>
+  <p class="lede">Everything to know before the kit pickup: the schedule, the course, the scoring and rules, the kit, our stack and why it is built that way, what simulation taught us, and how to pitch it to the judges.</p>
+  <div class="scoreline" aria-label="How the 100 points split">
+    <div class="accent"><b>60</b><span>the run: checkpoints, then time</span></div>
+    <div><b>25</b><span>technical presentation</span></div>
+    <div><b>15</b><span>generality: would it fly a new course?</span></div>
+    <div><b>×1.25</b><span>run points, if it flies the return</span></div>
+    <div><b>3 min</b><span>run limit · +5 s per touch</span></div>
+  </div>
+</header>
+
+<div class="frame">
+  <nav class="index" aria-label="Sections">
+    <p>Sections</p>
+    <ol id="index-list"></ol>
+  </nav>
+
+  <main>
+
+  <section id="essentials" data-title="The essentials">
+    <header><span class="kicker">Read this first</span><h2>The essentials</h2></header>
+    <div class="prose">
+      <p>Program the issued drone to fly an indoor obstacle course <strong>on its own, with no GPS and no pilot input</strong>: through a maze, a dark tunnel, a chicane, and onto a landing pad. Every team gets the same drone. The weekend is for writing the software that flies it.</p>
+      <p>The organisers' Challenge page states the scoring outright: <strong>every finish flown below the walls scores above every unfinished run</strong>. That one line decides the strategy.</p>
+    </div>
+    <div class="grid-2">
+      <div class="card">
+        <h4>Our strategy in six lines</h4>
+        <ol class="list">
+          <li><strong>Finish first, then go faster.</strong> Corners set the time, not top speed.</li>
+          <li><strong>Use the kit's software</strong> wherever it costs nothing: driver, cuVSLAM, bridge, PX4.</li>
+          <li><strong>Add our code only where simulation measured a failure:</strong> the guard, the planner, the follower, the map correction.</li>
+          <li><strong>Plan the route from the course map</strong>, never hand-drawn waypoints: generality is 15 points and an AI review flags hard-coding.</li>
+          <li><strong>Survey the real course</strong> against the published file, to about 5 cm, before trusting the map.</li>
+          <li><strong>Never touch the organisers' PX4 safety settings</strong> (rule 8.5).</li>
+        </ol>
+      </div>
+      <div class="card">
+        <h4>Deadlines that cannot slip</h4>
+        <div class="table-wrap"><table>
+          <tbody>
+            <tr><td class="num">Fri 6:30 PM</td><td>Safety briefing and kit pickup. <strong>Everyone attends</strong>; the captain signs the kit out</td></tr>
+            <tr><td class="num">Sat 7:30 PM</td><td>Scored-run blocks and pitch slots posted</td></tr>
+            <tr><td class="num">Sat 10 PM</td><td>Scored runs open. Blocks start on time, ready or not</td></tr>
+            <tr><td class="num">Sun 12:30 PM</td><td>Team repository link due; pitches 12:30–3:10</td></tr>
+            <tr><td class="num">Sun 4:00 PM</td><td>Scored runs close. <strong>Everything flown must be pushed</strong></td></tr>
+            <tr><td class="num">Sun 4:00–5:30</td><td>Kit return, captain checks it in</td></tr>
+          </tbody>
+        </table></div>
+      </div>
+    </div>
+    <p class="prose" style="font-size: var(--step--1); color: var(--muted);">Labels used throughout: <span class="tag c">organisers</span> stated by the organisers' pages or files · <span class="tag m">measured</span> measured by us, mostly in our PX4 simulator on a stand-in drone (the x500, not the Sky Beta) · <span class="tag i">inferred</span> our reasoning, not yet tested.</p>
+  </section>
+
+  <section id="schedule" data-title="Schedule">
+    <header><span class="kicker">From the event schedule · all times Pacific</span><h2>Schedule</h2></header>
+    <p class="prose">Two places. <strong>Simonyi</strong> (CoDa W450, 4th floor): registration and both ceremonies. <strong>Oak Lounge</strong> (Tresidder Union, 2nd floor): home base from Friday evening, both flight nets, meals and the Graveyard Zone for sleep. The walk between them is about 10 minutes. Blue rows are our own plan from the build order.</p>
+    <div class="days">
+      <div class="day">
+        <h3>Fri 6 <span>Arrive, ceremony, kit</span></h3>
+        <ol>
+          <li><time>12:30</time><div>Registration and lunch<span class="where">Simonyi · badge on your phone</span></div></li>
+          <li class="key"><time>2:00</time><div>Opening ceremony, to 4:45. Talks from the sponsors, then the challenge and rules at 3:52 and the drone kit at 4:07<span class="where">Simonyi</span></div></li>
+          <li class="key"><time>4:45</time><div><strong>Hacking begins.</strong> Networking until 5:15<span class="where">Simonyi</span></div></li>
+          <li class="ours"><time>4:45</time><div>Ask the day-one questions. Fork the starter. Start the planner and follower</div></li>
+          <li><time>5:15</time><div>Walk to Tresidder together</div></li>
+          <li><time>5:35</time><div>Settle in and plan the build, to 6:30<span class="where">Oak Lounge</span></div></li>
+          <li class="key"><time>6:30</time><div><strong>Flight safety briefing and kit pickup</strong>, to 7:00. Everybody attends; one captain signs out the kit<span class="where">Oak Lounge</span></div></li>
+          <li class="ours"><time>7:00</time><div>Kit checks: versions, camera owner, DDS, clock; save the organisers' PX4 parameters. Bench: frames carry test, heading check</div></li>
+          <li><time>8:00</time><div>Dinner, to 10:00</div></li>
+        </ol>
+      </div>
+      <div class="day">
+        <h3>Sat 7 <span>Build day</span></h3>
+        <ol>
+          <li><time>0:00</time><div>Overnight hacking to 8 AM; Graveyard Zone open for sleep. Snack at 2 AM</div></li>
+          <li><time>8:00</time><div>Breakfast</div></li>
+          <li class="key"><time>9:00</time><div><strong>Hacking and practice flights</strong>, to 10 PM. Book the course in 10-minute slots; the second net is open for free flying. Practice runs do not count<span class="where">Oak Lounge</span></div></li>
+          <li class="ours"><time>9:00</time><div>Position-mode hover, then offboard hover, then a 2 m leg. The guard on the bench. Then the route: first corridor, maze, tunnel</div></li>
+          <li><time>11:00</time><div>Snack · 1:30 lunch · 4:00 boba</div></li>
+          <li class="ours"><time>PM</time><div>Chicane through the window, landing. Target: 3 full finishes in a row</div></li>
+          <li class="key"><time>7:30</time><div><strong>Dinner and the Sunday briefing.</strong> How scored runs work; blocks and pitch slot posted</div></li>
+          <li class="key"><time>10:00</time><div><strong>Scored runs open.</strong> Two equal blocks per team, best run counts, 1.5-minute changeover. Warm up in the second net while the team ahead flies</div></li>
+        </ol>
+      </div>
+      <div class="day">
+        <h3>Sun 8 <span>Scored runs, pitches, awards</span></h3>
+        <ol>
+          <li><time>0:00</time><div>Scored blocks continue until 2 AM. Snack at 1 AM</div></li>
+          <li class="key"><time>2:00</time><div><strong>Flight nets closed</strong> until 8 AM. "No flying on no sleep." Coding carries on</div></li>
+          <li><time>8:00</time><div>Breakfast</div></li>
+          <li class="key"><time>8:00</time><div>Hacking and the rest of the scored blocks, to 4 PM, placed around pitch slots. Forfeited time is flown after the last block</div></li>
+          <li class="key"><time>12:30</time><div><strong>Repo link due. Technical pitches</strong> to 3:10: two panels at once, 10-minute slots (5–7 min talk, then questions). Teammates not pitching keep flying</div></li>
+          <li><time>1:30</time><div>Rolling lunch, to 3:00</div></li>
+          <li class="key"><time>4:00</time><div><strong>Hacking ends, scored runs close.</strong> Leaderboard freezes; best run is the course score</div></li>
+          <li><time>4:00</time><div>Kit return, pack up, team photos, to 5:30. Bring bags to Simonyi</div></li>
+          <li class="key"><time>6:00</time><div>Closing ceremony and awards, to 7:30 sharp<span class="where">Simonyi</span></div></li>
+        </ol>
+      </div>
+    </div>
+    <div class="callout route">
+      <b class="title">The schedule moved since the Challenge page</b>
+      <p>The Challenge page said kit pickup at 7:50 PM and kit return 4:30–5:30 (rule 2.2). The newer schedule says 6:30 PM and 4:00–5:30. Trust the newest Slack post on the day.</p>
+    </div>
+  </section>
+
+  <section id="course" data-title="The course">
+    <header><span class="kicker">Measured from the organisers' v3 course files</span><h2>The course</h2></header>
+    <div class="course-figure">
+      <figure>
+<svg class="course" viewBox="0 0 699.6 699.6" role="img" aria-labelledby="course-title course-desc">
+<title id="course-title">The DroneHacks course from above, with our planned route</title>
+<desc id="course-desc">A 6.1 m square net. Walls sliced at 0.8 m, the tunnel against the east net, boulders along the south, the landing pad south-west, and the planned route from the launch mark.</desc>
+<line class="grid" x1="49.8" y1="654.6" x2="49.8" y2="45.0"/>
+<line class="grid" x1="45.0" y1="649.8" x2="654.6" y2="649.8"/>
+<line class="grid" x1="149.8" y1="654.6" x2="149.8" y2="45.0"/>
+<line class="grid" x1="45.0" y1="549.8" x2="654.6" y2="549.8"/>
+<line class="grid" x1="249.8" y1="654.6" x2="249.8" y2="45.0"/>
+<line class="grid" x1="45.0" y1="449.8" x2="654.6" y2="449.8"/>
+<line class="grid" x1="349.8" y1="654.6" x2="349.8" y2="45.0"/>
+<line class="grid" x1="45.0" y1="349.8" x2="654.6" y2="349.8"/>
+<line class="grid" x1="449.8" y1="654.6" x2="449.8" y2="45.0"/>
+<line class="grid" x1="45.0" y1="249.8" x2="654.6" y2="249.8"/>
+<line class="grid" x1="549.8" y1="654.6" x2="549.8" y2="45.0"/>
+<line class="grid" x1="45.0" y1="149.8" x2="654.6" y2="149.8"/>
+<line class="grid" x1="649.8" y1="654.6" x2="649.8" y2="45.0"/>
+<line class="grid" x1="45.0" y1="49.8" x2="654.6" y2="49.8"/>
+<rect class="net" x="45.0" y="45.0" width="609.6" height="609.6"/>
+<rect class="tunnel" x="507.3" y="227.9" width="147.3" height="152.4"/>
+<circle class="pad" cx="145.6" cy="429.0" r="76.2"/>
+<circle class="pad" cx="145.6" cy="429.0" r="50.8"/>
+<circle class="pad" cx="145.6" cy="429.0" r="22.9"/>
+<line class="wall" x1="257.3" y1="309.2" x2="251.9" y2="309.2"/>
+<line class="wall" x1="247.2" y1="309.2" x2="251.9" y2="309.2"/>
+<line class="wall" x1="247.2" y1="309.2" x2="247.2" y2="364.4"/>
+<line class="wall" x1="247.2" y1="412.0" x2="247.2" y2="364.4"/>
+<line class="wall" x1="247.2" y1="412.0" x2="252.6" y2="412.0"/>
+<line class="wall" x1="257.3" y1="412.0" x2="252.6" y2="412.0"/>
+<line class="wall" x1="257.3" y1="412.0" x2="257.3" y2="356.8"/>
+<line class="wall" x1="257.3" y1="309.2" x2="257.3" y2="356.8"/>
+<line class="wall" x1="45.0" y1="299.0" x2="45.0" y2="304.5"/>
+<line class="wall" x1="45.0" y1="309.2" x2="45.0" y2="304.5"/>
+<line class="wall" x1="45.0" y1="309.2" x2="131.6" y2="309.2"/>
+<line class="wall" x1="206.3" y1="309.2" x2="131.6" y2="309.2"/>
+<line class="wall" x1="206.3" y1="309.2" x2="206.3" y2="303.7"/>
+<line class="wall" x1="206.3" y1="299.0" x2="206.3" y2="303.7"/>
+<line class="wall" x1="206.3" y1="299.0" x2="119.7" y2="299.0"/>
+<line class="wall" x1="45.0" y1="299.0" x2="119.7" y2="299.0"/>
+<line class="wall" x1="206.3" y1="299.0" x2="206.3" y2="304.5"/>
+<line class="wall" x1="206.3" y1="309.2" x2="206.3" y2="304.5"/>
+<line class="wall" x1="206.3" y1="309.2" x2="292.9" y2="309.2"/>
+<line class="wall" x1="367.6" y1="309.2" x2="292.9" y2="309.2"/>
+<line class="wall" x1="367.6" y1="309.2" x2="367.6" y2="303.7"/>
+<line class="wall" x1="367.6" y1="299.0" x2="367.6" y2="303.7"/>
+<line class="wall" x1="367.6" y1="299.0" x2="281.0" y2="299.0"/>
+<line class="wall" x1="206.3" y1="299.0" x2="281.0" y2="299.0"/>
+<line class="wall" x1="367.6" y1="299.0" x2="367.6" y2="304.5"/>
+<line class="wall" x1="367.6" y1="309.2" x2="367.6" y2="304.5"/>
+<line class="wall" x1="367.6" y1="309.2" x2="442.6" y2="309.2"/>
+<line class="wall" x1="507.3" y1="309.2" x2="442.6" y2="309.2"/>
+<line class="wall" x1="507.3" y1="309.2" x2="507.3" y2="303.7"/>
+<line class="wall" x1="507.3" y1="299.0" x2="507.3" y2="303.7"/>
+<line class="wall" x1="507.3" y1="299.0" x2="432.3" y2="299.0"/>
+<line class="wall" x1="367.6" y1="299.0" x2="432.3" y2="299.0"/>
+<line class="wall" x1="442.4" y1="460.9" x2="447.5" y2="462.8"/>
+<line class="wall" x1="451.9" y1="464.4" x2="447.5" y2="462.8"/>
+<line class="wall" x1="451.9" y1="464.4" x2="481.5" y2="383.0"/>
+<line class="wall" x1="507.1" y1="312.8" x2="481.5" y2="383.0"/>
+<line class="wall" x1="507.1" y1="312.8" x2="501.9" y2="311.0"/>
+<line class="wall" x1="497.5" y1="309.4" x2="501.9" y2="311.0"/>
+<line class="wall" x1="497.5" y1="309.4" x2="467.9" y2="390.7"/>
+<line class="wall" x1="442.4" y1="460.9" x2="467.9" y2="390.7"/>
+<line class="wall" x1="270.4" y1="651.0" x2="275.5" y2="652.9"/>
+<line class="wall" x1="279.9" y1="654.5" x2="275.5" y2="652.9"/>
+<line class="wall" x1="335.1" y1="503.0" x2="329.9" y2="501.1"/>
+<line class="wall" x1="325.5" y1="499.5" x2="329.9" y2="501.1"/>
+<line class="wall" x1="291.8" y1="621.7" x2="287.7" y2="633.0"/>
+<line class="wall" x1="335.1" y1="503.0" x2="327.2" y2="524.5"/>
+<line class="wall" x1="323.1" y1="535.8" x2="327.2" y2="524.5"/>
+<line class="wall" x1="279.9" y1="654.5" x2="287.7" y2="633.0"/>
+<line class="wall" x1="313.6" y1="532.3" x2="317.7" y2="521.0"/>
+<line class="wall" x1="270.4" y1="651.0" x2="278.2" y2="629.5"/>
+<line class="wall" x1="282.3" y1="618.2" x2="278.2" y2="629.5"/>
+<line class="wall" x1="325.5" y1="499.5" x2="317.7" y2="521.0"/>
+<line class="wall" x1="291.8" y1="621.7" x2="286.7" y2="619.8"/>
+<line class="wall" x1="282.3" y1="618.2" x2="286.7" y2="619.8"/>
+<line class="wall" x1="323.1" y1="535.8" x2="318.7" y2="534.2"/>
+<line class="wall" x1="313.6" y1="532.3" x2="318.7" y2="534.2"/>
+<line class="wall" x1="325.5" y1="499.5" x2="330.7" y2="501.3"/>
+<line class="wall" x1="335.1" y1="502.9" x2="330.7" y2="501.3"/>
+<line class="wall" x1="335.1" y1="502.9" x2="354.0" y2="451.0"/>
+<line class="wall" x1="370.2" y1="406.3" x2="354.0" y2="451.0"/>
+<line class="wall" x1="370.2" y1="406.3" x2="365.1" y2="404.4"/>
+<line class="wall" x1="360.7" y1="402.8" x2="365.1" y2="404.4"/>
+<line class="wall" x1="360.7" y1="402.8" x2="341.8" y2="454.7"/>
+<line class="wall" x1="325.5" y1="499.5" x2="341.8" y2="454.7"/>
+<line class="wall" x1="151.7" y1="299.0" x2="157.1" y2="299.0"/>
+<line class="wall" x1="161.8" y1="299.0" x2="157.1" y2="299.0"/>
+<line class="wall" x1="161.8" y1="299.0" x2="161.8" y2="212.4"/>
+<line class="wall" x1="161.8" y1="137.7" x2="161.8" y2="212.4"/>
+<line class="wall" x1="161.8" y1="137.7" x2="156.4" y2="137.7"/>
+<line class="wall" x1="151.7" y1="137.7" x2="156.4" y2="137.7"/>
+<line class="wall" x1="151.7" y1="137.7" x2="151.7" y2="224.3"/>
+<line class="wall" x1="151.7" y1="299.0" x2="151.7" y2="224.3"/>
+<line class="wall" x1="273.6" y1="45.0" x2="268.2" y2="45.0"/>
+<line class="wall" x1="263.4" y1="45.0" x2="268.2" y2="45.0"/>
+<line class="wall" x1="263.4" y1="45.0" x2="263.4" y2="131.6"/>
+<line class="wall" x1="263.4" y1="206.3" x2="263.4" y2="131.6"/>
+<line class="wall" x1="263.4" y1="206.3" x2="268.9" y2="206.3"/>
+<line class="wall" x1="273.6" y1="206.3" x2="268.9" y2="206.3"/>
+<line class="wall" x1="273.6" y1="206.3" x2="273.6" y2="119.7"/>
+<line class="wall" x1="273.6" y1="45.0" x2="273.6" y2="119.7"/>
+<line class="wall" x1="375.2" y1="299.0" x2="380.7" y2="299.0"/>
+<line class="wall" x1="385.4" y1="299.0" x2="380.7" y2="299.0"/>
+<line class="wall" x1="385.4" y1="299.0" x2="385.4" y2="212.4"/>
+<line class="wall" x1="385.4" y1="137.7" x2="385.4" y2="212.4"/>
+<line class="wall" x1="385.4" y1="137.7" x2="379.9" y2="137.7"/>
+<line class="wall" x1="375.2" y1="137.7" x2="379.9" y2="137.7"/>
+<line class="wall" x1="375.2" y1="137.7" x2="375.2" y2="224.3"/>
+<line class="wall" x1="375.2" y1="299.0" x2="375.2" y2="224.3"/>
+<line class="wall" x1="653.7" y1="380.3" x2="653.7" y2="254.2"/>
+<line class="wall" x1="508.2" y1="380.3" x2="508.2" y2="340.8"/>
+<line class="wall" x1="508.2" y1="227.9" x2="508.2" y2="340.8"/>
+<line class="wall" x1="653.7" y1="227.9" x2="653.7" y2="254.2"/>
+<line class="wall" x1="653.7" y1="227.9" x2="653.5" y2="227.9"/>
+<line class="wall" x1="653.1" y1="227.9" x2="653.5" y2="227.9"/>
+<line class="wall" x1="508.8" y1="227.9" x2="508.4" y2="227.9"/>
+<line class="wall" x1="508.2" y1="227.9" x2="508.4" y2="227.9"/>
+<line class="wall" x1="508.2" y1="380.3" x2="508.4" y2="380.3"/>
+<line class="wall" x1="653.1" y1="380.3" x2="653.5" y2="380.3"/>
+<line class="wall" x1="508.8" y1="380.3" x2="508.4" y2="380.3"/>
+<line class="wall" x1="653.7" y1="380.3" x2="653.5" y2="380.3"/>
+<line class="wall" x1="508.8" y1="380.3" x2="508.8" y2="295.7"/>
+<line class="wall" x1="653.1" y1="380.3" x2="653.1" y2="276.1"/>
+<line class="wall" x1="653.1" y1="227.9" x2="653.1" y2="276.1"/>
+<line class="wall" x1="508.8" y1="227.9" x2="508.8" y2="295.7"/>
+<circle class="boulder" cx="551.0" cy="596.7" r="22.9"/>
+<circle class="boulder" cx="602.8" cy="505.2" r="22.9"/>
+<circle class="boulder" cx="429.0" cy="584.5" r="22.9"/>
+<circle class="boulder" cx="93.8" cy="599.7" r="22.9"/>
+<circle class="boulder" cx="215.7" cy="587.5" r="22.9"/>
+<polyline class="route" points="98.3,258.4 112.5,112.1 137.5,92.1 182.5,92.1 212.5,127.1 217.5,222.1 247.5,252.1 292.5,252.1 307.5,237.1 322.5,202.1 327.5,122.1 357.5,92.1 407.5,92.1 582.5,227.1 577.5,422.1 497.5,537.1 412.5,537.1 342.5,582.1 282.5,572.1 147.5,427.1"/>
+<circle class="waypoint" cx="112.5" cy="112.1" r="3.5"/>
+<circle class="waypoint" cx="137.5" cy="92.1" r="3.5"/>
+<circle class="waypoint" cx="182.5" cy="92.1" r="3.5"/>
+<circle class="waypoint" cx="212.5" cy="127.1" r="3.5"/>
+<circle class="waypoint" cx="217.5" cy="222.1" r="3.5"/>
+<circle class="waypoint" cx="247.5" cy="252.1" r="3.5"/>
+<circle class="waypoint" cx="292.5" cy="252.1" r="3.5"/>
+<circle class="waypoint" cx="307.5" cy="237.1" r="3.5"/>
+<circle class="waypoint" cx="322.5" cy="202.1" r="3.5"/>
+<circle class="waypoint" cx="327.5" cy="122.1" r="3.5"/>
+<circle class="waypoint" cx="357.5" cy="92.1" r="3.5"/>
+<circle class="waypoint" cx="407.5" cy="92.1" r="3.5"/>
+<circle class="waypoint" cx="582.5" cy="227.1" r="3.5"/>
+<circle class="waypoint" cx="577.5" cy="422.1" r="3.5"/>
+<circle class="waypoint" cx="497.5" cy="537.1" r="3.5"/>
+<circle class="waypoint" cx="412.5" cy="537.1" r="3.5"/>
+<circle class="waypoint" cx="342.5" cy="582.1" r="3.5"/>
+<circle class="waypoint" cx="282.5" cy="572.1" r="3.5"/>
+<circle class="launch" cx="98.3" cy="258.4" r="9"/>
+<path class="launch-arrow" d="M98.3,232.39999999999998 l-7,12 h14 z"/>
+<rect class="window" x="295.7" y="570.0" width="14" height="14" transform="rotate(45 302.7 577.0)"/>
+<text class="unit" x="274.3" y="360.6">A1</text>
+<text class="unit" x="125.6" y="286.1">Barrier</text>
+<text class="unit" x="496.7" y="386.9">C1</text>
+<text class="unit" x="322.7" y="565.0">C2a</text>
+<text class="unit" x="369.9" y="452.9">C2b</text>
+<text class="unit" x="176.8" y="218.4">M1</text>
+<text class="unit" x="288.5" y="100.6">M2</text>
+<text class="unit" x="400.3" y="218.4">M3</text>
+<text class="callout" x="116.3" y="270.4" text-anchor="start">Launch</text>
+<text class="callout" x="512.3" y="215.9" text-anchor="start">Tunnel (dark)</text>
+<text class="callout" x="302.7" y="607.0" text-anchor="middle">Window +5</text>
+<text class="callout" x="145.6" y="527.0" text-anchor="middle">Landing pad</text>
+<text class="axis" x="662.6" y="49.0">N ↑</text>
+<text class="axis" x="45.0" y="682.6">1 m grid · net 6.1 m square</text>
+</svg>
+        <figcaption>Walls cut at 0.8 m, the flight height. The blue line is our planner's route on the published layout: 19 legs from the launch mark, through the maze, the tunnel, the window and onto the pad. Coordinates in metres, origin at the floor centre, x east, y north.</figcaption>
+      </figure>
+      <div style="display:grid; gap:0.75rem;">
+        <ol class="checkpoints" aria-label="Checkpoints">
+          <li><span class="n">1</span><div>First corridor<small>Take off, reach the end of the first corridor where the floor line turns east</small></div><span class="pts">4</span></li>
+          <li><span class="n">2</span><div>Maze<small>Leave the maze where the line ends, through Gate A</small></div><span class="pts">7</span></li>
+          <li><span class="n">3</span><div>Tunnel<small>Come out of the south end of the dark tunnel, the only way through the barrier</small></div><span class="pts">10</span></li>
+          <li><span class="n">4</span><div>Chicane<small>Enter the landing area through Gate B or the window, without landing</small></div><span class="pts">7</span></li>
+          <li><span class="n">5</span><div>Landing<small>Land and disarm with the whole drone inside the pad's outer ring</small></div><span class="pts">7</span></li>
+        </ol>
+        <p style="font-size: var(--step--1); color: var(--muted);">A checkpoint counts when the <strong>whole drone</strong> crosses its line, in order. The tunnel is the most valuable single checkpoint.</p>
+      </div>
+    </div>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Piece</th><th>Size and place</th><th>Why it matters</th></tr></thead>
+      <tbody>
+        <tr><td>Net</td><td class="mono">6.096 × 6.096 m (20 ft), 3.048 m tall</td><td>The see-through net is not a wall: the camera sees the room behind it</td></tr>
+        <tr><td>Walls</td><td class="mono">1.727 m (68 in) tall, 0.102 m thick</td><td>Some part of the frame must stay below 68 in (rule 7.7), or the checkpoint earns 15%</td></tr>
+        <tr><td>Corridors</td><td class="mono">1.02–1.07 m; bottom passage 0.93 m</td><td>The drone is 0.37 × 0.48 m, props reach 0.28 m from centre. In 0.93 m that leaves <strong>±0.18 m</strong> for all error</td></tr>
+        <tr><td>Tunnel</td><td class="mono">oval, 58 × 72 × 60 in, against the east net</td><td>"Dark inside". About 1.5 m long. From its middle the exit fills most of the camera's view</td></tr>
+        <tr><td>Window</td><td class="mono">0.914 m square, 0.305–1.219 m up, in wall C2a</td><td>+5 points on a finished run, and 1.1 m shorter than Gate B. Fly at 0.8 m above the floor</td></tr>
+        <tr><td>Gate B</td><td class="mono">1.13 m gap, C2b to A1</td><td>The alternative to the window; about 10 cm of room for error on our route</td></tr>
+        <tr><td>Boulders</td><td class="mono">five, 0.457 m across, 0.533 m tall</td><td>The downward rangefinder reads them as a floor step; the planner keeps its footprint off them</td></tr>
+        <tr><td>Landing pad</td><td class="mono">1.524 m (5 ft) across, centre (−2.042, −0.792)</td><td>Whole drone inside the outer ring, then disarm</td></tr>
+        <tr><td>Launch mark</td><td class="mono">(−2.515, 0.914), facing north</td><td>The origin of every frame. Place the drone facing up the first corridor</td></tr>
+      </tbody>
+    </table></div>
+    <div class="callout">
+      <b class="title">The layout "may change slightly before judging"</b>
+      <p>So the drone must still localise and react to what it sees. In simulation, a course laid 10 cm off its file made every run touch, while 5 cm cost about what the baseline costs <span class="tag m">measured</span>. Tape-measure a few wall ends against the file on day one; the window frame first.</p>
+    </div>
+  </section>
+
+  <section id="scoring" data-title="Scoring and awards">
+    <header><span class="kicker">From the Challenge page</span><h2>Scoring and awards</h2></header>
+    <div class="grid-2">
+      <div class="card">
+        <h4>The run, 60 points</h4>
+        <ul class="list">
+          <li><strong>Unfinished:</strong> checkpoint points reached + up to 7 for speed: <code>7 × fastest time to your last checkpoint ÷ yours</code>. Reaching no checkpoint scores 0.</li>
+          <li><strong>Finished:</strong> 35 checkpoint points + <code>20 × fastest finish ÷ yours</code> + 5 through the window.</li>
+          <li><strong>Return bonus:</strong> run points × 1.25 for taking off again, flying over the barrier, and landing within 2 ft of the launch mark, all inside 3 minutes. A miss on the return loses only the bonus.</li>
+          <li><strong>Penalties:</strong> +5 s per touch of a wall, tunnel or boulder. A crash, touching the ground elsewhere, leaving the course or the 3-minute limit ends the run.</li>
+          <li><strong>Over a wall:</strong> that checkpoint earns 15%, and the run can never be the fastest time or win Fastest Run.</li>
+          <li>Times run from leaving the launch mark. Ties go to the faster run.</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h4>The organisers' worked example</h4>
+        <div class="table-wrap"><table>
+          <thead><tr><th>Run, fastest finish 60 s</th><th class="num">Points</th></tr></thead>
+          <tbody>
+            <tr><td>Finish in 90 s through Gate B<span class="sub">35 + 20 × 60/90</span></td><td class="num">48.3</td></tr>
+            <tr><td>The same through the window<span class="sub">+5</span></td><td class="num">53.3</td></tr>
+            <tr><td>Window, then the return<span class="sub">53.3 × 1.25</span></td><td class="num">66.7</td></tr>
+            <tr><td>Reaches the landing area in 50 s (fastest 45 s), crashes landing<span class="sub">28 + 7 × 45/50</span></td><td class="num">34.3</td></tr>
+            <tr><td>Only leaves the maze, 40 s against 30 s<span class="sub">11 + 7 × 30/40</span></td><td class="num">16.3</td></tr>
+          </tbody>
+        </table></div>
+      </div>
+    </div>
+    <div class="grid-2">
+      <div class="card">
+        <h4>The judged 40</h4>
+        <ul class="list">
+          <li><strong>Technical presentation, 25:</strong> autonomy design, technical execution, originality, and evidence of testing and iteration. 5–7 minutes, then questions. Judges also weigh how well any auxiliary sensor was used (rule 4.6).</li>
+          <li><strong>Generality, 15:</strong> "how well your software would work on a different course", scored from your answers and the code review. A map built from the published layout is a valid strategy; hard-coding is allowed but scores lower.</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h4>Five awards, $15,000</h4>
+        <div class="table-wrap"><table>
+          <tbody>
+            <tr><td>Rothberg Catalyzer Award</td><td class="num">$7,000</td><td>highest overall score</td></tr>
+            <tr><td>Runner-up</td><td class="num">$3,000</td><td>second</td></tr>
+            <tr><td>Third place</td><td class="num">$2,000</td><td>third</td></tr>
+            <tr><td>Most Technologically Impressive</td><td class="num">$2,000</td><td>presentation + generality only</td></tr>
+            <tr><td>Fastest Run</td><td class="num">$1,000</td><td>fastest finish below the walls, penalties included</td></tr>
+          </tbody>
+        </table></div>
+      </div>
+    </div>
+    <div class="callout route">
+      <b class="title">What the numbers say</b>
+      <p>Each checkpoint is worth more than any amount of speed before it. A finish through the window with the return is worth about 1.25 × (40 + up to 20). Speed is the last 20 points, and Fastest Run is the smallest prize. The judged 40 is decided by the pitch and the code, so the evidence for every design decision matters as much as the flying.</p>
+    </div>
+  </section>
+
+  <section id="rules" data-title="The rules">
+    <header><span class="kicker">The rulebook, condensed · rule numbers are the organisers'</span><h2>The rules</h2></header>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Rule</th><th>What it says</th><th>For us</th></tr></thead>
+      <tbody>
+        <tr><td class="num">1.3–1.5</td><td>Rules may be amended in Slack. If something isn't covered, <strong>ask an organiser before doing it</strong>. The head judge is final</td><td>Read Slack before each block</td></tr>
+        <tr><td class="num">2.3–2.4</td><td>Fly only the issued drone, with issued props and batteries</td><td></td></tr>
+        <tr><td class="num">3.1–3.3</td><td>The core kit stays: frame, motors, ESCs, props, power, Jetson, Pixhawk, OAK-D S2, VL53L1X. Parts may be re-mounted if the drone passes inspection again</td><td>The camera mount is a measured configuration value, not a constant</td></tr>
+        <tr><td class="num">3.4–3.5</td><td>Only auxiliary sensors may be added; nothing else that draws power. No extra computers</td><td><strong>No light for the tunnel</strong></td></tr>
+        <tr><td class="num">4.1–4.8</td><td>Each added sensor under US$100 market value and under 50 g, declared at inspection, powered from the drone. No GNSS, no off-drone equipment, no laser above Class 1. A sensor earns nothing by itself</td><td>Amended in Slack 2026-11-02: added sensors are discouraged; distance sensors "even more", and limited to two. <strong>We plan none</strong></td></tr>
+        <tr><td class="num">5.1–5.6</td><td>Fully autonomous after <strong>one start command</strong>. After it, only abort (kill or land). Everything runs on the drone. A laptop may watch read-only</td><td>Our nodes start before the run and need no input</td></tr>
+        <tr><td class="num">6.1–6.3</td><td>No GNSS even as a fallback; no external positioning; do not place or mark anything on the course</td><td></td></tr>
+        <tr><td class="num">6.4</td><td><strong>"Maps are allowed; run data is not."</strong> A map from the published layout is fine. Data captured on one run may not feed a later run. Tuning code from what you learned is fine</td><td>A surveyed map of the course as laid is a map. Ask first. No saved SLAM maps between runs</td></tr>
+        <tr><td class="num">7.1–7.3</td><td>Two equal blocks per team, best run counts. A block starts on time. A run in the air at the block's end is scored on its checkpoints. Forfeited time goes to the end</td><td>Be at the net charged, 10 minutes early</td></tr>
+        <tr><td class="num">7.4–7.6</td><td>Placed on the launch mark, armed by the team in front of the referee, started on the signal. Filmed from above; checkpoints in order</td><td></td></tr>
+        <tr><td class="num">7.7–7.11</td><td>Stay below the walls; +5 s a touch; the run ends on a crash, ground touch, leaving the course, 3 minutes, abort or referee stop. Any human input other than abort ends the run</td><td></td></tr>
+        <tr><td class="num">8.1–8.4</td><td>Attend the safety briefing. Fly only inside the closed net. Props off at the table. One teammate always on the kill switch. Inspection before the first flight and after any hardware change</td><td></td></tr>
+        <tr><td class="num">8.5</td><td><strong>Do not change the PX4 safety settings the organisers configured</strong>: failsafes, kill switch, geofence, battery limits</td><td>We set estimator keys only, and save their parameters first</td></tr>
+        <tr><td class="num">9.1</td><td>The stack is built during the event; open-source libraries, pretrained models, public datasets and the organisers' starter project are allowed, credited in the README and the pitch</td><td>Credit every library and the starter project</td></tr>
+        <tr><td class="num">9.2</td><td>AI coding tools are allowed and encouraged, but <strong>every team must be able to show how its software works</strong></td><td>Know every line we fly</td></tr>
+        <tr><td class="num">9.3–9.4</td><td>Repo link by 12:30 PM Sunday; everything flown pushed by 4 PM Sunday; a README on how it works and how to run it</td><td></td></tr>
+        <tr><td class="num">9.5</td><td>An AI code review screens every repo for layout-specific hard-coding: fixed waypoints, routes, timings. Its flags go to the judges for the generality score</td><td>Route planned from the map; tunnel and window goals come from the map, not coordinates</td></tr>
+        <tr><td class="num">10.1–10.6</td><td>Help each other; no copying code. No interfering with another team's drone or radio. Misstating a sensor or flying unpushed code is cheating</td><td></td></tr>
+      </tbody>
+    </table></div>
+    <p class="prose" style="font-size: var(--step--1); color: var(--muted);">The Code of Conduct also says: fly only in approved areas and slots, props off for bench work, never disable or bypass geofences, flight limits or emergency stops, and safety staff decisions are final.</p>
+  </section>
+
+  <section id="kit" data-title="The kit">
+    <header><span class="kicker">From the Drone page and the organisers' public repository</span><h2>The kit</h2></header>
+    <div class="grid-2">
+      <div class="card">
+        <h4>Hardware: the "Sky Beta"</h4>
+        <div class="table-wrap"><table><tbody>
+          <tr><td>Airframe</td><td>Carbon frame, 4 × DYS X2807 1500 KV, 7-inch props, 4S 5000 mAh. About 1.25 kg. Props reach 0.28 m from the centre</td></tr>
+          <tr><td>Companion</td><td>Jetson Orin Nano 8 GB (1024-core Ampere GPU, 6-core CPU)</td></tr>
+          <tr><td>Flight controller</td><td>Pixhawk 6C, PX4 <span class="mono">v1.16.1</span>, "pre-flashed and tuned for the airframe"</td></tr>
+          <tr><td>Camera</td><td>OAK-D S2: two 1 MP global-shutter mono cameras, 75 mm baseline, colour camera, IMU. Forward and level, about 0.11 m ahead of the centre</td></tr>
+          <tr><td>Rangefinder</td><td>Holybro VL53L1X, downward, up to 4 m, 27° field of view</td></tr>
+        </tbody></table></div>
+      </div>
+      <div class="card">
+        <h4>Software that ships on it</h4>
+        <div class="table-wrap"><table><tbody>
+          <tr><td>OS and ROS</td><td>JetPack 6 (expected), ROS 2 Humble, <code>px4_msgs</code> for v1.16, a uXRCE-DDS agent</td></tr>
+          <tr><td>Camera</td><td><code>depthai-ros</code>: 1024×640 raw stereo at 30 fps, IMU at 200 Hz</td></tr>
+          <tr><td>Odometry</td><td>Isaac ROS <code>visual_slam</code> (cuVSLAM), stereo-only</td></tr>
+          <tr><td>Vision to PX4</td><td><code>px4_odom_bridge.py</code>: ENU odometry in, FRD <code>VehicleOdometry</code> out, quality 0</td></tr>
+          <tr><td>Flight</td><td><code>skybeta_flight_interface</code>: ENU pose or twist setpoints, clamped to 1.5 m/s and 0.3–3 m. It never arms or changes mode. Their guide: "Do not publish to <code>/fmu/in/*</code> yourself"</td></tr>
+        </tbody></table></div>
+        <p style="font-size: var(--step--1); color: var(--muted);">From <code>github.com/Artash-N/skybeta</code>, very likely the starter project <span class="tag i">inferred</span>. Re-read whatever is handed out.</p>
+      </div>
+    </div>
+    <h3>How PX4 is set, and what the drone does when things go wrong</h3>
+    <p class="prose">From the organisers' parameter dump of drone SN0001. These are their safety settings: we work within them.</p>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Situation</th><th>Setting</th><th>What the drone does</th></tr></thead>
+      <tbody>
+        <tr><td>Our setpoints stop</td><td class="mono">COM_OF_LOSS_T 1 s</td><td>After 1 s, Position mode: holds where it is, on vision</td></tr>
+        <tr><td>Vision lost as well</td><td class="mono">COM_POSCTL_NAVL 0</td><td>Falls to Altitude: holds height, drifts sideways. The pilot flies it out</td></tr>
+        <tr><td>Transmitter link lost</td><td class="mono">NAV_RCL_ACT 6</td><td><strong>Disarms: the motors stop and it falls</strong>, even in Offboard. Keep the transmitter bound and in range</td></tr>
+        <tr><td>Sticks moved in Offboard</td><td class="mono">COM_RC_OVERRIDE 1</td><td>Nothing. Taking over means flipping the mode switch to Position</td></tr>
+        <tr><td>A failsafe triggers</td><td class="mono">COM_FAIL_ACT_T 5 s</td><td>Holds 5 s before acting: a window for the pilot</td></tr>
+        <tr><td>PX4's Takeoff mode</td><td class="mono">MIS_TAKEOFF_ALT 2.5 m</td><td>Climbs to 2.5 m, over the walls. Our start must command its own height</td></tr>
+        <tr><td>Kill switch</td><td class="mono">COM_KILL_DISARM 5 s</td><td>Motors stop at once; reversible within 5 s</td></tr>
+        <tr><td>Speed</td><td class="mono">MPC_XY_VEL_MAX 1.0</td><td>1 m/s horizontal cap. In simulation it cost no time: corners and braking set the time <span class="tag m">measured</span></td></tr>
+        <tr><td>Estimator</td><td class="mono">EKF2_EV_CTRL 9, EKF2_HGT_REF 2</td><td>Vision gives horizontal position and yaw; the rangefinder gives height</td></tr>
+      </tbody>
+    </table></div>
+  </section>
+
+  <section id="architecture" data-title="Our architecture">
+    <header><span class="kicker">Orange boxes are our code · everything else is the kit's or a library</span><h2>Our architecture</h2></header>
+    <div class="lanes">
+      <div class="lane"><b>Where am I · runs every camera frame</b>
+        <div class="flow">
+          <div class="box">OAK-D S2<small>stereo 30 fps + IMU</small></div><span class="arrow">→</span>
+          <div class="box">depthai-ros<small>driver</small></div><span class="arrow">→</span>
+          <div class="box">cuVSLAM<small>Isaac ROS, stereo-only</small></div><span class="arrow">→</span>
+          <div class="box ours">Guard<small>withhold blank or wild poses, re-anchor, sane variances</small></div><span class="arrow">→</span>
+          <div class="box">Their bridge<small>ENU → FRD</small></div><span class="arrow">→</span>
+          <div class="box fc">PX4 EKF2<small>fuses with the Pixhawk's IMU</small></div>
+        </div>
+      </div>
+      <div class="lane"><b>Stay on the walls · a stretch goal</b>
+        <div class="flow">
+          <div class="box">Stereo depth<small>on the OAK</small></div><span class="arrow">→</span>
+          <div class="box ours">Map correction<small>match depth to the course walls</small></div><span class="arrow">→</span>
+          <div class="box">corrects the pose sent to PX4</div>
+        </div>
+      </div>
+      <div class="lane"><b>Height</b>
+        <div class="flow">
+          <div class="box">VL53L1X<small>downward</small></div><span class="arrow">→</span>
+          <div class="box fc">PX4 EKF2<small>height reference</small></div>
+        </div>
+      </div>
+      <div class="lane"><b>Where to go</b>
+        <div class="flow">
+          <div class="box">Course map<small>published layout, surveyed</small></div><span class="arrow">→</span>
+          <div class="box ours">Planner<small>A* with Nav2's cost</small></div><span class="arrow">→</span>
+          <div class="box ours">Follower<small>smooth path, led poses at 50 Hz</small></div><span class="arrow">→</span>
+          <div class="box">Flight interface<small>two-line fork</small></div><span class="arrow">→</span>
+          <div class="box fc">PX4 Offboard</div>
+        </div>
+      </div>
+    </div>
+    <div class="grid-2">
+      <div class="card"><h4>Guard</h4><p>cuVSLAM answers <strong>confidently on a blank view</strong>: on a grey panel it reports hundreds of features and a still camera, so PX4 thinks the drone stopped and keeps accelerating. The guard withholds a frame when the image has under 1% texture, when tracking failed, when it implies over 10 m/s or 720°/s, or when its rotation disagrees with the gyro. When vision returns, it continues from PX4's own estimate so there is no jump. It writes fixed, honest variances, because cuVSLAM's covariance is not an uncertainty.</p></div>
+      <div class="card"><h4>Planner</h4><p>Slice the course model at 0.8 m into wall segments, add the net and the boulders (widened by the rangefinder's footprint), and run A* on a 5 cm grid with Nav2's inflation cost: impassable within 0.32 m of a wall, then an exponential penalty. Goals in order: the tunnel's middle, the window, the pad. Then shortcut stretches where a straight line is no riskier. About 17 m from the launch mark to the pad.</p></div>
+      <div class="card"><h4>Follower</h4><p>Slide a setpoint along the route with an arc at each corner, a speed profile from PX4's own acceleration and jerk limits, and the nose pointed 0.8 m ahead so the camera never faces a corridor's end wall. Through a pose-only interface, <strong>lead the pose</strong> by the velocity and acceleration PX4 would otherwise lag: pose + v/0.95 + a/(0.95 × 1.8), at 50 Hz.</p></div>
+      <div class="card"><h4>Map correction</h4><p>Cut a band of stereo depth at flight height into a 2D scan, match it to the course walls (an iterated Kalman filter with ICP), and correct the pose by centimetres. It also estimates each wall unit's offset, like AlphaPilot estimating gate placement, and the planner re-plans on the result. Only safe on a course laid as published: check with a tape first.</p></div>
+    </div>
+    <h3>Frames, before anything flies</h3>
+    <div class="prose">
+      <p>A 90° mistake flies into a wall. Get these right on the bench, props off.</p>
+      <ul>
+        <li><strong>PX4</strong> is NED / FRD (x forward, y right, z down). <strong>ROS</strong> is ENU / FLU (x forward, y left, z up). PX4 timestamps are microseconds.</li>
+        <li>The tracker's frame starts at the body resting on the launch mark, facing north up the first corridor.</li>
+        <li><strong>Course point (east, north) to setpoint:</strong> subtract the launch mark (−2.515, 0.914); rotate by −90° so north becomes forward; height = 0.8 m above the floor minus the body's resting height (tape-measured).</li>
+        <li><strong>Carry test:</strong> carry the drone 1 m forward and check which axis of <code>/fmu/out/vehicle_local_position</code> grows. Then the same for setpoints, props off.</li>
+      </ul>
+    </div>
+    <div class="callout">
+      <b class="title">ROS 2 traps on this stack</b>
+      <ul class="list">
+        <li><strong>QoS:</strong> PX4's <code>/fmu/out/*</code> topics are best-effort. A default subscriber silently receives nothing.</li>
+        <li><strong>DDS domain:</strong> <code>ROS_DOMAIN_ID</code> must match PX4's <code>UXRCE_DDS_DOM_ID</code> (their file sets 1).</li>
+        <li><strong>Message versions:</strong> <code>px4_msgs</code> must match the firmware; on 1.16 some topics carry <code>_v1</code>. Use the kit's, never our own.</li>
+        <li><strong>Big images:</strong> Fast DDS's default 512 KB shared-memory segment drops 1 MB best-effort images <span class="tag m">measured</span>.</li>
+      </ul>
+    </div>
+  </section>
+
+  <section id="build" data-title="Build plan">
+    <header><span class="kicker">The playbook's order, each step with its reason</span><h2>Build plan</h2></header>
+    <p class="prose">Rule one: the easiest implementation wins. Use the starter and public libraries as they are; write our own code only where simulation measured a failure the library path leaves open.</p>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Step</th><th>Time</th><th>What</th><th>Why, from simulation</th></tr></thead>
+      <tbody>
+        <tr><td>0. Interface fix</td><td class="num">15 min</td><td>In the flight interface's <code>tick</code>, keep the Offboard heartbeat but publish setpoints only once Offboard is active</td><td>Their interface resends a hold setpoint from start-up and fights PX4's own modes: take-off yawed by up to 100° <span class="tag m">measured</span></td></tr>
+        <tr><td>1. Estimator</td><td class="num">10 min</td><td>Save their parameters. Set only <code>EKF2_EVA_NOISE 0.01</code>. Keep <code>EKF2_EV_QMIN 0</code>. Check <code>EKF2_EV_DELAY</code> in a log</td><td>PX4 1.16 uses that noise unsquared, weighting vision yaw 5× weaker than 1.18. Their bridge sends quality 0, so a higher QMIN refuses every sample</td></tr>
+        <tr><td>2. Settle and gate</td><td class="num">30 min</td><td>30 s still on the mark with the tracker running before arming. Start the route only when PX4's heading agrees with vision's within 2°</td><td>1.16.1 started with a wrong yaw gyro bias; early take-offs flew a turned route. With the fix it flew as 1.18 does, 2.8–5.6 cm <span class="tag m">measured</span></td></tr>
+        <tr><td>3. Planner</td><td class="num">1–2 h</td><td>A* on the sliced course map with Nav2's inflation cost and shortcutting</td><td>As clear as the hand route and 1.5 s faster; re-planned 20 of 20 layouts with boulders moved, where the hand route failed 14 <span class="tag m">measured</span></td></tr>
+        <tr><td>4. Follower</td><td class="num">2–3 h</td><td>Arcs, PX4-limit speed profile, look-ahead heading, led poses at 50 Hz</td><td>Plain poses cost about 17 s of the run. A twist instead touched 4 of 6 <span class="tag m">measured</span></td></tr>
+        <tr><td>5. Guard</td><td class="num">3–4 h</td><td>Between cuVSLAM and their bridge: withhold, re-anchor from PX4, fixed variances</td><td>Tunnel blinded on their bridge: without it every run hit a wall; with it 5 of 6 cleared <span class="tag m">measured</span></td></tr>
+        <tr><td>6. Map correction</td><td class="num">3–5 h</td><td>Stretch goal, and only on a course laid as published</td><td>Nearest pass to a wall 24 → 32 cm. On a misplaced course a pose-only correction drags the drone into walls <span class="tag m">measured</span></td></tr>
+        <tr><td>7. Return</td><td class="num">1 h</td><td>Land, disarm, take off, climb to 2.2 m over the barrier, land by the mark</td><td>5 of 5 landed 19–23 cm from the mark (0.61 m allowed) <span class="tag m">measured</span>. Needs our code to re-arm: ask</td></tr>
+      </tbody>
+    </table></div>
+    <h3>Questions for an organiser on day one</h3>
+    <ol class="steps">
+      <li><div><strong>Who publishes vision to PX4:</strong> their bridge fed by our guard, or our own bridge?</div></li>
+      <li><div><strong>May we fork the flight interface</strong> (the two-line fix) and raise its <code>setpoint_rate_hz</code> to 50? Or use the starter's advanced track, which takes velocity and acceleration directly?</div></li>
+      <li><div><strong>Who arms and takes off</strong> for a scored run, and can our code re-arm for the return?</div></li>
+      <li><div><strong>Can the camera's stereo depth run beside cuVSLAM</strong> in their <code>depthai-ros</code> launch?</div></li>
+      <li><div><strong>What speed limit is set?</strong> At 1.0 m/s it costs us nothing.</div></li>
+      <li><div><strong>Firmware:</strong> is it v1.16.1 (<code>ver all</code>)?</div></li>
+      <li><div><strong>May we tape-measure the course as laid</strong> and plan on that map (rule 6.4)?</div></li>
+      <li><div><strong>The tunnel:</strong> roughly how dark inside, and what is its floor? It sets the exposure cap and the guard's threshold.</div></li>
+    </ol>
+    <h3>Kit checks, in the order they unblock flight</h3>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Check</th><th>Command or method</th><th>Good result</th></tr></thead>
+      <tbody>
+        <tr><td>PX4 version</td><td class="mono">ver all (MAVLink console)</td><td>v1.16.1</td></tr>
+        <tr><td>Who holds the camera</td><td class="mono">ros2 node list; ros2 topic list | grep -i oak</td><td>Their <code>depthai-ros</code>; one process owns the OAK</td></tr>
+        <tr><td>Save their parameters</td><td>QGroundControl › Parameters › Tools › Save to file</td><td>A <code>.params</code> file, before any change</td></tr>
+        <tr><td>Vision reaches EKF2</td><td class="mono">listener estimator_status_flags</td><td><code>cs_ev_pos</code> and <code>cs_ev_yaw</code> true</td></tr>
+        <tr><td>Clock</td><td class="mono">timedatectl; ros2 topic echo /fmu/out/timesync_status</td><td>Synchronised; round trip under 10 ms</td></tr>
+        <tr><td>Heading settled</td><td class="mono">listener estimator_sensor_bias</td><td><code>gyro_bias[2]</code> under 0.001 rad/s and steady</td></tr>
+        <tr><td>Height at rest</td><td class="mono">listener vehicle_local_position</td><td>z within 0.15 m of 0 on the mark</td></tr>
+        <tr><td>A covered lens</td><td>Cover the lens for 3 s while carrying</td><td>Withheld poses, then continuing without a jump</td></tr>
+        <tr><td>Flow does not stall PX4</td><td class="mono">work_queue status</td><td>Everything on <code>wq:nav_and_controllers</code> above 0 Hz</td></tr>
+        <tr><td><code>EKF2_EV_DELAY</code></td><td>First hover's log: vision innovations at 0 against their 70</td><td>The smaller innovations win; expect 0</td></tr>
+      </tbody>
+    </table></div>
+  </section>
+
+  <section id="lessons" data-title="Lessons learned">
+    <header><span class="kicker">From our simulator, on the published course · a stand-in x500 drone, not the Sky Beta</span><h2>Lessons learned</h2></header>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Finding</th><th>Evidence</th><th>What we do about it</th></tr></thead>
+      <tbody>
+        <tr><td><strong>cuVSLAM is confidently wrong on a blank view</strong> and never reports the loss</td><td>Camera blinded through a moving leg: the drone crashed. Withholding blank frames alone: a 2.2 m jump on return, 149 cm rms. Withholding plus re-anchoring: 24.5 cm</td><td>The guard, and continuing from PX4's estimate</td></tr>
+        <tr><td><strong>Stereo-only beats cuVSLAM's inertial mode in flight</strong></td><td>Inertial mode's in-flight IMU initialisation blocks tracking: one break per run, against 5 of 5 clean in stereo</td><td>Stereo-only; PX4's EKF2 does the inertial fusion</td></tr>
+        <tr><td><strong>Latency is the kit's biggest cost</strong>; image noise and blur cost nothing</td><td>+50 ms roughly doubled the error, clear rate about 3 in 5. 4 DN noise and 0.8 px blur: no touch</td><td>Cut latency first: smaller images, fewer copies, a bigger DDS segment</td></tr>
+        <tr><td><strong>Their <code>EKF2_EV_DELAY</code> 70 ms counts latency twice</strong></td><td>Their bridge already stamps at capture. With 50 ms latency, 70 touched 4 of 5</td><td>Keep 0; confirm from the first hover's log</td></tr>
+        <tr><td><strong>A course laid 10 cm off its file breaks every run</strong></td><td>5 of 5 touched at 10 cm; at up to 5 cm about the baseline rate</td><td>Survey to 5 cm and plan on the survey</td></tr>
+        <tr><td><strong>Top speed doesn't set the time; corners do</strong></td><td>1.0, 1.5 and 2.0 m/s all took 27–31 s launch to pad; 1.0 was cleanest (0 of 5 touched)</td><td>Fly at the kit's 1.0 m/s cap</td></tr>
+        <tr><td><strong>Facing a wall up close starves the tracker</strong></td><td>On the ground at a maze corner facing the end wall at 0.3 m: 390 of 543 frames withheld</td><td>Turn the camera into the next corridor before the corner</td></tr>
+        <tr><td><strong>The first maze corner is the weak spot</strong></td><td>Most touches in every configuration came there, from overshoot on 1.16's attitude tune, not from localisation</td><td>Slowest speed there on day one; the tune is theirs, not ours</td></tr>
+        <tr><td>A cross-track push in the follower <strong>made it worse</strong></td><td>20 layouts each with 50 ms latency: 1 touch without, 4 with</td><td>Rejected; flag kept off</td></tr>
+        <tr><td>A <strong>live map</strong> never beat the course file; <strong>AMCL</strong> was worse than PX4's own estimate</td><td>Live map alone crashed (the forward camera misses side walls). AMCL 7.9–56.3 cm rms against PX4's 2.2–19.3</td><td>Plan on the file; correct it with our own wall matcher</td></tr>
+        <tr><td>A 2D lidar localised <strong>as well as stereo, no better</strong></td><td>Ideal lidar 3.1–6.1 cm vs stereo 3.5–5.7. A spinning head's smear doubled the error until deskewed</td><td>No added sensor unless the real tunnel blinds the camera</td></tr>
+        <tr><td><strong>15 Hz cameras cost the first corner</strong></td><td>13 of 19 clear at 15 Hz against 19 of 20 at 25 Hz; slowing to 0.8 m/s didn't help</td><td>The organisers' simulator runs 15 Hz, so its corner touches overstate the kit's 30 fps</td></tr>
+        <tr><td><strong>Flow sensor fused in simulation stopped PX4's estimator</strong></td><td>The <code>wq:nav_and_controllers</code> thread vanished on 1.16.1 and 1.18</td><td>On a real drone with flow, check <code>work_queue status</code> before flight</td></tr>
+        <tr><td>Their reference mission's <strong>depth stop ends our route at leg 1</strong></td><td>Their code on the laptop: "route blocked: obstacle 0.87 m ahead". Narrowed to 0.3 m across and a 0.35 m stop: all 19 legs</td><td>Our <code>route.json</code> carries the narrowed settings</td></tr>
+      </tbody>
+    </table></div>
+    <div class="callout route">
+      <b class="title">The recommended configuration, over 15 simulated layouts</b>
+      <p>Their bridge and patched interface, led poses at 50 Hz, 1.0 m/s, v1.16.1 with <code>EKF2_EVA_NOISE</code> 0.01, the 30 s settle, the heading gate, the guard and the map correction, with the tunnel blinded: <strong>12 of 14 flown runs cleared the walls</strong>, 2.4–7.6 cm rms, launch to pad in 27–34 s. A confirmation batch with 50 ms of added latency cleared 19 of 20. Every number comes from the stand-in x500, not the Sky Beta. Only the hardware can show the real tunnel's darkness, latency, vibration and walls.</p>
+    </div>
+  </section>
+
+  <section id="tunnel" data-title="The dark tunnel">
+    <header><span class="kicker">The 10-point checkpoint</span><h2>The dark tunnel</h2></header>
+    <div class="grid-2">
+      <div class="card"><h4>Why it may be less blind than it sounds <span class="tag i">inferred</span></h4><p>The tube is about 1.5 m wide, 1.8 m tall and 1.5 m long. From the entrance, the lit exit spans about 52° of the camera's 80° view; from the middle, more than the whole frame. A camera pointed along the axis sees the exit the whole way. The real risk is auto-exposure metering the dark walls and burning out the exit, or the drone turning inside.</p></div>
+      <div class="card"><h4>What we do</h4><ul class="list">
+        <li>No turning inside the tube; fly its axis.</li>
+        <li>Cap auto-exposure around 8–10 ms and meter on the image centre: keeps the exit exposed and blur 4× lower.</li>
+        <li>Stamp frames at mid-exposure (<code>i_add_exposure_offset</code>).</li>
+        <li>If vision drops anyway, the guard withholds and EKF2 coasts on the IMU and rangefinder for the ~1.5 m, then re-anchors at the exit. Our simulator's tunnel shows the lens nothing, and the course still clears <span class="tag m">measured</span>.</li>
+        <li>Rule 3.4: no light may be added. A sensor's own illuminator is a question for an organiser.</li>
+      </ul></div>
+    </div>
+  </section>
+
+  <section id="lab" data-title="FlyX Lab simulator">
+    <header><span class="kicker">The organisers' hosted simulator</span><h2>FlyX Lab simulator</h2></header>
+    <div class="grid-2">
+      <div class="card"><h4>What it is</h4><ul class="list">
+        <li>A browser-only workspace that emulates the Jetson, linked to PX4 SITL, on the course built from the v3 CAD. Team-08 opens it from the portal's Teams page with "Open simulation".</li>
+        <li>ROS 2 <strong>Jazzy</strong> (the kit is Humble), cuVSLAM 17, no OpenCV. Stereo 640×400 at <strong>15 Hz</strong> (the kit runs 30), IMU 480 Hz.</li>
+        <li>Their own tracker and bridge run as services. "Run saved file" records and grades a run; the Diagnostic profile adds stereo and IMU to the recording.</li>
+        <li>$75 of credit at up to $4.95 an hour. Pauses after 15 minutes with no browser activity. Installed packages vanish when the GPU is released.</li>
+      </ul></div>
+      <div class="card"><h4>Where we are</h4><ul class="list">
+        <li>First inventory done: their code, versions, topics and gates are saved.</li>
+        <li>Our route runs on their mission code on the laptop: all 19 legs, even with every wall shifted 15 cm.</li>
+        <li>A map relay sits between their tracker and their bridge and corrects drift against the walls; tested offline, 8 cm of drift brought to about 2 cm.</li>
+        <li>Capture done: the body rests about 0.07 m above the floor, so <code>HEIGHT_M = 0.73</code> flies it at 0.8 m. Their depth is stereo with holes and sees through the net. The companion also holds the simulator's true pose, for scoring our drift offline only.</li>
+        <li>Next session: copy that pose and the toolkit, then fly our route recorded on Diagnostic with the true pose logged beside it.</li>
+      </ul></div>
+    </div>
+  </section>
+
+  <section id="pitch" data-title="Pitch and judges">
+    <header><span class="kicker">25 points for the talk, 15 for generality, all from the judges</span><h2>Pitch and judges</h2></header>
+    <div class="prose">
+      <p>Ten-minute slot: a <strong>5–7 minute</strong> talk, then the judges' questions. Two panels run at once, 12:30–3:10 PM Sunday; rooms and slots are posted Saturday night. Teammates not pitching keep flying. Judges score <strong>autonomy design, technical execution, originality, and evidence of testing and iteration</strong>, and generality from the answers and the code review.</p>
+    </div>
+    <h3>A seven-minute shape</h3>
+    <div class="table-wrap"><table>
+      <thead><tr><th class="num">Time</th><th>Beat</th><th>What to show</th></tr></thead>
+      <tbody>
+        <tr><td class="num">0:00</td><td>The result</td><td>The best run's video from above, checkpoints and time. Lead with what the drone did</td></tr>
+        <tr><td class="num">0:45</td><td>The system</td><td>The four-lane architecture. What is the kit's, what is ours, and why each of ours exists</td></tr>
+        <tr><td class="num">1:45</td><td>Three decisions, each with a number</td><td>(1) the guard: a blind leg crashed, then flew at 24.5 cm; (2) the planned route against the hand route: as clear, 1.5 s faster, 20 of 20 moved layouts; (3) latency and <code>EKF2_EV_DELAY</code>: from logs, not guesswork</td></tr>
+        <tr><td class="num">4:00</td><td>Testing and iteration</td><td>Simulator A/B over many seeds, the organisers' lab, bench checks, then what the real drone changed and the logs that showed it</td></tr>
+        <tr><td class="num">5:15</td><td>Generality</td><td>The route comes from the map. A new course is a new map file; the planner and layout filter do the rest. No hard-coded waypoints</td></tr>
+        <tr><td class="num">6:00</td><td>The map and the credits</td><td>The course map, the layout estimate and the route. Credit every library and the starter project</td></tr>
+        <tr><td class="num">6:40</td><td>Close</td><td>What we would do next with more time</td></tr>
+      </tbody>
+    </table></div>
+    <h3>Questions to expect, with our answers</h3>
+    <details class="qa"><summary>How does the drone know where it is in the dark tunnel?</summary><div class="answer"><p>The camera sees the lit exit for most of the tube if we fly its axis and cap exposure. If vision drops, the guard withholds the frames rather than passing cuVSLAM's confident "standing still", PX4 coasts on its IMU with the rangefinder for height across about 1.5 m, and when vision returns the guard continues from PX4's estimate so there is no jump. In simulation with the tunnel fully blinded, the course still cleared.</p></div></details>
+    <details class="qa"><summary>Is your route hard-coded?</summary><div class="answer"><p>No. A* plans it on a map sliced from the published course model, with Nav2's inflation cost. The goals (tunnel, window, pad) come from the map. With the boulders moved at random it re-planned 20 of 20 layouts clear, where a hand-drawn route failed 14.</p></div></details>
+    <details class="qa"><summary>What would change on a different course?</summary><div class="answer"><p>The map file. The planner, follower, guard and estimator settings are course-agnostic. The layout filter estimates each wall unit's actual placement against the map, and the planner re-plans on what it finds.</p></div></details>
+    <details class="qa"><summary>Why stereo-only cuVSLAM instead of visual-inertial?</summary><div class="answer"><p>In simulation, cuVSLAM's inertial mode initialises its IMU in flight and blocks tracking while it does: one break per run, against 5 of 5 clean in stereo. PX4's EKF2 already fuses the Pixhawk's IMU with vision, which is the inertial fusion we need. NVIDIA also warns that Python inertial odometry on a Jetson may not be reliable.</p></div></details>
+    <details class="qa"><summary>What happens when tracking fails mid-run?</summary><div class="answer"><p>The guard withholds the bad poses; PX4 dead-reckons; vision re-anchors onto PX4's estimate when it returns; after 30 withheld frames the tracker restarts. If setpoints stop, PX4 holds position after 1 s. We do not touch the organisers' failsafes (rule 8.5), and a teammate is always on the kill switch.</p></div></details>
+    <details class="qa"><summary>Why not SLAM with loop closure?</summary><div class="answer"><p>The course never revisits a place, so there is nothing to close a loop on, and a loop closure arrives as a jump that the flight controller dislikes. Rule 6.4 also forbids carrying a map from one run to the next. We use the published map instead, which is allowed.</p></div></details>
+    <details class="qa"><summary>How did you test it?</summary><div class="answer"><p>A PX4 software-in-the-loop simulator of the published course, with cuVSLAM on simulated stereo, run as A/B comparisons over many random layouts per change. Every design decision has a dated table behind it. Then the organisers' lab, the bench checks, and the real drone's logs.</p></div></details>
+    <details class="qa"><summary>Why not fly faster?</summary><div class="answer"><p>The kit is capped at 1.0 m/s, and in simulation 1.0, 1.5 and 2.0 m/s all took the same 27–31 s, because the legs are short and corners set the time. 1.0 was the cleanest. Reliability wins points; speed is the last 20.</p></div></details>
+    <details class="qa"><summary>Did you add sensors? Why not?</summary><div class="answer"><p>We modelled a 2D lidar in simulation: once deskewed it localised as well as stereo, no better. The organisers discourage added sensors because wiring risks the props. So none, unless the real tunnel turns out too dark for the camera.</p></div></details>
+    <details class="qa"><summary>Which parts did you write, and which did you use?</summary><div class="answer"><p>Ours: the guard, the planner, the follower and, if time allows, the map correction. Used and credited: the organisers' starter project, NVIDIA cuVSLAM and Isaac ROS, Luxonis DepthAI and depthai-ros, PX4, ROS 2, Nav2's cost formulas, SciPy, OpenCV, trimesh, Gazebo. AI tools helped write code, as rule 9.2 allows; we can walk through every line.</p></div></details>
+    <div id="people-block">
+    <h3>What the judges will look for</h3>
+    <div class="callout">
+      <b class="title">No judges are named publicly</b>
+      <p>The event site and the sponsors' pages list no judges, and the organiser recruited "speakers, mentors, and judges" without naming them. Two panels sit at once, and the head judge's decisions are final (rule 1.5). The likeliest judges are the sponsors' engineers below and the organisers <span class="tag i">inferred</span>.</p>
+    </div>
+    <ul class="list prose">
+      <li><strong>Lead with evidence.</strong> "Evidence of testing and iteration" is a named criterion. A dated table or a log plot beats an adjective. Say which numbers came from the simulator and which from the real drone.</li>
+      <li><strong>Know every line you fly.</strong> AI tools are allowed, but every team "must be able to show how its software works" (rule 9.2). Judges ask about the AI code review's flags.</li>
+      <li><strong>Have an answer ready for each flag.</strong> The course map is the published layout, which rule 6.4 allows. The tunnel and window goals are read from the map, not typed in.</li>
+      <li><strong>Make generality concrete.</strong> Name exactly what changes on a new course: one map file.</li>
+      <li><strong>Credit everything</strong>, in the README and on a slide.</li>
+      <li><strong>Mention sensors only if you used them well.</strong> An added sensor earns nothing by itself (rule 4.6).</li>
+      <li><strong>Keep to seven minutes.</strong> Rehearse once against a clock on Saturday night, after the slots are posted.</li>
+    </ul>
+
+    <h3>Who's in the room</h3>
+    <p class="prose">From the opening ceremony's run of show and the Sponsors page. For each, what they care about technically, and the part of our work most worth talking about with them.</p>
+
+    <div class="people">
+      <div class="person"><b>Organisers</b><span class="role">StanfordUAV · StanfordSSR</span><p><strong>Artash Nath</strong>, Director (his public <code>skybeta</code> repo is the kit's software). <strong>Anish Bayya</strong>, Associate Director. <strong>Kelvin Nguyen</strong>, Software Lead. <strong>Khush Lalchandani</strong>, Operations. <strong>Julia Jiang</strong>, Hardware Lead. For rules questions also <strong>Guilherme Bonfim</strong>, Challenge Lead, and <strong>Gregory Li</strong>, Autonomy Systems.</p><p>Ask Kelvin or Guilherme the day-one questions. The challenge and the rules are presented at 3:52 PM Friday; the kit at 4:07.</p></div>
+      <div class="person"><b>Wing</b><span class="role">Gold · autonomous last-mile delivery</span><p><strong>Brandon Jones</strong>, Chief Autonomous Systems and Applications Officer (talk at 2:22): end-to-end autonomy, safety-critical flight software, simulation and flight test; ex-Navy X-47B test engineer. Also <strong>George Anderson</strong> and <strong>Michael Bauer</strong> (simulation), <strong>Linhao Jin</strong> (perception), <strong>Jordan Hollinger</strong> (talent).</p><p>Talk about: simulation-driven A/B testing, and the guard as a safety layer against a confident-but-wrong estimator.</p></div>
+      <div class="person"><b>Skydio</b><span class="role">Silver · vision-based autonomy</span><p><strong>Jakub Slama</strong>, Autonomy Engineer. Skydio flies GPS-denied on navigation cameras and visual-inertial odometry. Their talk is at 2:32.</p><p>Talk about: tracking loss on blank views, re-anchoring, and why stereo-only flew better than cuVSLAM's inertial mode here.</p></div>
+      <div class="person"><b>Anduril</b><span class="role">Silver · defence autonomy</span><p><strong>Tom Martens</strong>, Sr. Robotics Software Engineer (talk at 3:32). <strong>Cameron West</strong>, Flight Software. <strong>Aidan Fay</strong>, Mechanical Engineering for small drones. <strong>Querida Xie</strong>, university partnerships.</p><p>Talk about: sensor fusion in EKF2, latency as the measured cost, and testing discipline.</p></div>
+      <div class="person"><b>CX2</b><span class="role">Silver · electronic warfare</span><p><strong>Nicolas Perrault</strong>, Autonomy and Robotics Software (talk at 3:22, "Building next-generation electronic warfare systems"). <strong>Milena Triana</strong>, marketing. <strong>Liam Schmidt</strong>, robotics intern. CX2 builds autonomous drones that work in jammed, GPS-denied conditions.</p><p>Talk about: GPS denial is the whole point; what the drone does when its one sensor degrades.</p></div>
+      <div class="person"><b>Dronecode Foundation</b><span class="role">Silver · home of PX4, MAVLink, Pixhawk</span><p><strong>Ramón Roche</strong>, Executive Director (talk at 3:42); founded DroneKit, a PX4 maintainer. <strong>Mike Pehel</strong>, Content Director. They care about open standards and upstreaming.</p><p>Talk about: our PX4 1.16.1 findings. Vision yaw noise is used unsquared (fixed upstream in PR #27342), the start-up yaw bias, the double-counted <code>EKF2_EV_DELAY</code>, and the flow work-queue stall in SITL.</p></div>
+      <div class="person"><b>Ondas</b><span class="role">Silver · multi-domain autonomous systems</span><p><strong>Patrick Huston</strong>, COO and General Counsel (talk at 2:52, "How to turn your love of drones into a successful business"); a retired Brigadier General. <strong>Chris Gill</strong>, VP Operations.</p><p>Talk about: reliability over speed, and what it takes to field this.</p></div>
+      <div class="person"><b>FlyX</b><span class="role">Bronze · powerline-charging inspection drones</span><p><strong>Farzad Rahbar</strong>, Co-Founder and CEO per the run of show (talk at 3:02). The organisers' hosted simulator is "FlyX Lab".</p><p>Talk about: what their simulator showed us and what we captured from it, such as the 15 Hz stereo and the reference mission's depth stop.</p></div>
+      <div class="person"><b>Luxonis · Holybro</b><span class="role">Bronze · camera; official hardware partner</span><p>Luxonis makes the OAK-D S2; Holybro the Pixhawk 6C and the VL53L1X. No staff are listed.</p><p>Talk about, if they're there: exposure in the dark tunnel, and the driver stamping frames at the end of exposure.</p></div>
+      <div class="person"><b>Speakers and hosts</b><span class="role">Opening ceremony</span><p><strong>Steve Cousins</strong>, Stanford Robotics Center (2:08); formerly CEO of Willow Garage, where ROS was born. <strong>Noah Rothberg</strong>, Rothberg Family Foundation, founding donor; the Grand Prize carries its name (keynote 2:15). <strong>David Liu</strong>, AeroVironment, Senior Director of Engineering (3:12); AeroVironment's Puma VNS is a downward-looking visual-inertial navigation kit.</p></div>
+      <div class="person"><b>Also on the sponsor wall</b><span class="role">Gold and Silver</span><p><strong>Neros</strong> (Gold, American drone manufacturing) is your company; no staff are listed on its card. Be straightforward about it if asked. <strong>Boeing</strong> (Gold) lists no staff. <strong>Perennial Autonomy</strong> (Silver): <strong>Roshan Patel</strong>, talent.</p></div>
+    </div>
+    <p class="prose" style="font-size: var(--step--1); color: var(--muted);">The event's FAQ caps teams at five and recommends a laptop with a GPU for simulation. At least one other team has published its own preparation for the v3 course on GitHub, so expect well-prepared competition.</p>
+
+    </div>
+  </section>
+
+  <section id="numbers" data-title="Numbers to know">
+    <header><span class="kicker">For quick recall</span><h2>Numbers to know</h2></header>
+    <div class="table-wrap"><table>
+      <tbody>
+        <tr><td>Net</td><td class="num">20 × 20 ft · 6.096 m · 10 ft tall</td><td>Walls</td><td class="num">68 in · 1.727 m tall</td></tr>
+        <tr><td>Window opening</td><td class="num">36 in · 0.305–1.219 m up</td><td>Flight height</td><td class="num">0.8 m above floor</td></tr>
+        <tr><td>Narrowest passage</td><td class="num">0.93 m</td><td>Prop reach from centre</td><td class="num">0.28 m</td></tr>
+        <tr><td>Error budget there</td><td class="num">±0.18 m</td><td>Launch mark</td><td class="num">(−2.515, 0.914)</td></tr>
+        <tr><td>Pad centre · size</td><td class="num">(−2.042, −0.792) · 5 ft</td><td>Return landing</td><td class="num">within 2 ft of the mark</td></tr>
+        <tr><td>Checkpoints</td><td class="num">4 · 7 · 10 · 7 · 7</td><td>Run limit · touch</td><td class="num">3 min · +5 s</td></tr>
+        <tr><td>PX4 · ROS</td><td class="num">v1.16.1 · Humble</td><td>Speed cap</td><td class="num">1.0 m/s</td></tr>
+        <tr><td>Kit stereo · IMU</td><td class="num">1024×640 @ 30 · 200 Hz</td><td>Their measured latency</td><td class="num">68.7 ms median</td></tr>
+        <tr><td>Settle before arming</td><td class="num">30 s</td><td>Heading gate</td><td class="num">within 2°</td></tr>
+        <tr><td><code>EKF2_EVA_NOISE</code></td><td class="num">0.01</td><td><code>EKF2_EV_DELAY</code></td><td class="num">0, confirm in a log</td></tr>
+      </tbody>
+    </table></div>
+  </section>
+
+  <section id="glossary" data-title="Glossary">
+    <header><span class="kicker">Terms the judges will use</span><h2>Glossary</h2></header>
+    <div class="table-wrap"><table>
+      <tbody>
+        <tr><td><strong>VO / VIO / SLAM</strong></td><td>Visual odometry adds up camera motion and drifts. VIO adds an IMU for fast motion and short dropouts. SLAM adds a map and loop closure, correcting drift when it recognises a place.</td></tr>
+        <tr><td><strong>cuVSLAM</strong></td><td>NVIDIA's GPU visual odometry and SLAM library; about 2–4 ms a frame on a Jetson.</td></tr>
+        <tr><td><strong>EKF2</strong></td><td>PX4's extended Kalman filter: fuses the IMU with vision, rangefinder and barometer into one estimate.</td></tr>
+        <tr><td><strong>External vision (EV)</strong></td><td>PX4's input for position from outside, here the camera, as <code>VehicleOdometry</code> on <code>/fmu/in/vehicle_visual_odometry</code>.</td></tr>
+        <tr><td><strong>Offboard mode</strong></td><td>PX4 flies setpoints sent by the companion computer; it needs a steady heartbeat of at least 2 Hz.</td></tr>
+        <tr><td><strong>uXRCE-DDS</strong></td><td>How PX4 talks ROS 2: a client in PX4 and an agent on the Jetson make PX4's topics appear as ROS topics.</td></tr>
+        <tr><td><strong>NED / FRD, ENU / FLU</strong></td><td>PX4: north-east-down, forward-right-down. ROS: east-north-up, forward-left-up.</td></tr>
+        <tr><td><strong>SITL</strong></td><td>Software in the loop: the real PX4 code flying a simulated drone.</td></tr>
+        <tr><td><strong>Inflation cost</strong></td><td>Nav2's way of making cells near walls expensive, so A* keeps to the middle of corridors.</td></tr>
+        <tr><td><strong>Re-anchoring</strong></td><td>When vision restarts with a new origin, shifting its poses so they continue from the flight controller's estimate instead of jumping.</td></tr>
+        <tr><td><strong>Deskewing</strong></td><td>Moving each lidar beam back by the drone's motion during the scan's turn.</td></tr>
+        <tr><td><strong>Global shutter</strong></td><td>The whole image is captured at once, so motion doesn't warp it; the OAK-D S2's stereo pair has it.</td></tr>
+      </tbody>
+    </table></div>
+  </section>
+
+  </main>
+</div>
+
+<footer class="colophon">
+  <p>Compiled 2026-11-06 for team-08 from the organisers' Challenge, Drone, Schedule and Sponsors pages, their lab files and public repository, and this team's repository docs (<code>docs/dronehacks-2026.md</code>, <code>docs/hackathon-playbook.md</code>, <code>sim/README.md</code>). Simulator numbers are from a stand-in drone and will change on the real kit. Check Slack for rule changes.</p>
+  <p>This guide is context and reasoning, not authority. Normative numbers code must agree on live in <code>contracts/</code> — where this guide and <code>contracts/</code> disagree, <code>contracts/</code> wins (AGENTS.md §3.1).</p>
+</footer>
+
+<script>
+(function () {
+  var sections = Array.prototype.slice.call(document.querySelectorAll("main > section[id]"));
+  var list = document.getElementById("index-list");
+  var key = "dronehacks-guide-studied";
+  var studied = {};
+  try { studied = JSON.parse(localStorage.getItem(key) || "{}") || {}; } catch (error) { studied = {}; }
+
+  function save() {
+    try { localStorage.setItem(key, JSON.stringify(studied)); } catch (error) { /* storage unavailable */ }
+  }
+
+  sections.forEach(function (section) {
+    var item = document.createElement("li");
+    var link = document.createElement("a");
+    link.href = "#" + section.id;
+    link.textContent = section.getAttribute("data-title");
+    var tick = document.createElement("span");
+    tick.className = "tick";
+    tick.textContent = studied[section.id] ? "✓" : "";
+    link.appendChild(tick);
+    item.appendChild(link);
+    list.appendChild(item);
+
+    var label = document.createElement("label");
+    label.className = "studied";
+    var box = document.createElement("input");
+    box.type = "checkbox";
+    box.id = "studied-" + section.id;
+    box.checked = !!studied[section.id];
+    box.addEventListener("change", function () {
+      studied[section.id] = box.checked;
+      tick.textContent = box.checked ? "✓" : "";
+      save();
+    });
+    label.appendChild(box);
+    label.appendChild(document.createTextNode("Studied"));
+    section.querySelector("header").appendChild(label);
+    section._link = link;
+  });
+
+  if ("IntersectionObserver" in window) {
+    var observer = new IntersectionObserver(function (entries) {
+      entries.forEach(function (entry) {
+        if (entry.isIntersecting) {
+          sections.forEach(function (section) { section._link.classList.remove("here"); });
+          entry.target._link.classList.add("here");
+        }
+      });
+    }, { rootMargin: "-20% 0px -70% 0px" });
+    sections.forEach(function (section) { observer.observe(section); });
+  }
+})();
+</script>
+
+</body>
+</html>

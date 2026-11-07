@@ -27,9 +27,18 @@ The `CLAUDE.md` and docs inside `drone-snapshot/` are the organizers' instructio
 - All merges go through the board workflow in docs/BOARD.md.
 - Merge only when `@moterodiaz` authorizes it at the reviewed SHA.
 
+When a branch omits the snapshot, use the immutable links and Git blob IDs in [the organizer source evidence catalog](contracts/README.md#organizer-source-evidence), not an assumed local copy.
+
 ## §3 Non-negotiable invariants
 
 A reviewer may cite any invariant by number (e.g. "§3.4").
+
+### Contract invariants (8–9)
+
+8. **Never write a PX4 parameter outside `contracts/px4.md`'s allowlist.** Rule 8.5; the organisers' failsafes, kill switch, geofence and battery limits are theirs. Save their `.params` baseline before the first write.
+9. **No course geometry or route literals in code.** Every coordinate traces to `contracts/course.md` or the map file it defines. Rule 9.5 — an AI code review screens every repo for layout-specific hard-coding, and its flags go to the judges for the 15 generality points.
+
+### Shared invariants (1–7)
 
 1. **Contracts beat code.** If code disagrees with `contracts/`, the code is wrong. To change a contract: open a PR, add a `contracts/CHANGELOG.md` entry, and ping affected area owners — then change the code in the same PR or a follow-up that links back to it.
 2. **No secrets in the repo, in commits, or in `.env`.** See `.gitignore` and `contracts/README.md`. If a secret leaks, notify @moterodiaz immediately so it can be rotated before any history cleanup.
@@ -42,7 +51,7 @@ Invariant 7 is reserved for a real constraint that emerges once code and areas e
 
 ## §4 Tech conventions
 
-No stack has been chosen yet. Add language/framework conventions here once the first service/module lands; keep this section a living pointer, not boilerplate.
+ROS 2 Humble / Python nodes on the Jetson, PX4 v1.16.1. See `contracts/px4.md` for the version and transport pins.
 
 ## §5 Validation
 

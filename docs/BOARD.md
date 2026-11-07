@@ -6,9 +6,11 @@ GitHub Issues and PR labels are the agent coordination layer. No chat or relay b
 
 | Area | Branch prefix | Owner |
 |---|---|---|
-| core | `core/*` | @moterodiaz |
-| docs | `docs/*` | @moterodiaz |
+| localization | `localization/*` | @moterodiaz |
+| navigation | `navigation/*` | @moterodiaz |
+| course | `course/*` | @moterodiaz |
 | infra | `infra/*` | @moterodiaz |
+| docs | `docs/*` | @moterodiaz |
 | contracts | `contracts/*` | @moterodiaz |
 
 Real areas and per-area owners replace these generic rows as code lands — add a row, don't redesign the table. Team: @jsun4231, @mg343, @Orca6722, @TheSleepyPP — assign them as areas are claimed.
@@ -42,7 +44,7 @@ Real areas and per-area owners replace these generic rows as code lands — add 
 
 ### Area labels
 
-`area:core`, `area:docs`, `area:infra`, `area:contracts`
+`area:localization`, `area:navigation`, `area:course`, `area:docs`, `area:infra`, `area:contracts`
 
 ## Title grammar
 
@@ -54,7 +56,7 @@ Real areas and per-area owners replace these generic rows as code lands — add 
 
 ## The handshake
 
-1. **Implementer opens a PR** from an area branch (`core/*`, `docs/*`, `infra/*`, `contracts/*`). The `board.yml` workflow automatically strips any stale `in-review`, `review-passed`, or `changes-requested` labels left over from a previous head, then applies `needs-review`.
+1. **Implementer opens a PR** from an area branch (`localization/*`, `navigation/*`, `course/*`, `docs/*`, `infra/*`, `contracts/*`). The `board.yml` workflow automatically strips any stale `in-review`, `review-passed`, or `changes-requested` labels left over from a previous head, then applies `needs-review`.
 
 2. **A review agent runs `make review-queue`**, takes the oldest entry, and immediately runs `make claim N=<n>` to atomically swap `needs-review` → `in-review` and self-assign. The label swap IS the lock — a second reviewer who lists the queue after this point sees nothing to claim for this PR.
 
