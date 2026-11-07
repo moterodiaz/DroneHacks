@@ -17,7 +17,7 @@ reader = dataset.EurocReader(os.path.expanduser(f"~/datasets/{name}"))
 import importlib.util
 spec = importlib.util.spec_from_file_location("s08", str(REPO_ROOT / "methods" / "cuvslam-vio" / "08_cuvslam_track.py")); s08 = importlib.util.module_from_spec(spec); spec.loader.exec_module(s08)
 rig = s08.rig_from_dataset(cuvslam, reader.rig, mode)
-cfg = T.TrackConfig(verbose=False, warmup_frames=0, slam=True, slam_max_map_size=map_size, slam_sync=sync, coast=False, final_landmarks=(sys.argv[5] == "final"))
+cfg = T.TrackConfig(verbose=False, warmup_frames=0, slam=True, slam_max_map_size=map_size, slam_sync=sync, coast=False, final_landmarks=(len(sys.argv) > 5 and sys.argv[5] == "final"))
 tracker, odom_cfg = T.make_tracker(cuvslam, rig, mode, cfg)
 scfg = T.slam_config(cuvslam, cfg)
 print("SlamConfig:", {k: getattr(scfg, k) for k in ("sync_mode", "enable_reading_internals", "max_map_size", "map_cell_size", "max_landmarks_distance", "throttling_time_ms")})
