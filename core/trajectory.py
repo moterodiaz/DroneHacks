@@ -110,6 +110,13 @@ class Trajectory:
         self.tunnel_end = np.asarray(params.get("axis_end"), dtype=float)
         if self.tunnel_start.shape != (2,) or self.tunnel_end.shape != (2,) or np.allclose(self.tunnel_start, self.tunnel_end):
             raise ValueError("tunnel goal needs a nonzero axis_start/axis_end")
+        try:
+            width = float(params.get("width"))
+        except (TypeError, ValueError):
+            raise ValueError("tunnel goal needs a numeric width") from None
+        if not math.isfinite(width) or width <= 0.0:
+            raise ValueError("tunnel goal needs a positive finite width")
+        self.tunnel_half_width = width / 2.0
 
     def _index(self, s):
         return int(np.clip(np.searchsorted(self.s, np.clip(s, 0, self.length)), 0, len(self.s) - 1))
@@ -119,6 +126,13 @@ class Trajectory:
         return np.array([np.interp(s, self.s, self.points[:, i]) for i in range(2)])
 
     def velocity_at(self, s):
+        """Speed along the tangent at arc length ``s``.
+
+        The arc-length profile starts at rest (``velocity_at(0) == 0``), so a
+        caller integrating ``s += abs(velocity_at(s)) * dt`` never leaves the
+        start. Use :meth:`build_time_profile` for time-parameterized motion
+        from rest instead.
+        """
         i = self._index(s)
         return self.tangent[i] * self.speed[i]
 
@@ -198,7 +212,7 @@ class Trajectory:
         axis = self.tunnel_end - self.tunnel_start
         projection = float((position - self.tunnel_start) @ axis / (axis @ axis))
         lateral = abs(_cross2(axis, position - self.tunnel_start)) / np.linalg.norm(axis)
-        if 0.0 <= projection <= 1.0 and lateral <= 0.5:
+        if 0.0 <= projection <= 1.0 and lateral <= self.tunnel_half_width:
             return math.atan2(axis[1], axis[0])
         look = self.position_at(min(self.length, float(s) + YAW_LOOKAHEAD)) - position
         if np.linalg.norm(look) < 1e-9:

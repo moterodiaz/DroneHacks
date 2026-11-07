@@ -3,9 +3,9 @@ import math
 import numpy as np
 import pytest
 
-from core.costmap import LETHAL_CLEARANCE, build_costmap, obstacle_clearance
+from core.costmap import LETHAL_CLEARANCE, Costmap, build_costmap, obstacle_clearance
 from core.frames import course_to_odom, enu_to_ned, flu_to_frd, odom_to_course
-from core.planner import plan_route
+from core.planner import _prune_goal_snap, plan_route
 from core.trajectory import V_MAX, build_trajectory
 
 
@@ -230,3 +230,35 @@ def test_time_profile_respects_caller_bounds():
         trajectory.build_time_profile(0.0, 1.0)
     with pytest.raises(ValueError):
         trajectory.build_time_profile(0.5, 0.0)
+
+
+def test_prune_goal_snap_contract():
+    # Hand-built flat costmap: 0.2 m cells, lower-left corner at (1.0, 2.0).
+    flat = Costmap(costs=np.ones((8, 8)), origin=(1.8, 2.8), resolution=0.2)
+    start = np.array([1.0, 2.25])
+    snap = np.array([2.0, 2.25])  # within one resolution of the goal
+    goal = np.array([2.0, 2.15])
+    # An acceptable chord drops the snapped micro-leg.
+    pruned = _prune_goal_snap([start, snap, goal], flat, flat.resolution)
+    assert len(pruned) == 2
+    # A leg longer than one resolution is never a candidate.
+    far = np.array([2.3, 2.15])
+    assert len(_prune_goal_snap([start, far, goal], flat, flat.resolution)) == 3
+    # The straight chord crosses a cell the bent subpath avoids: keep the snap.
+    blocked = np.ones((8, 8))
+    blocked[flat.world_to_grid((1.7, 2.1))] = np.inf
+    blocked_map = Costmap(costs=blocked, origin=flat.origin, resolution=flat.resolution)
+    kept = _prune_goal_snap([start, snap, goal], blocked_map, blocked_map.resolution)
+    assert len(kept) == 3
+
+
+def test_tunnel_yaw_corridor_comes_from_map_width():
+    course = synthetic_map()
+    route = plan_route(course, build_costmap(course))
+    trajectory = build_trajectory(route, course, clearance_at=lambda _: 0.70)
+    width = course["goals"][1]["params"]["width"]
+    assert trajectory.tunnel_half_width == pytest.approx(width / 2.0)
+    # A course map whose tunnel omits width fails closed.
+    del course["goals"][1]["params"]["width"]
+    with pytest.raises(ValueError, match="width"):
+        build_trajectory(route, course, clearance_at=lambda _: 0.70)
