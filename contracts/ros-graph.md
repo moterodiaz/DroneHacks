@@ -58,6 +58,29 @@ the 10 Hz kit output default is not a selected competitor-input cadence.
 Record the measured freshness/jitter margin and timeout behavior before
 unblocking a follower implementation. No flight rate is chosen here.
 
+## Lidar-stack variant (contracted team-side nodes, PR #27)
+
+Decision #29 items 1, 2 and 4 (recommendation A): the lidar localization
+architecture is accepted and contracted as a variant graph stage set beside
+the kit path, in addition to the planned Follower above. These team nodes
+never modify the kit path — they sit beside it and feed only team code:
+
+| node | owner | subscribes | publishes | msg type | notes |
+|---|---|---|---|---|---|
+| `lidar_localizer` | ours | MS200K serial (read directly), `/fmu/out/vehicle_odometry` (read only) | `~/pose` | `geometry_msgs/PoseWithCovarianceStamped` | matches MS200K lidar revolutions to the course map; publishes the body pose in the course frame with covariance |
+| `vo_guard` | ours | `/visual_slam/tracking/odometry`, `/fmu/out/vehicle_odometry` (read only, PX4's gyro) | `/vo_guard/odometry`, `~/status` | `nav_msgs/Odometry`, `std_msgs/String` | withholds untrusted cuVSLAM poses (clock, reported failure, jump, spin, gyro disagreement, settling). Feeds ONLY team nodes — never PX4 or the organizer's `px4_odom_bridge.py` |
+| `pose_fusion` | ours | `/vo_guard/odometry`, `lidar_localizer`'s pose, the follower's setpoints | `/pose_fusion/odometry`, `/skybeta/setpoint/{pose,twist}`, `~/ready`, `~/aligned` | `nav_msgs/Odometry`, `geometry_msgs/PoseStamped`/`TwistStamped`, `std_msgs/Bool` | estimates the planar cuVSLAM drift C and sends C⁻¹-corrected setpoints to `/skybeta/setpoint/{pose,twist}`, slew-limited 0.10 m/s and 3°/s |
+
+`vo_guard` never sits upstream of PX4 or the organizer's `px4_odom_bridge.py`:
+those stay exactly as the kit ships them, consuming cuVSLAM directly, and team
+code never publishes to `/fmu/in/*`. PX4's estimate and the kit bridge are
+untouched; the correction reaches PX4 only through the competitor setpoint
+inputs the kit itself gives team code.
+
+Policy note: MS200K lidar use is a required per-run choice with no default
+(`lidar_policy: allowed | forbidden`), still subject to organizer permission
+per the blocked-proposal text above.
+
 Sources: read-only `drone-snapshot/home/dronehacks/skybeta/README.md` and
 `src/skybeta_flight_interface/skybeta_flight_interface/flight_interface.py`
 under that snapshot, available through

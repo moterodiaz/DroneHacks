@@ -2,6 +2,26 @@
 
 Newest entries first. One entry per contract-affecting change, linking the PR.
 
+## 2026-11-07 — contract the lidar-stack team-side variant graph (PR #27, decision #29)
+
+Maintainer accepted the lidar localization architecture in session per
+recommendation A: [decision #29](https://github.com/moterodiaz/DroneHacks/issues/29)
+items 1, 2 and 4. `ros-graph.md` gains a "Lidar-stack variant (contracted
+team-side nodes, PR #27)" section with the three team-side nodes:
+`lidar_localizer` (MS200K lidar revolutions matched to the course map, body
+pose in the course frame with covariance), `vo_guard` (withholds untrusted
+cuVSLAM poses and feeds ONLY team nodes — it never sits upstream of PX4 or the
+organizer's `px4_odom_bridge.py`, which stay exactly as the kit ships them),
+and `pose_fusion` (estimates the planar cuVSLAM drift C and sends
+C⁻¹-corrected setpoints to `/skybeta/setpoint/{pose,twist}`, slew-limited
+0.10 m/s and 3°/s). **PX4's path is unchanged**: the kit bridge and EKF2 are
+untouched, and the correction reaches PX4 only through the competitor setpoint
+inputs the kit itself provides. MS200K lidar use remains a required per-run
+choice with no default, still subject to organizer permission per the
+existing blocked-proposal text. Affected owner: @moterodiaz (localization and
+navigation). The new head still requires fresh independent review; this is
+not merge or flight acceptance.
+
 ## 2026-11-07 — reconcile instruction identifiers without merging (PR #5, decision #19)
 
 Maintainer approved the docs-only integration correction in
