@@ -63,7 +63,7 @@ It changes nothing outside `~/team_ws/src`. The full checklist is in
 
 | State | Sends | Leaves when |
 |---|---|---|
-| WAIT | nothing until the prechecks pass, then the takeoff pose (here, at flight height) | Offboard starts |
+| WAIT | nothing until the prechecks pass, then the takeoff pose (here, at flight height); zero twists if a precheck fails after it was streamed | Offboard starts |
 | TAKEOFF | the takeoff pose | within 0.10 m of flight height |
 | FOLLOW | the Follower's reference poses (course frame converted to `odom`) | the Follower is done over the pad |
 | HOLD | the pad pose | `land: true`: 2 s within 0.10 m of it, then LAND. Default `land: false`: it holds over the pad until the pilot takes the vehicle (px4.md) |
@@ -83,8 +83,13 @@ of these hold:
 - PX4's heading is within 2° of vision's (field guide, build step 2; set
   `px4_heading_gate_deg: 0.0` to turn it off).
 
-Otherwise it sends nothing, Offboard is refused, and PX4 disarms after
-`COM_DISARM_PRFLT` (10 s). Kept from the lidar stream's mission: it never
+Otherwise, before any takeoff pose was streamed, it sends nothing, Offboard
+is refused, and PX4 disarms after `COM_DISARM_PRFLT` (10 s). After the
+takeoff pose has been streamed, a failed precheck replaces it with a
+zero-velocity twist: the kit's pose setpoint never expires and Offboard is
+still granted up to 1 s after the last team setpoint, so merely stopping
+would leave the drone free to climb on the stored takeoff pose. Kept from
+the lidar stream's mission: it never
 re-requests Offboard, never arms, disarms or changes mode, and stops for good
 when Offboard ends. With a stale pose in the air it sends nothing, so the
 interface holds the last pose. That pose is a led pose the Follower has

@@ -16,9 +16,14 @@ at commit ``6dc1263`` on ``core/port-depth-camera-testing``. Three things differ
    * its heading still the launch heading;
    * optionally, PX4's heading agreeing with vision's (field guide, build step 2).
 
-   While they fail it publishes nothing, so Offboard is refused and the pilot
-   keeps the vehicle. The committed lidar mission published nothing while
-   waiting at all, which the kit would always refuse.
+   While they fail before any takeoff pose was streamed it publishes
+   nothing, so Offboard is refused and the pilot keeps the vehicle. After a
+   takeoff pose was streamed it replaces it with a zero-velocity twist: the
+   kit's pose setpoint does not expire, and Offboard is still granted up to
+   1 s after the last team setpoint, so merely stopping would leave the
+   drone able to climb on the stored pose. The committed lidar mission
+   published nothing while waiting at all, which the kit would always
+   refuse.
 3. **No lidar, no pose_fusion.** The pose is cuVSLAM's (or the Guard's)
    odometry, in the ``odom`` frame. The setpoints go straight to the kit's
    flight interface.
@@ -163,6 +168,7 @@ class Mission:
         self._was_offboard = False
         self._takeoff_xy: Tuple[float, float] = self.start_odom
         self._takeoff_yaw = 0.0
+        self._takeoff_offered = False
         self._hold_since: Optional[float] = None
         self._hold_cmd: Optional[Command] = None
         self._yaw_cmd = 0.0
@@ -208,12 +214,23 @@ class Mission:
     def _wait(self, t: float, pose: Optional[OdomPose], px4_yaw: Optional[float]) -> Optional[Command]:
         why = self._precheck(pose, px4_yaw)
         if why:
-            self.reason = f"not offering takeoff: {why}"
-            return None
+            if not self._takeoff_offered:
+                # Nothing was ever streamed: Offboard is refused and the pilot keeps the vehicle.
+                self.reason = f"not offering takeoff: {why}"
+                return None
+            # The kit's pose setpoint does not expire: it keeps streaming the offered
+            # takeoff pose (flight_interface.py: "A position setpoint IS a hold"), and
+            # a switch to Position is still granted Offboard up to 1 s after our last
+            # setpoint (auto_offboard.py). Stopping alone would leave that climb armed,
+            # so a zero-velocity twist must replace the stored pose -- the same fail-closed
+            # command GROUNDED uses.
+            self.reason = f"precheck failed: {why}: zero-velocity setpoint replaces the takeoff pose"
+            return Command("twist")
         self.reason = "ready: offering the takeoff pose for the switch to Position"
         self._takeoff_xy = (pose.x, pose.y)
         self._takeoff_yaw = pose.yaw
         self._yaw_cmd = pose.yaw
+        self._takeoff_offered = True
         return Command("pose", pose.x, pose.y, self.z_fly, pose.yaw)
 
     def _precheck(self, pose: Optional[OdomPose], px4_yaw: Optional[float]) -> Optional[str]:

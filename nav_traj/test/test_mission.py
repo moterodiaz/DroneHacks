@@ -84,6 +84,30 @@ class StateMachineTest(unittest.TestCase):
         self.assertIsNone(self.m.update(1.1, False, self.pose(t=1.1), True, 0.0))  # Offboard ends
         self.assertEqual(self.m.state, STOPPED)
 
+    def test_stale_pose_while_waiting_replaces_the_offered_takeoff_pose(self):
+        # The kit's pose setpoint never expires, and Offboard is still granted up to 1 s
+        # after the last team setpoint (flight_interface.py, auto_offboard.py). So once
+        # the takeoff pose has been offered, a failed precheck must replace it with the
+        # zero-velocity hold on the next tick, not just stop publishing.
+        cmd = self.m.update(0.0, False, self.pose(), True, 0.0)                  # offered
+        self.assertEqual(cmd.kind, "pose")
+        cmd = self.m.update(0.6, False, self.pose(t=0.0), True, 0.0)            # 0.6 s old: stale
+        self.assertEqual((cmd.kind, cmd.vx, cmd.vy, cmd.vz), ("twist", 0.0, 0.0, 0.0))
+        self.assertIn("no fresh pose", self.m.reason)
+        self.assertEqual(self.m.update(0.7, False, self.pose(t=0.0), True, 0.0).kind, "twist")
+        # prechecks recover: the takeoff pose is offered again, replacing the twist
+        cmd = self.m.update(1.2, False, self.pose(t=1.2), True, 0.0)
+        self.assertEqual(cmd.kind, "pose")
+        self.assertAlmostEqual(cmd.z, 0.8 - 0.07)
+
+    def test_a_failed_precheck_while_waiting_replaces_the_offered_takeoff_pose(self):
+        # Same replacement for a precheck that fails with a fresh pose: the drone was
+        # nudged off the launch mark after the takeoff pose was offered.
+        self.m.update(0.0, False, self.pose(), True, 0.0)                       # offered
+        cmd = self.m.update(0.1, False, self.pose(t=0.1, x=0.3), True, 0.0)
+        self.assertEqual((cmd.kind, cmd.vx, cmd.vy, cmd.vz), ("twist", 0.0, 0.0, 0.0))
+        self.assertIn("route start", self.m.reason)
+
     def test_takeoff_then_follow(self):
         self.m.update(0.0, False, self.pose(), True, 0.0)
         cmd = self.m.update(0.02, True, self.pose(t=0.02), True, 0.0)
