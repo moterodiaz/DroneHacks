@@ -44,8 +44,12 @@ which. The STEP map isn't surveyed, so before relying on it:
 
 ## 3. Parameters
 
-Edit `~/team_ws/src/dronehacks_traj/config/traj_nav.example.yaml`, then rerun
-the script with the same values (`V_MAX=... REST_HEIGHT=...`):
+Set the two measured values when you run the script, e.g.
+`V_MAX=1.0 REST_HEIGHT=0.07 nav_traj/scripts/install_on_drone.sh`. It writes them
+into the installed `config/traj_nav.example.yaml` and dry-runs with the same
+values. A rerun without them keeps what the last run wrote. Don't edit the copy
+in `~/team_ws/src`: every run replaces it. Change other parameters in the
+checkout's `nav_traj/config/traj_nav.example.yaml` before running the script.
 
 * `v_max_mps`: the live `MPC_XY_VEL_MAX`, from QGroundControl > Parameters.
   The SN0001 file says 1.0, the baseline file 12.

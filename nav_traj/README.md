@@ -41,11 +41,13 @@ cuVSLAM /visual_slam/tracking/odometry ──► vo_guard (dronehacks_vo) ──
 
 ```sh
 # on the drone's host shell, in a checkout of this branch
-nav_traj/scripts/install_on_drone.sh        # V_MAX=... REST_HEIGHT=... GUARD_SRC=<dronehacks_vo dir> optional
+V_MAX=1.0 REST_HEIGHT=0.07 nav_traj/scripts/install_on_drone.sh    # GUARD_SRC=<dronehacks_vo dir> optional
 ```
 
 The script:
-1. copies `planner/` and `nav_traj/` into `~/team_ws/src`;
+1. copies `planner/` and `nav_traj/` into `~/team_ws/src`, and writes `V_MAX` and
+   `REST_HEIGHT` into the installed config. If either isn't given, it keeps the
+   value the last install wrote;
 2. builds them in the running `skybeta-stack` container;
 3. checks the container can import them;
 4. dry-runs the whole mission on the map the competitor window will fly;
