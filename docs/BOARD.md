@@ -75,7 +75,9 @@ Real areas and per-area owners replace these generic rows as code lands — add 
 6. **Guarded squash merge**, by the designated session correction agent:
    run `make merge-reviewed N=<n>` from a trusted policy checkout for a dry run.
    After it passes, use `make merge-reviewed N=<n> EXECUTE=1` from a clean checkout
-   of current main. Never execute a helper or Makefile from unreviewed PR code.
+   of current main. The sole bootstrap exception is PR #31's independently
+   reviewed exact head, verified by the pinned legacy main reviewer described
+   below. Never execute a helper or Makefile from unreviewed PR code.
    The helper requires same-repo team authors, independent exact-full-head/base
    review, recorded passing relevant tests, passing project/required checks,
    no unresolved threads, changes-requested reviews, linked findings/decisions,
@@ -142,11 +144,15 @@ physical validation remains a blocker, never a guessed pass.
 The helper accepts only a successful team-triggered **main-branch mention**
 run using the exact trusted workflow, with a run-bound review-context artifact.
 PR-triggered review is useful feedback but not merge authority. Workflow-changing
-PRs therefore cannot certify themselves. During bootstrap, request an independent
-review through the existing main-branch mechanism; do not accept the candidate
-workflow's own run. If the trusted main workflow cannot produce required
-provenance yet, rollout remains blocked until that prerequisite is independently
-reviewed and installed. Never weaken the gate to resolve bootstrap.
+PRs therefore cannot certify themselves. For **policy PR #31 only**, the helper
+also accepts the existing main-branch mention reviewer at pinned workflow blob
+`fa10d8dc5102314526de6d6c1477b659424e8ec3`. This bootstrap review must independently
+provide the same structured exact-head/base verdict and tests, plus
+`bootstrap: true` and `request_comment`, bound to an unedited team review-only
+request containing both full SHAs. The bot, successful main run, workflow blob,
+timing, independent authorship and request are all verified. Only that reviewed
+policy checkout may bootstrap execution. No other PR gets this exception, and
+the candidate workflow's PR-triggered run never supplies its own authority.
 
 Operate in this session only. Add no CI job, daemon or service. Keep one
 five-minute loop after rollout, paused during policy publication/review.

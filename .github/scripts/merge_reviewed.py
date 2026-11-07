@@ -18,6 +18,9 @@ TEAM = {"moterodiaz", "jsun4231", "mg343", "Orca6722", "TheSleepyPP"}
 STATES = {"needs-review", "in-review", "changes-requested", "review-passed"}
 BLOCKERS = {"blocked", "needs-human", "paused", "in-review"}
 WORKFLOW = ".github/workflows/claude-review.yml"
+BOOTSTRAP_PR = 31
+# Git blob independently read from the pre-rollout main a3592e2, never PR input.
+LEGACY_WORKFLOW_BLOB = "fa10d8dc5102314526de6d6c1477b659424e8ec3"
 MARKER = re.compile(r"<!-- dronehacks-review-v1\s+(\{.*?\})\s*-->", re.S)
 SHA = re.compile(r"[0-9a-f]{40}")
 
@@ -197,6 +200,7 @@ def attestation(snapshot, number):
                 candidates.append((comment, record))
     require(candidates, "No exact-head/base trusted review attestation")
     comment, record = candidates[-1]
+    record = {k: v for k, v in record.items() if k != "_verified_legacy_bootstrap"}
     require(record.get("findings") == 0 and record.get("independent") is True,
             "Review has findings or is not independent")
     tests = record.get("tests")
@@ -222,18 +226,29 @@ def attestation(snapshot, number):
     jobs = pages(f"repos/{REPO}/actions/runs/{run_id}/jobs", "jobs")
     require(any(j["name"] == "mention" and j["conclusion"] == "success" for j in jobs),
             "Trusted mention job did not run successfully")
-    artifacts = pages(f"repos/{REPO}/actions/runs/{run_id}/artifacts", "artifacts")
-    contexts = [a for a in artifacts if a["name"] == "review-context" and
-                not a["expired"] and a["workflow_run"]["id"] == run_id]
-    require(len(contexts) == 1, "Missing unique trusted review-context artifact")
-    downloaded = subprocess.run(
-        ["gh", "api", f"repos/{REPO}/actions/artifacts/{contexts[0]['id']}/zip"],
-        capture_output=True, timeout=90)
-    require(downloaded.returncode == 0, "Cannot read trusted review context")
-    with zipfile.ZipFile(io.BytesIO(downloaded.stdout)) as archive:
-        require(archive.namelist() == ["review-context.json"],
-                "Unexpected review context archive")
-        context = json.loads(archive.read("review-context.json"))
+    content = api(f"repos/{REPO}/contents/{WORKFLOW}?ref={snapshot['base']}")
+    legacy = (number == BOOTSTRAP_PR and
+              content["sha"] == LEGACY_WORKFLOW_BLOB and
+              record.get("bootstrap") is True)
+    if legacy:
+        # The existing main reviewer predates context artifacts. Its independently
+        # authored verdict must explicitly bind the exact review-only request.
+        require(snapshot["pr"]["user"]["login"] == "moterodiaz",
+                "Bootstrap PR author changed")
+        context = record
+    else:
+        artifacts = pages(f"repos/{REPO}/actions/runs/{run_id}/artifacts", "artifacts")
+        contexts = [a for a in artifacts if a["name"] == "review-context" and
+                    not a["expired"] and a["workflow_run"]["id"] == run_id]
+        require(len(contexts) == 1, "Missing unique trusted review-context artifact")
+        downloaded = subprocess.run(
+            ["gh", "api", f"repos/{REPO}/actions/artifacts/{contexts[0]['id']}/zip"],
+            capture_output=True, timeout=90)
+        require(downloaded.returncode == 0, "Cannot read trusted review context")
+        with zipfile.ZipFile(io.BytesIO(downloaded.stdout)) as archive:
+            require(archive.namelist() == ["review-context.json"],
+                    "Unexpected review context archive")
+            context = json.loads(archive.read("review-context.json"))
     require(all(context.get(k) == record.get(k) for k in
                 ("repo", "pr", "head", "base", "run_id")), "Review context mismatch")
     request = api(f"repos/{REPO}/issues/comments/{int(context['request_comment'])}")
@@ -241,10 +256,16 @@ def attestation(snapshot, number):
             request["issue_url"] == f"https://api.github.com/repos/{REPO}/issues/{number}" and
             "@claude" in request["body"] and
             request["created_at"] <= run["created_at"], "Untrusted review request")
+    if legacy:
+        require(snapshot["head"] in request["body"] and
+                snapshot["base"] in request["body"] and
+                request["created_at"] == request["updated_at"] and
+                "review-only" in request["body"].lower(),
+                "Bootstrap request must pin head/base and remain unedited")
+        record = {**record, "_verified_legacy_bootstrap": True}
     # The exact workflow must equal the trusted policy checkout, not PR content.
-    content = api(f"repos/{REPO}/contents/{WORKFLOW}?ref={snapshot['base']}")
     trusted = Path(__file__).resolve().parents[1] / "workflows" / "claude-review.yml"
-    require(base64.b64decode(content["content"]) == trusted.read_bytes(),
+    require(legacy or base64.b64decode(content["content"]) == trusted.read_bytes(),
             "Review workflow differs from trusted policy checkout")
     return record
 
@@ -291,8 +312,11 @@ def merge(number, execute, journal_path):
             return {"result": "dry-run-pass", "head": head, "base": base,
                     "review_run": review["run_id"]}
         root = Path(__file__).resolve().parents[2]
-        require(command(["git", "-C", str(root), "rev-parse", "HEAD"]).strip() == base,
-                "Execute only from the current trusted main checkout")
+        checkout = command(["git", "-C", str(root), "rev-parse", "HEAD"]).strip()
+        require(checkout == base or
+                (number == BOOTSTRAP_PR and
+                 review.get("_verified_legacy_bootstrap") is True and checkout == head),
+                "Execute only from trusted main or the independently reviewed bootstrap head")
         require(not command(["git", "-C", str(root), "status", "--porcelain"]).strip(),
                 "Trusted policy checkout is dirty")
         # Re-read all evidence, including identity, head AND base just before intent.

@@ -112,7 +112,7 @@ class GateTests(unittest.TestCase):
                         "issue_url": f"https://api.github.com/repos/{gate.REPO}/issues/42",
                         "created_at": "2026-11-07T00:59:59Z"}
             if "/contents/" in path:
-                return {"content": base64.b64encode(
+                return {"sha": "new-workflow", "content": base64.b64encode(
                     (PATH.parents[1] / "workflows/claude-review.yml").read_bytes()).decode()}
             raise AssertionError(path)
         def pages(path, field):
@@ -121,6 +121,31 @@ class GateTests(unittest.TestCase):
             return [{"name": "review-context", "expired": False, "id": 1,
                      "workflow_run": {"id": 10}}]
         return s, record, run, api, pages, blob.getvalue()
+
+    def test_legacy_bootstrap_is_bound_to_one_pr_and_trusted_workflow(self):
+        s, record, run, api, pages, blob = self.trusted()
+        s["pr"]["user"]["login"] = "moterodiaz"
+        record.update(pr=31, bootstrap=True, request_comment=20)
+        s["comments"][0]["body"] = "<!-- dronehacks-review-v1 " + json.dumps(record) + " -->"
+        def legacy_api(path, *args):
+            if "/contents/" in path:
+                return {"sha": gate.LEGACY_WORKFLOW_BLOB}
+            if "/issues/comments/" in path:
+                return {"user": {"login": "moterodiaz"},
+                        "issue_url": f"https://api.github.com/repos/{gate.REPO}/issues/31",
+                        "body": f"@claude review-only {HEAD} {BASE}",
+                        "created_at": "2026-11-07T00:59:59Z",
+                        "updated_at": "2026-11-07T00:59:59Z"}
+            return api(path, *args)
+        with patch.object(gate, "api", side_effect=legacy_api), \
+             patch.object(gate, "pages", side_effect=pages):
+            self.assertTrue(gate.attestation(s, 31)["_verified_legacy_bootstrap"])
+            # No matching verdict for another PR, even with bootstrap requested.
+            with self.assertRaises(RuntimeError):
+                gate.attestation(s, 32)
+            s["pr"]["user"]["login"] = "jsun4231"
+            with self.assertRaises(RuntimeError):
+                gate.attestation(s, 31)
 
     def test_valid_trusted_review_and_untrusted_provenance(self):
         s, record, run, api, pages, blob = self.trusted()

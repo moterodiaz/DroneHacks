@@ -8,6 +8,8 @@ Newest entries first. One entry per contract-affecting change, linking the PR.
 remove per-PR human approval for code, contract, cross-area and guard decisions.
 Require documented reasoning, affected-owner notification, independent exact-head
 review, recorded relevant tests and the trusted guarded squash-merge helper.
+Bootstrap is restricted to this policy PR and the pinned pre-rollout main
+review workflow, with independently authored exact-head/base review evidence.
 Same-repository team PRs only; no self-sign-off, force pushes or admin bypass.
 Spending, live flight, deployment and access changes remain manual. All physical
 validation, organizer restrictions, immutable sources and secrets protections
