@@ -1,0 +1,147 @@
+# dronehacks_course_follower
+
+Flies the whole course from the map file: plans a route, flies it with smooth led pose setpoints
+and a look-ahead heading, and lands on the pad by a downward twist so PX4 disarms itself.
+
+Why it exists: in the organisers' lab simulator (2026-11-07) localization held (PX4 within
+2-6 cm of truth), but their example mission's step setpoints overshot legs by 38-60 cm, swung the
+heading ±40° and turned in place facing a wall until cuVSLAM failed. This follower is the one
+flown in Michael Bar On's PX4 SITL against the organisers' unmodified bridge and interface, where
+it reached the pad in about 27 s (his repo's `sim/README.md`, "The event's own path", 2026-10-28).
+
+## What it does
+
+| Phase | Sends | Ends when |
+|---|---|---|
+| wait | pose over the drone at the map's flight height, heading not commanded | `/skybeta/state` reports Offboard; the drone must be within 0.5 m of the map's launch mark, or the run is refused |
+| climb | the same pose, held over the start | odometry within 0.1 m of the flight height |
+| fly | the led pose sliding along the rounded route, heading on the look-ahead point | the setpoint reaches the route's end and the drone is within 0.15 m of it, or 2 s later |
+| descend | twist: 0.5 m/s down, steered back over the pad at 1/s, capped 0.3 m/s | PX4 disarms (`armed` false) |
+
+The pilot taking the drone back (Offboard ends) stops it at once; it sends nothing until a disarm.
+
+- **Planner** (`planner.py`): A* on a 5 cm grid, lethal within 0.32 m of a wall (prop reach
+  0.28 m + 0.04 m), Nav2-style inflation cost beyond, boulders widened by the rangefinder's
+  footprint. Goals in the map's own `order`. The window is flown only when `allow_window` and the
+  map says it is passable (the opening spans the flight height with 0.25 m either side and is
+  wider than the lethal ring twice); otherwise its opening is walled across and A* finds Gate B.
+  A flown window is one straight leg on its normal through the opening's middle, from up to
+  0.7 m before to up to 0.7 m after (shortened a cell at a time where a lethal ring covers the
+  point), so the 0.4 m corner arcs end before the frame. Why: in 39 SITL flights (2026-11-07) the
+  window was the closest pass in 21; the estimate was within a few cm of truth there, but PX4 cut
+  the turn into the opening, about 8.7 cm toward the frame. The route is planned once, before
+  take-off, so no in-flight re-plan can shorten that lead-in. The ideal dry run takes about 31 s
+  with the lead-in, against 27 s without it.
+- **Follower** (`follower.py`): corners as arcs from 0.4 m before, a speed profile within PX4's
+  v1.16 default `MPC_ACC_HOR` 3, `MPC_JERK_AUTO` 4 and turn acceleration, an eased jerk-limited
+  pace that slows when the drone strays toward a wall, falls behind or its heading lags, heading
+  on the point 0.8 m ahead at up to 45°/s, and the pose led by v / 0.95 + a / (0.95 x 1.8), the
+  heading by yaw rate / 2.8 (PX4 v1.16 defaults of `MPC_XY_P`, `MPC_XY_VEL_P_ACC`, `MC_YAW_P`).
+- **Frames** (`frames.py`): the mission works in the course frame; the node applies
+  contracts/frames.md's measured transform `p_odom = o_odom + R(yaw)(p_course - o_course)`, with
+  `o_course` the map's launch mark and the team's existing `course_to_odom_yaw/x/y` parameters.
+  It refuses to start without them.
+
+Left out on purpose (rejected in SITL, or not needed for a first flight): racing line, heading
+plans, turn slow-down, cross-track push, window servo, live re-planning, and the return to the
+launch mark (it needs a re-arm the interface cannot give).
+
+## The map
+
+`maps/course_map.json` is written by `sim/generate.py` in Michael Bar On's DroneDepthCamTesting
+repo (`write_course_map`, published variant, commit `52c8c27`), from the organisers' published
+course OBJ (`dronehacks-course-v3-obj.zip`, SHA-256
+`52498970486fdb72ff6460d9b6297fdc128eabc089c7a25a7df6cf445990167c`), cut at 0.8 m. It was used
+instead of `contracts/course_v3_layout.yaml` because the contract schema carries the tunnel only
+as an axis: the tube's side walls are not in it (the manual navigator rebuilds them in
+`_tunnel_side_walls`), and the planner needs them as walls. The OBJ cut has them.
+
+Format (JSON, course frame: x east, y north, metres, origin at the floor centre):
+`height_m` (flight height above the floor), `launch` (`[east, north, heading_deg]`, heading
+counter-clockwise from east), `segments` (`[x1, y1, x2, y2]` wall cuts), `bounds`
+(`[west, east, south, north]`, the net), `boulders` (`[east, north, radius]`), `goals` (by name:
+`at`; the tunnel's two mouths `ends`; the window's `along`, `size_m` `[width, height]` and
+`span_m` `[bottom, top]`), and `order` (the goal names in the order a run passes them). A
+surveyed course goes in a new file passed as `course_map:=`; nothing in the code knows this course.
+
+## Launch
+
+```bash
+colcon build --packages-select dronehacks_course_follower && source install/setup.bash
+ros2 launch dronehacks_course_follower competitor.launch.py \
+    course_to_odom_yaw:=<measured> course_to_odom_x:=<measured> course_to_odom_y:=<measured>
+```
+
+Set `COMPETITOR_PKG=dronehacks_course_follower` and `COMPETITOR_LAUNCH=competitor.launch.py` in
+`/etc/skybeta/drone.env` for the stack to start it. Restart the stack with the drone still on the
+launch mark: cuVSLAM's odom origin is wherever it started.
+
+| Argument | Default | |
+|---|---|---|
+| `course_map` | packaged | a surveyed map |
+| `odom_origin_height_m` | 0.0 | the odom origin's height above the floor; 0 flies odom z = map height, as the manual navigator's `hover_altitude_m` does |
+| `speed_mps` | 1.0 | `MPC_XY_VEL_MAX` is 1.0 on the kit |
+| `rate_hz` | 50 | follower publish rate |
+| `pose_lead` | true | false sends the plain sliding pose: slower, no lead |
+| `allow_window` | true | false always takes Gate B |
+| `land` | true | false holds over the pad for the pilot |
+| `tunnel_lead_m` | 0.0 | > 0 flies the tunnel as one straight leg from that far outside its mouths; it touched more in SITL, so it is off |
+| `setpoint_rate_hz` | 10 | the interface's own rate, the kit default |
+
+Plan and print without ROS or a drone:
+
+```bash
+ros2 run dronehacks_course_follower dry_run            # or: python3 -m dronehacks_course_follower.dry_run
+ros2 run dronehacks_course_follower dry_run --no-window --steps 40
+```
+
+## Known risks
+
+- **Led poses through a 10 Hz interface.** The interface resends the latest pose at
+  `setpoint_rate_hz`. In SITL, led poses with the interface at 50 Hz flew 27.2-32.3 s with
+  3.4-5.7 cm rms; at 10 Hz, four of six flew 27.4-32.9 s but one lost yaw control at the first
+  corner (each led pose held 100 ms). The competitor guide says to keep `flight_interface` as
+  `competitor.launch.py` has it, so the default stays 10 Hz. If the first corners look unsteady,
+  fly `pose_lead:=false` (plain poses took 46-53 s in SITL) or ask the organisers about 50 Hz.
+- **PX4 gains.** The lead and speed profile assume PX4 v1.16 defaults; check them on the drone.
+- **The twist landing is not organiser-confirmed.** The interface does not floor twists (it
+  floors poses at 0.3 m). PX4 detects ground contact only while the setpoint descends at
+  1.1 x `LNDMC_Z_VEL_MAX` (0.275 m/s at 0.25), then disarms after `COM_DISARM_LAND`.
+- **Heights.** Odom z is height above where cuVSLAM started; set `odom_origin_height_m` once measured.
+
+## Bench check, props off
+
+1. Props off, drone on the launch mark, stack restarted there. `ros2 run dronehacks_course_follower dry_run`:
+   it prints the waypoints, "window flown" (or closed) and lands in the ideal run.
+2. Read, do not write, PX4's `MPC_XY_P` (0.95), `MPC_XY_VEL_P_ACC` (1.8), `MC_YAW_P` (2.8),
+   `MPC_ACC_HOR` (3), `MPC_JERK_AUTO` (4), `MPC_XY_VEL_MAX` (1), `LNDMC_Z_VEL_MAX` (0.25),
+   `COM_DISARM_LAND` (2). A different value means the lead or landing needs re-deriving.
+3. Launch without the transform: the follower must refuse to start. Launch with it: the log
+   names the map, the waypoint count, window flown or closed, and the flight height.
+4. `ros2 topic hz /skybeta/setpoint/pose`: about 50 Hz. `ros2 topic echo --once
+   /skybeta/setpoint/pose`: x, y on the drone's odometry, z the flight height, orientation all zero.
+   Carry the drone 0.5 m: the pose follows it.
+5. Pilot arms in Altitude and switches to Position: `/skybeta/state` shows `offboard_active` true
+   and the log says "climbing". Lift the drone by hand to the flight height: "at height: flying".
+6. Carry it slowly along the first corridor, turning it to face where the pose's orientation
+   points (the pace waits while the drone's heading trails by 30° or more): the pose slides ahead
+   of the drone along the route in the right physical direction, and the orientation turns toward
+   the next corridor before the corner. Hold the drone still: the pose stops about 1 m ahead.
+   A wrong direction means the transform is wrong: stop.
+7. Flip the mode switch: the log says "Offboard ended" and the pose stops. Disarm: "waiting".
+8. Arm again away from the launch mark and switch to Position: "refusing the route".
+9. First props-on flight with `land:=true`: a low hover over a mat, then the descent. Go if PX4
+   disarms within 6 s of touchdown with no bounce, three times out of three.
+
+## Tests
+
+No ROS needed:
+
+```bash
+python3 -m pytest team_ws/src/dronehacks_course_follower/tests -q
+```
+
+They pin the planner on the packaged map and on that map turned a quarter turn, the follower's
+led pose, pace limits and heading rate, the course-to-odom transform, the mission's phases and the
+landing trigger, a dry run to a landing, and a guard that no course coordinate or wall name
+appears in the package's code.

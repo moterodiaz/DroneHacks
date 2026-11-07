@@ -12,7 +12,7 @@ this file wins (AGENTS.md §3.1).
 | cuVSLAM (`visual_slam`) | library (Isaac ROS, NVIDIA) | stereo image pair, IMU | pose | `nav_msgs/Odometry` (pose+covariance) | ~30 Hz, stereo-only mode | default |
 | `px4_odom_bridge.py` | kit | `/visual_slam/tracking/odometry`, tracking status | `VehicleOdometry` (world-fixed arbitrary-heading FRD) | `px4_msgs/VehicleOdometry` | passthrough | best-effort out |
 | **Planner** | **ours** | `contracts/course.md` map file | route | internal | once per run / re-plan | — |
-| **Follower** (planned) | **ours** | Planner's route, odometry, kit state | `/skybeta/setpoint/pose` or `/skybeta/setpoint/twist` | `geometry_msgs/PoseStamped` / `geometry_msgs/TwistStamped`, world ENU | blocked pending cadence validation | match kit |
+| **Follower** (`dronehacks_course_follower`) | **ours** | Planner's route, odometry, kit state | `/skybeta/setpoint/pose` or `/skybeta/setpoint/twist` | `geometry_msgs/PoseStamped` / `geometry_msgs/TwistStamped`, world ENU | `rate_hz` 50 by default; flight blocked until the props-off cadence check | match kit |
 | `skybeta_flight_interface` | kit | competitor pose/twist | PX4 setpoints and heartbeat (kit alone writes `/fmu/in/*`) | clamped 1.5 m/s twist and 0.3–3 m altitude by default; no horizontal geofence | 10 Hz default | kit-owned |
 
 ## Guard proposal (blocked, not in the shipped data path)
@@ -41,8 +41,9 @@ rule 9.5's generality requirement; see AGENTS.md §3.9.
 
 ## Follower (planned) — supplied interface only
 
-The previous fixed-gain, 50 Hz led-pose design is dropped, as recorded in
-the changelog. The interface accepts both pose and twist, but no competitor
+The previous design that needed the interface itself at 50 Hz is dropped, as
+recorded in the changelog; the led pose returns only as the team's own input
+(below). The interface accepts both pose and twist, but no competitor
 acceleration input. Do not modify it or require an increased output rate.
 Its published defaults are `setpoint_rate_hz=10.0` (10 Hz) and
 `setpoint_timeout_s=1.0` s. Publish fresh inputs with margin inside that timeout;
@@ -56,7 +57,17 @@ override it.
 The follower's publication cadence is **blocked pending cadence validation**;
 the 10 Hz kit output default is not a selected competitor-input cadence.
 Record the measured freshness/jitter margin and timeout behavior before
-unblocking a follower implementation. No flight rate is chosen here.
+flying the follower.
+
+`team_ws/src/dronehacks_course_follower` implements it, requested by
+Michael Bar On on 2026-11-07: it publishes a led pose (the sliding setpoint
+plus v / `MPC_XY_P` + a / (`MPC_XY_P` × `MPC_XY_VEL_P_ACC`)) at its own
+`rate_hz`, 50 Hz by default, into the unmodified interface, which keeps its
+10 Hz default. That is an input rate, not a patch or a rate increase of the
+interface. In the follower author's SITL, led poses with the interface at
+10 Hz lost yaw control in one run of six; `pose_lead:=false` sends the plain
+sliding pose. The package README's props-off bench check covers this
+section's cadence and timeout check, and it must pass before flight.
 
 ## Lidar-stack variant (contracted team-side nodes, PR #27)
 
