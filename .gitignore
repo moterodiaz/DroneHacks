@@ -1,0 +1,8 @@
+.env
+.env.*
+!.env.example
+.DS_Store
+*.pyc
+__pycache__/
+node_modules/
+runs/

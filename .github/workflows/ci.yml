@@ -1,0 +1,33 @@
+name: ci
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      contracts: ${{ steps.f.outputs.contracts }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dorny/paths-filter@v3
+        id: f
+        with:
+          filters: |
+            contracts:
+              - 'contracts/**'
+
+  contracts-guard:
+    needs: changes
+    if: needs.changes.outputs.contracts == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - name: core contracts changes require a CHANGELOG entry
+        run: |
+          set -euo pipefail
+          git diff --name-only --no-renames -z "origin/${{ github.event.pull_request.base.ref }}"...HEAD \
+            | python3 .github/scripts/check_contracts.py
