@@ -1,0 +1,17 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>dronehacks_manual_maze_tunnel_chicane_gateb_landing</name>
+  <version>0.1.0</version>
+  <description>DroneHacks full-course manual waypoint follower: Maze → Tunnel → Chicane (Gate B; window refused while unreviewed) → hold over pad</description>
+  <maintainer email="milu.garimella@gmail.com">mg343</maintainer>
+  <license>MIT</license>
+  <depend>rclpy</depend>
+  <depend>geometry_msgs</depend>
+  <depend>nav_msgs</depend>
+  <depend>std_msgs</depend>
+  <exec_depend>python3-yaml</exec_depend>
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>
