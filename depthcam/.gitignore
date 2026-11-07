@@ -1,0 +1,37 @@
+# Python
+.venv/
+venv/
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.pytest_cache/
+
+# Captures and recordings: keep the folders, ignore their contents
+recordings/*
+!recordings/.gitkeep
+snapshots/*
+!snapshots/.gitkeep
+*.ply
+*.mp4
+*.mcap
+*.h265
+*.h264
+*.mjpeg
+*.avi
+*.mkv
+recording_*.tar
+
+# OneDrive / Windows noise
+~$*
+*.tmp
+desktop.ini
+Thumbs.db
+
+# Editors / OS
+.idea/
+.DS_Store
+
+# Course plans and flight logs, and the sim drone derived from the PX4 checkout (course/gazebo/make_sim_drone.py)
+course/out/
+course/gazebo/models/x500_course*/

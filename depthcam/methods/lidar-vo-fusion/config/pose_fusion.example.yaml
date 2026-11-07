@@ -1,0 +1,92 @@
+# Parameters for the four nodes of dronehacks_lidar (ROS 2 Humble). Installed with the package as
+# share/dronehacks_lidar/config/pose_fusion.example.yaml; launch/lidar_nav.launch.py uses it, and
+# sets map_file, rules_file, route_file and lidar_policy itself.
+#
+# From a source checkout (paths relative to depthcam/):
+#   python3 methods/lidar-vo-fusion/13_vo_guard_node.py         --ros-args --params-file <this>.yaml
+#   python3 methods/lidar-vo-fusion/12_lidar_localizer_node.py  --ros-args --params-file <this>.yaml -p lidar_policy:=allowed
+#   python3 methods/lidar-vo-fusion/11_pose_fusion_node.py      --ros-args --params-file <this>.yaml -p lidar_policy:=allowed
+#   python3 methods/lidar-vo-fusion/14_follower_node.py         --ros-args --params-file <this>.yaml -p route_file:=<route.json>
+#
+# lidar_policy has no default on purpose; choose it for every run. No course coordinate is written
+# here (AGENTS.md §3.7): the launch mark comes from the rules file's start marking, in the map.
+
+vo_guard:
+  ros__parameters:
+    odom_in: "/visual_slam/tracking/odometry"        # the organisers' cuVSLAM (competitor_guide.md §1)
+    output_topic: "/vo_guard/odometry"
+    status_topic: "/visual_slam/status"
+    px4_odometry_topic: "auto"                       # /fmu/out/vehicle_odometry[_vN], read only: PX4's gyro
+    # No camera images: the Guard's texture rule is dropped (pose_fusion/guard.py)
+
+lidar_localizer:
+  ros__parameters:
+    lidar_policy: ""                 # set it for each run
+    port: "/dev/ms200"               # the udev name course/docs/hardware-setup.md sets up
+    map_file: "course/maps/course_v3_map.json"
+    rules_file: "course/maps/course_v3_rules.json"
+    frame_id: "course"
+    output_topic: "/lidar_localizer/pose"
+    px4_odometry_topic: "auto"
+    # The mount from past tests: the user confirmed the lidar is mounted as it was then.
+    # course/docs/bench-results.md, "Lidar yaw offset": 87.4 deg, no --counter-clockwise; and the
+    # bench tools' recorded runs (--mount-z 0.035 --yaw-offset 87.4). The matcher took no x/y offset.
+    # Re-measure if the lidar is ever moved: every degree is about 1.7 cm of error per metre.
+    yaw_offset_deg: 87.4
+    clockwise: true
+    mount_x: 0.0
+    mount_y: 0.0
+    mount_z: 0.035
+    range_min_m: 0.25                # hardware-setup.md: ignore the drone's own arms
+    # Body centre above the floor when landed: contracts/frames.md (PR #5) body_resting_height. Confirm on drone 1.
+    rest_height_m: 0.07
+    cov_scale: 100.0                 # starting point; calibrate on the bench
+
+pose_fusion:
+  ros__parameters:
+    lidar_policy: ""                 # set it for each run
+    input_topic: "/vo_guard/odometry"
+    output_topic: "/pose_fusion/odometry"            # the drone's true pose, for the follower
+    setpoint_pose_in: "/follower/setpoint/pose"
+    setpoint_twist_in: "/follower/setpoint/twist"
+    setpoint_pose_out: "/skybeta/setpoint/pose"      # the kit's flight interface (competitor_guide.md §1)
+    setpoint_twist_out: "/skybeta/setpoint/twist"
+    refresh_hz: 10.0
+    refresh_max_age_s: 0.5           # re-send only while the follower streams: a silent one must stay silent for the kit
+    lidar_topic: "/lidar_localizer/pose"
+    lidar_frame_id: "course"
+    map_file: "course/maps/course_v3_map.json"
+    rules_file: "course/maps/course_v3_rules.json"
+    # Tuning: starting points, not measurements (pose_fusion.fusion.FusionConfig). Write floats as floats.
+    max_correction_speed_mps: 0.10
+    max_correction_yaw_rate_rps: 0.0523599   # 3 deg/s
+    prior_pos_sigma_m: 0.10
+    prior_yaw_sigma_rad: 0.0872665           # 5 deg
+    vo_gap_s: 0.15                           # must stay below the Guard's settle_s (0.2)
+
+follower:
+  ros__parameters:
+    route_file: "routes/course_v3_window.json"       # planned from the STEP map through the ground-truth checkpoints
+    map_file: "course/maps/course_v3_map.json"
+    rules_file: "course/maps/course_v3_rules.json"
+    rest_height_m: 0.07              # as above; the setpoint z is the route's cruise_z_m minus this
+    pose_topic: "/pose_fusion/odometry"
+    ready_topic: "/pose_fusion/ready"
+    state_topic: "/skybeta/state"
+    land_detected_topic: "auto"      # /fmu/out/vehicle_land_detected[_vN], read only
+    setpoint_pose_out: "/follower/setpoint/pose"
+    setpoint_twist_out: "/follower/setpoint/twist"
+    frame_id: "odom"
+    rate_hz: 50.0
+    # follower.mission.FollowerConfig
+    max_cut_m: 0.015                 # the furthest the drone may leave the path aiming at the carrot (margin 0.05)
+    lookahead_max_m: 0.5
+    capture_radius_m: 0.10
+    start_tolerance_m: 0.25          # pre-takeoff: this close to the launch mark ...
+    start_yaw_tolerance_rad: 0.174533   # ... and within 10 deg of the planned heading (nose north)
+    start_timeout_s: 20.0
+    require_ready: true              # pre-takeoff: wait for /pose_fusion/ready
+    max_yaw_rate_rps: 0.785398       # 45 deg/s
+    hold_before_land_s: 2.0
+    descent_mps: 0.3
+    land: true

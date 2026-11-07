@@ -1,0 +1,27 @@
+{
+  "format": "cuvslam_oak.imu_correction",
+  "format_version": 1,
+  "device_id": "OAKDS2EXAMPLEID000",
+  "accel_bias": [
+    0.0535950695755815,
+    -0.6920707636322324,
+    -0.12439515981882164
+  ],
+  "accel_scale": [
+    1.0064675702305421,
+    1.0060152018992117,
+    1.0021832338085055
+  ],
+  "gyro_bias": [
+    -0.00044853914602382733,
+    0.0001267805718024067,
+    -0.0002111300448233473
+  ],
+  "model": "accel = (raw - accel_bias) * accel_scale; gyro = raw - gyro_bias; IMU frame, m/s^2, rad/s",
+  "gravity": 9.80665,
+  "residual_std": 0.0011773256918795893,
+  "poses": 6,
+  "source": "euroc_20260929_182100",
+  "fitted": "2026-09-29T18:41:12-04:00",
+  "notes": "first fit; camera warm after a 57 s walk recording"
+}

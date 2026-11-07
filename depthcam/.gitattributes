@@ -1,0 +1,2 @@
+# Shell scripts run inside WSL2 and on the Jetson: keep LF line ends whatever core.autocrlf says.
+*.sh text eol=lf
