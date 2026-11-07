@@ -115,10 +115,17 @@ jobs:
             Post inline findings and one summary. Only when independently clean,
             tests pass and all findings are reconciled, set review-passed after
             a fresh head/base check; otherwise use changes-requested or blocked.
-            Include exactly one unedited machine-readable JSON marker in summary:
-            <!-- dronehacks-review-v1 {"repo":"moterodiaz/DroneHacks","pr":NUMBER,"head":"FULL_SHA","base":"FULL_SHA","run_id":RUN_ID,"independent":true,"verdict":"pass OR findings OR blocked","findings":COUNT,"tests":[{"command":"ACTUAL COMMAND","result":"pass OR fail","evidence":"ACTUAL RESULT"}],"manual_actions":[],"missing_evidence":[]} -->
+            Read every changed file and applicable contract. The existing ci
+            workflow runs credential-free network-disabled Python tests. Inspect
+            its exact-head/base run and test step/logs; author-reported results
+            are not independently executed evidence. Require relevant coverage,
+            not just unrelated passing tests. Report missing coverage as blocked.
+            Put the marker in this action's tracking summary comment. The gate
+            binds its ID through the action's pre-model log, not a typed run ID.
+            Include exactly one machine-readable JSON marker in that summary:
+            <!-- dronehacks-review-v1 {"repo":"moterodiaz/DroneHacks","pr":NUMBER,"head":"FULL_SHA","base":"FULL_SHA","run_id":RUN_ID,"independent":true,"verdict":"pass OR findings OR blocked","findings":COUNT,"tests":[{"command":"ACTUAL COMMAND","result":"pass OR fail","source":"executed","run_id":ACTUAL_CI_RUN_ID,"evidence":"ACTUAL RESULT AND COVERAGE"}],"manual_actions":[],"missing_evidence":[]} -->
             Fill every field truthfully from review-context.json and actual review.
             List any required manual action or missing organizer/physical evidence.
             A green workflow or an old resolved thread is not clean sign-off.
           claude_args: |
-            --allowedTools "Read,Bash(gh api:*),Bash(gh pr view:*),Bash(gh pr diff:*),Bash(gh pr comment:*),Bash(gh pr edit:*),Bash(gh issue list:*),Bash(gh issue view:*)"
+            --allowedTools "Read,Bash(gh api:*),Bash(gh run view:*),Bash(gh pr view:*),Bash(gh pr diff:*),Bash(gh pr comment:*),Bash(gh pr edit:*),Bash(gh issue list:*),Bash(gh issue view:*)"

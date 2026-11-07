@@ -10,6 +10,12 @@ Require documented reasoning, affected-owner notification, independent exact-hea
 review, recorded relevant tests and the trusted guarded squash-merge helper.
 Bootstrap is restricted to this policy PR and the pinned pre-rollout main
 review workflow, with independently authored exact-head/base review evidence.
+Review follow-up: preserve change requests across later comment-only reviews,
+honor newer non-pass verdicts, bind the tracking comment to the action's
+pre-model log, and require independently executed exact-head/base sandboxed CI
+tests rather than copied author results. Add explicit intent reconciliation
+without retries of uncertain same-head writes. Extend the existing CI job,
+not its job count. No flight, organizer or physical-evidence constraint changes.
 Same-repository team PRs only; no self-sign-off, force pushes or admin bypass.
 Spending, live flight, deployment and access changes remain manual. All physical
 validation, organizer restrictions, immutable sources and secrets protections

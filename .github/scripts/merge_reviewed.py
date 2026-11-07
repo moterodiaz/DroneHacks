@@ -128,23 +128,29 @@ def validate(snapshot, number):
             "Mergeability is unknown or not clean")
     require(not any(not t["isResolved"] for t in snapshot["threads"]),
             "Unresolved review threads")
-    # Explicitly linked open issues and PR-number finding titles are conservative
-    # blockers, including links from other issues in either direction.
-    linked = re.compile(rf"(?<![0-9])#{number}(?![0-9])|"
-                        rf"github\.com/{re.escape(REPO)}/pull/{number}(?![0-9])")
+    # Mere historical/example mentions do not transfer another PR's blockers.
+    linked = re.compile(rf"^PR #{number}:|"
+                        rf"github\.com/{re.escape(REPO)}/pull/{number}(?![0-9])|"
+                        rf"\bblocks\s+#{number}(?![0-9])", re.I)
+    texts = [p["body"] or ""] + [c["body"] or "" for c in snapshot["comments"]]
     for issue in snapshot["issues"]:
         if "pull_request" in issue:
             continue
         issue_labels = {v["name"] for v in issue["labels"]}
         relation = bool(linked.search(issue["title"] + "\n" + (issue["body"] or "")))
-        relation |= bool(re.search(rf"(?<![0-9])#{issue['number']}(?![0-9])",
-                                   p["body"] or ""))
+        explicit = re.compile(
+            rf"\b(?:blocked[\s-]+by|close[sd]?|fix(?:e[sd])?|resolve[sd]?)\s+"
+            rf"(?:#{issue['number']}|https://github\.com/{re.escape(REPO)}/"
+            rf"issues/{issue['number']})(?![0-9])", re.I)
+        relation |= any(explicit.search(text) for text in texts)
         require(not (relation and issue_labels & (BLOCKERS | {"review-finding", "decision"})),
                 f"Open linked blocker/finding/decision #{issue['number']}")
-    # Latest review per reviewer only; dismissal does not grant approval.
+    # COMMENTED/PENDING do not clear a prior change request. DISMISSED is a
+    # server-side dismissal of that review, not a new blocking decision.
     latest = {}
     for review in snapshot["reviews"]:
-        latest[review["user"]["login"]] = review
+        if review["state"] in {"APPROVED", "CHANGES_REQUESTED"}:
+            latest[review["user"]["login"]] = review
     require(not any(r["state"] == "CHANGES_REQUESTED" for r in latest.values()),
             "Outstanding changes-requested review")
     checks = {}
@@ -195,18 +201,22 @@ def attestation(snapshot, number):
             except ValueError:
                 continue
             if (record.get("repo"), record.get("pr"), record.get("head"),
-                record.get("base"), record.get("verdict")) == (
-                    REPO, number, snapshot["head"], snapshot["base"], "pass"):
+                record.get("base")) == (
+                    REPO, number, snapshot["head"], snapshot["base"]):
                 candidates.append((comment, record))
     require(candidates, "No exact-head/base trusted review attestation")
-    comment, record = candidates[-1]
+    comment, record = max(candidates, key=lambda pair:
+                          (pair[0]["updated_at"], pair[0]["created_at"],
+                           pair[0].get("id", 0)))
+    require(record.get("verdict") == "pass", "Latest exact-head/base review is not passing")
     record = {k: v for k, v in record.items() if k != "_verified_legacy_bootstrap"}
     require(record.get("findings") == 0 and record.get("independent") is True,
             "Review has findings or is not independent")
     tests = record.get("tests")
     require(isinstance(tests, list) and tests and
             all(isinstance(t, dict) and t.get("command") and t.get("result") == "pass"
-                and t.get("evidence") for t in tests), "Recorded passing tests required")
+                and t.get("evidence") and t.get("source") == "executed"
+                for t in tests), "Independently executed passing tests required")
     require(record.get("manual_actions") == [] and record.get("missing_evidence") == [],
             "Manual action or missing physical/organizer evidence")
     require(all(c.get("author", {}).get("login") != "claude[bot]" and
@@ -222,10 +232,12 @@ def attestation(snapshot, number):
             run["actor"]["login"] in TEAM, "Untrusted review workflow provenance")
     require(run["created_at"] <= comment["created_at"] <= run["updated_at"],
             "Review comment not created during attested run")
-    require(comment["created_at"] == comment["updated_at"], "Edited review attestation")
+    require(comment["created_at"] <= comment["updated_at"] <= run["updated_at"],
+            "Review edited after completed run")
     jobs = pages(f"repos/{REPO}/actions/runs/{run_id}/jobs", "jobs")
-    require(any(j["name"] == "mention" and j["conclusion"] == "success" for j in jobs),
-            "Trusted mention job did not run successfully")
+    mention = [j for j in jobs if j["name"] == "mention" and j["conclusion"] == "success"]
+    require(len(mention) == 1, "Missing unique successful mention job")
+    bind_comment(run_id, mention[0]["id"], comment["id"])
     content = api(f"repos/{REPO}/contents/{WORKFLOW}?ref={snapshot['base']}")
     legacy = (number == BOOTSTRAP_PR and
               content["sha"] == LEGACY_WORKFLOW_BLOB and
@@ -253,6 +265,7 @@ def attestation(snapshot, number):
                 ("repo", "pr", "head", "base", "run_id")), "Review context mismatch")
     request = api(f"repos/{REPO}/issues/comments/{int(context['request_comment'])}")
     require(request["user"]["login"] in TEAM and
+            request["user"]["login"] == run["actor"]["login"] and
             request["issue_url"] == f"https://api.github.com/repos/{REPO}/issues/{number}" and
             "@claude" in request["body"] and
             request["created_at"] <= run["created_at"], "Untrusted review request")
@@ -267,7 +280,46 @@ def attestation(snapshot, number):
     trusted = Path(__file__).resolve().parents[1] / "workflows" / "claude-review.yml"
     require(legacy or base64.b64decode(content["content"]) == trusted.read_bytes(),
             "Review workflow differs from trusted policy checkout")
+    for test in tests:
+        verify_test_run(test, snapshot, number)
     return record
+
+
+def verify_test_run(test, snapshot, number):
+    """A copied author's result cannot masquerade as independent CI execution."""
+    run_id = test.get("run_id")
+    require(type(run_id) is int and run_id > 0, "Test run identity required")
+    run = api(f"repos/{REPO}/actions/runs/{run_id}")
+    require(run["path"] == ".github/workflows/ci.yml" and
+            run["event"] == "pull_request" and
+            run["head_sha"] == snapshot["head"] and
+            run["head_repository"]["full_name"] == REPO and
+            run["status"] == "completed" and run["conclusion"] == "success" and
+            any(p["number"] == number and p["base"]["sha"] == snapshot["base"]
+                for p in run["pull_requests"]), "Stale or untrusted test run")
+    jobs = pages(f"repos/{REPO}/actions/runs/{run_id}/jobs", "jobs")
+    require(any(j["name"] == "changes" and j["conclusion"] == "success" and
+                any(s["name"] == "Isolated Python tests" and s["conclusion"] == "success"
+                    for s in j["steps"]) for j in jobs),
+            "Independent sandbox test step did not pass")
+    content = api(f"repos/{REPO}/contents/.github/workflows/ci.yml?ref={snapshot['head']}")
+    trusted = Path(__file__).resolve().parents[1] / "workflows" / "ci.yml"
+    require(base64.b64decode(content["content"]) == trusted.read_bytes(),
+            "Test workflow differs from independently reviewed policy")
+
+
+def bind_comment(run_id, job_id, comment_id):
+    """Bind to the action-created tracking comment, not model-chosen run IDs.
+
+    The trusted action emits this line before starting the model. A model that
+    echoes another such line only creates ambiguity, which fails closed.
+    """
+    log = command(["gh", "run", "view", str(run_id), "--repo", REPO,
+                   "--job", str(job_id), "--log"])
+    ids = re.findall(
+        r"^mention\tRun anthropics/claude-code-action@v1\t[^\n]*"
+        r"Created initial comment with ID: ([0-9]+)\s*$", log, re.M)
+    require(ids == [str(comment_id)], "Review comment is not bound to the actual run")
 
 
 def journal(path, event):
@@ -277,7 +329,7 @@ def journal(path, event):
         os.fsync(stream.fileno())
 
 
-def merge(number, execute, journal_path):
+def merge(number, execute, journal_path, reconcile=False):
     journal_path.parent.mkdir(parents=True, exist_ok=True)
     with journal_path.with_suffix(".lock").open("a") as lock, \
             (journal_path.parent / "state.lock").open("a") as state_lock:
@@ -294,9 +346,18 @@ def merge(number, execute, journal_path):
                 if p["merged"] and p["head"]["sha"] == e["head"]:
                     journal(journal_path, {**e, "event": "merged",
                                           "merge_sha": p["merge_commit_sha"]})
+                elif reconcile and p["state"] == "open" and (
+                        (e.get("phase") == "prepared" and not any(
+                            x["event"] == "attempt" and x.get("key") == e["key"]
+                            for x in prior)) or p["head"]["sha"] != e["head"]):
+                    # Exclusive local locks prove no writer remains. No HTTP
+                    # attempt was made, or expected-head now excludes the old one.
+                    journal(journal_path, {**e, "event": "not-merged",
+                                          "observed_head": p["head"]["sha"]})
                 else:
                     raise RuntimeError("Uncertain previous merge; reconcile manually, do not retry")
             return {"result": "reconciled"}
+        require(not reconcile, "No pending intent to reconcile")
         snap = collect(number)
         state_path = journal_path.parent / "state.json"
         require(state_path.exists(), "Session state is required")
@@ -328,12 +389,16 @@ def merge(number, execute, journal_path):
         key = f"{number}:{head}:{base}"
         require(not any(e.get("key") == key and e["event"] == "merged" for e in prior),
                 "Merge already recorded")
-        intent = {"event": "intent", "key": key, "pr": number, "head": head, "base": base}
+        intent = {"event": "intent", "key": key, "pr": number, "head": head,
+                  "base": base, "phase": "prepared"}
         journal(journal_path, intent)
         # GitHub atomically guards the head. GitHub has no base-SHA merge precondition;
         # the final base read is conservative, not an atomic base lock.
-        require(api(f"repos/{REPO}/git/ref/heads/main")["object"]["sha"] == base,
-                "Base moved before merge; intent requires reconciliation")
+        if api(f"repos/{REPO}/git/ref/heads/main")["object"]["sha"] != base:
+            journal(journal_path, {**intent, "event": "not-merged",
+                                  "reason": "Base moved before any merge request"})
+            raise RuntimeError("Base moved before merge; no merge request sent")
+        journal(journal_path, {**intent, "event": "attempt"})
         result = api(f"repos/{REPO}/pulls/{number}/merge", "PUT",
                      {"sha": head, "merge_method": "squash"})
         require(result.get("merged") is True, "Merge not confirmed; reconcile before retry")
@@ -348,11 +413,14 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("pr", type=int)
     parser.add_argument("--execute", action="store_true")
+    parser.add_argument("--reconcile", action="store_true",
+                        help="Reconcile a pending intent without sending a merge request")
     parser.add_argument("--journal", type=Path, default=Path.home() /
                         ".factory/pr-review-correction/moterodiaz--DroneHacks/merge-journal.jsonl")
     args = parser.parse_args()
     require(args.pr > 0 and args.journal.is_absolute(), "Positive PR and absolute journal required")
-    print(json.dumps(merge(args.pr, args.execute, args.journal)))
+    require(not (args.execute and args.reconcile), "Reconcile never executes a merge")
+    print(json.dumps(merge(args.pr, args.execute, args.journal, args.reconcile)))
 
 
 if __name__ == "__main__":

@@ -87,6 +87,15 @@ Real areas and per-area owners replace these generic rows as code lands — add 
    but offers no base-SHA merge precondition; a final base read is not a lock.
    No admin bypass, direct main push, self-sign-off or branch deletion.
 
+   For a stopped intent, run `python3 .github/scripts/merge_reviewed.py <n>
+   --reconcile` from the trusted checkout. This never sends a merge request.
+   It records an observed merge, or clears an intent only when no HTTP attempt
+   was journaled (new prepared intents), or when an open PR has a different
+   head that excludes the old expected-SHA request. An attempted same-head
+   write with unknown outcome remains blocked; inspect GitHub and the journal,
+   never append a fabricated `not-merged` event or blindly repeat the request.
+   A detected base race before HTTP now records `not-merged` automatically.
+
 ## Rules that make it work without chat
 
 - The issue/PR body is the entire brief. Include absolute file paths, the head SHA, and the acceptance check that proves a fix. Never write "as discussed" or "the file we looked at" — the agent reading it shares no conversation history with the one that wrote it.
@@ -134,12 +143,26 @@ gh pr view <n> --json headRefOid --jq .headRefOid
 ## Automated Claude reviewer
 
 The existing workflow reviews PRs and supports review-only `@claude` mentions.
-A green check or free-text praise is not sign-off. Only an unedited
-`claude[bot]` comment with a `dronehacks-review-v1` JSON attestation qualifies
+A green check or free-text praise is not sign-off. Only the action-created
+`claude[bot]` tracking comment with a `dronehacks-review-v1` JSON attestation qualifies
 for automated merging. It records repository, PR, full head and base SHAs,
 run ID, independent verdict, zero findings, tests (command/result/evidence),
-manual actions and missing evidence. Every relevant test must pass; absent
+manual actions and missing evidence. The helper verifies the tracking comment's
+ID against the action's pre-model job log, rejecting missing, mismatched or
+ambiguous binding. Tracking edits are allowed only within the completed run,
+not afterward. The latest updated exact-head/base verdict must be pass;
+comments do not dismiss an outstanding changes-requested review.
+Every relevant test must pass; absent
 physical validation remains a blocker, never a guessed pass.
+
+Test entries require `source: "executed"` and the actual CI `run_id`.
+The helper verifies that independent exact-head/base CI execution completed the
+`Isolated Python tests` step successfully under the reviewed test workflow.
+The existing `changes` job runs the exact head's exported source in a read-only
+container with no network, credentials or Git metadata, bounded resources and
+a timeout. Zero discovered tests fail. Review must still assess coverage and
+dependency gaps; author-reported results and unrelated passing tests cannot
+establish relevant coverage. No new CI job is added.
 
 The helper accepts only a successful team-triggered **main-branch mention**
 run using the exact trusted workflow, with a run-bound review-context artifact.
@@ -150,7 +173,7 @@ also accepts the existing main-branch mention reviewer at pinned workflow blob
 provide the same structured exact-head/base verdict and tests, plus
 `bootstrap: true` and `request_comment`, bound to an unedited team review-only
 request containing both full SHAs. The bot, successful main run, workflow blob,
-timing, independent authorship and request are all verified. Only that reviewed
+timing, action-log comment binding, independent authorship and request are all verified. Only that reviewed
 policy checkout may bootstrap execution. No other PR gets this exception, and
 the candidate workflow's PR-triggered run never supplies its own authority.
 

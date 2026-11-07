@@ -4,6 +4,10 @@ on:
   pull_request:
     branches: [main]
 
+permissions:
+  contents: read
+  pull-requests: read
+
 jobs:
   changes:
     runs-on: ubuntu-latest
@@ -11,12 +15,41 @@ jobs:
       contracts: ${{ steps.f.outputs.contracts }}
     steps:
       - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
       - uses: dorny/paths-filter@v3
         id: f
         with:
           filters: |
             contracts:
               - 'contracts/**'
+      - name: Isolated Python tests
+        env:
+          PR_HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          [[ "$PR_HEAD" =~ ^[0-9a-f]{40}$ ]]
+          source=$(mktemp -d)
+          container="review-tests-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          trap 'docker rm -f "$container" >/dev/null 2>&1 || true; rm -rf "$source"' EXIT
+          git archive "$PR_HEAD" | tar -x -C "$source"
+          chmod 755 "$source"
+          docker pull python:3.12-slim
+          timeout --kill-after=10s 180s docker run --rm --name "$container" --network none --read-only \
+            --cap-drop ALL --security-opt no-new-privileges \
+            --pids-limit 64 --memory 512m --cpus 1 --user 65534:65534 \
+            --tmpfs /tmp:rw,noexec,nosuid,size=64m \
+            --env PYTHONDONTWRITEBYTECODE=1 \
+            --mount "type=bind,source=$source,target=/src,readonly" \
+            --workdir /src python:3.12-slim python3 -I -c '
+          import sys, unittest
+          suite = unittest.defaultTestLoader.discover("tests")
+          if not suite.countTestCases():
+              raise SystemExit("No tests discovered; not a passing result")
+          result = unittest.TextTestRunner(verbosity=2).run(suite)
+          sys.exit(not result.wasSuccessful())
+          '
 
   contracts-guard:
     needs: changes
