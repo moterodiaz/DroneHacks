@@ -1,0 +1,21 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>dronehacks_planner</name>
+  <version>0.1.0</version>
+  <description>
+    DroneHacks navigation library, ROS-free: course map in, route, smoothed trajectory, speed profile and
+    Follower setpoints out, plus an offline PX4 stand-in and benchmark. Used by dronehacks_vio. See README.md.
+  </description>
+  <maintainer email="noreply@example.com">DroneHacks team</maintainer>
+  <license>Proprietary</license>
+
+  <exec_depend>python3-numpy</exec_depend>
+  <exec_depend>python3-yaml</exec_depend>
+
+  <test_depend>python3-pytest</test_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>
