@@ -86,6 +86,7 @@ class Mission:
         self.finished_at_s: float | None = None
         self.previous_s: float | None = None
         self.events: list[str] = []
+        self.flown = False
 
     def tick(self, now_s: float, offboard: bool, armed: bool, drone: Drone | None) -> PoseCommand | TwistCommand | None:
         """The command to send now, or None to send nothing; `drone` is None while its estimate is stale."""
@@ -113,6 +114,11 @@ class Mission:
             case _:
                 return None
 
+    def flight_over(self, armed: bool) -> bool:
+        """Whether a climb has started since start-up and PX4 is now disarmed: the run's recording
+        can close. Arming on the ground, or a route refused away from the mark, is no flight."""
+        return self.flown and not armed
+
     def _wait(self, offboard: bool, drone: Drone | None) -> PoseCommand | None:
         """A pose over the drone at the flight height, the stream the interface needs before it
         requests Offboard; on Offboard, the climb, if the drone stands on the launch mark."""
@@ -126,6 +132,7 @@ class Mission:
                 return None
 
             self.start = (drone.east, drone.north)
+            self.flown = True
             self._enter(Phase.CLIMB, f"Offboard: climbing to {self.height_m:.2f} m")
 
         return PoseCommand(drone.east, drone.north, self.height_m, math.nan)

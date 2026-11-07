@@ -104,6 +104,27 @@ launch mark: cuVSLAM's odom origin is wherever it started.
 | `land` | true | false holds over the pad for the pilot |
 | `tunnel_lead_m` | 0.0 | > 0 flies the tunnel as one straight leg from that far outside its mouths; it touched more in SITL, so it is off |
 | `setpoint_rate_hz` | 10 | the interface's own rate, the kit default |
+| `record` | true | record the run (below); false keeps the follower up for another attempt after a disarm |
+
+### Every run is recorded
+
+With `record:=true` the launch does what the square test's does: it writes
+`/root/team_ws/flights/<UTC time>-light-follower/` (the host's `~/team_ws/flights`) with
+`meta/manifest.txt` and the transform as `meta/params/course_follower.yaml`, then records a light
+rosbag2 bag (`-s mcap -a`, excluding images, depth, point clouds and the tracker's visualisation,
+as `dronehacks_telemetry`'s light profile does) from launch, so the pre-arm start-up and the
+Offboard handover are in it. Once a climb has started and PX4 has disarmed, the follower logs
+"flight over and disarmed", exits 5 s later, and the launch sends the recorder SIGINT, which
+closes the bag cleanly. One flight per launch: restart the stack on the mark to fly again, which
+the odom origin needs anyway. Arming on the ground or a refused route does not end it.
+
+After the flight, fetch the ULog into the folder's `px4/` and run
+`python3 -m dronehacks_telemetry.analyze <folder> --course-map contracts/course_v3_layout.yaml`
+(branch `telemetry/flight-recorder`). The bag is lost only if the stack is killed first; then
+`ros2 bag reindex <folder>/bag -s mcap` in the container repairs it. Checked in a ROS 2 Humble
+container with a stand-in interface and a scripted arm, Offboard and disarm (2026-11-07): the bag
+closed with its metadata and the analyzer read the folder. Not yet run in the skybeta image,
+which needs `rosbag2_storage_mcap`.
 
 Plan and print without ROS or a drone:
 
@@ -127,6 +148,9 @@ ros2 run dronehacks_course_follower dry_run --no-window --steps 40
 - **Heights.** Odom z is height above where cuVSLAM started; set `odom_origin_height_m` once measured.
 
 ## Bench check, props off
+
+Launch with `record:=false` for steps 3-8: with recording on, the follower exits after the first
+disarm that follows a climb (step 7).
 
 1. Props off, drone on the launch mark, stack restarted there. `ros2 run dronehacks_course_follower dry_run`:
    it prints the waypoints, "window flown" (or closed) and lands in the ideal run.

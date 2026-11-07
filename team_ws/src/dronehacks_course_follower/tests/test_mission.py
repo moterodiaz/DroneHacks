@@ -88,6 +88,24 @@ def test_at_the_routes_end_it_descends_fast_enough_to_land_and_stops_at_the_disa
     # PX4 disarms on its own: the mission is done and sends nothing more
     assert mission.tick(now_s, offboard=True, armed=False, drone=Drone(*_ROUTE[-1], 0.0, 0.0)) is None
     assert mission.phase is Phase.DONE
+    assert mission.flight_over(armed=False)
+
+
+def test_the_flight_is_over_only_once_offboard_was_flown_and_px4_has_disarmed() -> None:
+    mission = _mission()
+
+    # Arming and disarming on the ground, or a route refused away from the mark, is no flight
+    mission.tick(0.0, offboard=False, armed=True, drone=_on_the_ground())
+    mission.tick(_PERIOD_S, offboard=False, armed=False, drone=_on_the_ground())
+    mission.tick(2 * _PERIOD_S, offboard=True, armed=True, drone=_on_the_ground(east=1.0))
+    mission.tick(3 * _PERIOD_S, offboard=False, armed=False, drone=_on_the_ground(east=1.0))
+    assert not mission.flight_over(armed=False)
+
+    # A climb that the pilot takes over is a flight, over once PX4 disarms
+    mission.tick(4 * _PERIOD_S, offboard=True, armed=True, drone=_on_the_ground())
+    mission.tick(5 * _PERIOD_S, offboard=False, armed=True, drone=_on_the_ground())
+    assert not mission.flight_over(armed=True)
+    assert mission.flight_over(armed=False)
 
 
 def test_with_landing_off_it_holds_over_the_routes_end() -> None:

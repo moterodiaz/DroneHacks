@@ -30,6 +30,10 @@ ODOMETRY_STALE_S = 0.5
 # The frame the flight interface reads setpoints in
 ODOM_FRAME = "odom"
 
+# With `record` on, the node exits this long after the flight's disarm, so the recording the launch
+# closes on its exit keeps the touchdown and PX4 settling
+RECORDING_TAIL_S = 5.0
+
 
 class CourseFollower(Node):
     """Plans once at start-up, then ticks the mission at `rate_hz`."""
@@ -61,6 +65,10 @@ class CourseFollower(Node):
         self.drone_at_s = -math.inf
         self.offboard, self.armed = False, False
         self.seen_events = 0
+
+        # One flight per launch while recording: the run ends a little after its disarm
+        self.record = bool(self._parameter("record", False))
+        self.over_at_s: float | None = None
         self.pose_publisher = self.create_publisher(PoseStamped, "/skybeta/setpoint/pose", 10)
         self.twist_publisher = self.create_publisher(TwistStamped, "/skybeta/setpoint/twist", 10)
         self.create_subscription(Odometry, self._parameter("odometry_topic", "/visual_slam/tracking/odometry"),
@@ -111,6 +119,15 @@ class CourseFollower(Node):
         elif isinstance(command, TwistCommand):
             self.twist_publisher.publish(self._twist(command))
 
+        if self.record and self.over_at_s is None and self.mission.flight_over(self.armed):
+            self.over_at_s = now_s
+            self.get_logger().info(f"flight over and disarmed: exiting in {RECORDING_TAIL_S:.0f} s to close the "
+                                   "recording; restart the stack on the mark to fly again")
+
+    def finished(self) -> bool:
+        """Whether the recorded flight is over and its tail kept, so the node can exit."""
+        return self.over_at_s is not None and time.monotonic() - self.over_at_s >= RECORDING_TAIL_S
+
     def _pose(self, command: PoseCommand) -> PoseStamped:
         """A course-frame pose command as the odom-frame message the interface reads."""
         message = PoseStamped()
@@ -136,11 +153,12 @@ class CourseFollower(Node):
 
 
 def main(args: list[str] | None = None) -> None:
-    """Runs the node until interrupted."""
+    """Runs the node until interrupted, or until a recorded flight is over."""
     rclpy.init(args=args)
     node = CourseFollower()
     try:
-        rclpy.spin(node)
+        while rclpy.ok() and not node.finished():
+            rclpy.spin_once(node, timeout_sec=0.1)
     except KeyboardInterrupt:
         pass
     finally:
