@@ -39,8 +39,10 @@ def transform(text: str, *, rotate: bool = False, dx: float = 0.0, dy: float = 0
             return match.group(0)
         x, y = values[0], values[1]
         if rotate:
-            x, y = -y, x
-        rendered = [repr(x + dx), repr(y + dy)] + [repr(value) for value in values[2:]]
+            x, y = -y, x  # rotation applies to points and directions alike
+        if kind == "CARTESIAN_POINT":
+            x, y = x + dx, y + dy  # translation moves geometry, not orientations
+        rendered = [repr(x), repr(y)] + [repr(value) for value in values[2:]]
         return f"{kind}('{name}',({','.join(rendered)}))"
 
     return re.sub(r"(CARTESIAN_POINT|DIRECTION)\('([^']*)',\(([^)]*)\)\)", rewrite, text)

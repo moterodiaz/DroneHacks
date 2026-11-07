@@ -25,6 +25,7 @@ from __future__ import annotations
 import argparse
 import math
 import re
+import shlex
 import sys
 from pathlib import Path
 
@@ -652,7 +653,19 @@ def main(argv: list[str] | None = None) -> int:
                         help="validate the model's measured geometry against contracts/course.md's nominal table before writing")
     args = parser.parse_args(argv)
 
-    parts = [f"python3 course/step_to_map.py --launch-heading {args.launch_heading}"]
+    def display(path: Path) -> str:
+        """Repo-relative when possible, so the recorded command is portable."""
+        try:
+            return str(path.resolve().relative_to(ROOT))
+        except ValueError:
+            return str(path)
+
+    parts = [
+        "python3 course/step_to_map.py",
+        f"--step {shlex.quote(display(args.step))}",
+        f"--output {shlex.quote(display(args.output))}",
+        f"--launch-heading {args.launch_heading}",
+    ]
     if args.window_clearance is not None:
         parts.append(f"--window-clearance {args.window_clearance}")
     if args.self_check:
