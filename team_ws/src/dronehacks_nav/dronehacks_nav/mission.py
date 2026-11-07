@@ -178,6 +178,7 @@ class Mission(Node):
         self.corners = []
         self.corner_index = 0
         self.hold_target = None
+        self._was_armed = None
         self.hover_started_at = None
         self.corner_started_at = None
         self.was_offboard = False
@@ -202,6 +203,20 @@ class Mission(Node):
         except ValueError:
             return
         self.offboard_active = bool(state.get('offboard_active', False))
+        armed = bool(state.get('armed', False))
+        if self._was_armed and not armed:
+            # Disarm ends the flight attempt: a re-arm starts a fresh square
+            # from wherever the drone then sits, never from stale state.
+            self.mission_state = 'WAIT_FOR_OFFBOARD'
+            self.start = None
+            self.corners = []
+            self.hold_target = None
+            self.hover_started_at = None
+            self.corner_started_at = None
+            self.get_logger().warning(
+                'Disarm detected — square mission state reset; the next arm '
+                'begins a fresh attempt.')
+        self._was_armed = armed
         if state.get('clamped'):
             self._info_once(
                 f'clamped:{",".join(state["clamped"])}',

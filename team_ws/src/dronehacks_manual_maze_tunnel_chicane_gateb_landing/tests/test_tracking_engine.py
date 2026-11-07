@@ -165,6 +165,31 @@ class TestReset:
         eng.tick(0.1, True, pos, 'ok')
         assert eng.state == 'NAVIGATE'  # not latched in the old fault
 
+    def test_offboard_reentry_after_completed_attempt_resets(self):
+        """Missed-disarm fallback: offboard re-entry from HOLD_OVER_PAD
+        (only possible after a disarm/re-arm) starts a fresh mission."""
+        eng = make_engine()
+        pos = (0.0, 0.0, 0.8)
+        eng.tick(0.0, True, pos, 'ok')
+        eng.tick(0.1, True, pos, 'ok')
+        for i in range(1, len(eng.waypoints)):
+            wp = eng.waypoints[i]
+            eng.tick(float(i), True, (wp[0], wp[1], 0.8), 'ok')
+        assert eng.state == 'HOLD_OVER_PAD'
+        eng.tick(5.0, False, pos, 'ok')          # pilot takes over, lands
+        _, events = eng.tick(6.0, True, pos, 'ok')  # re-arm + offboard
+        assert eng.state == 'CLIMB'  # fresh attempt, not the stale pad hold
+        assert any('fresh mission' in e for e in events)
+
+    def test_fresh_attempt_requires_the_launch_mark(self):
+        """A re-armed drone mid-course must not fly back cross-country."""
+        eng = make_engine()
+        far = (1.5, 0.0, 0.8)  # mid-course, far from WP0
+        target, events = eng.tick(0.0, True, far, 'ok')
+        assert eng.state == 'WAIT_FOR_OFFBOARD'  # holds, does not start
+        assert any('not at the launch mark' in e for e in events)
+        assert target == far
+
 
 class TestNoLandingDescent:
     def test_final_state_holds_over_pad_at_hover_height(self):

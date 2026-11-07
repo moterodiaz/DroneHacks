@@ -787,9 +787,10 @@ class MissionEngine:
       still enforces the altitude check) only while the loss count stays
       under ``max_tracking_losses``.
     * **Waypoint timeout faults hold permanently** — the safety pilot takes
-      over. A disarm (the kit state's ``armed`` flag dropping) resets the
-      engine, so a re-arm always begins a fresh attempt from WAIT; state,
-      waypoint index, deadlines and loss counts never leak across flights.
+      over. A disarm (the kit state's ``armed`` flag dropping, with a
+      missed-disarm fallback on offboard re-entry) resets the engine, and a
+      fresh attempt additionally requires the drone to be back at the launch
+      mark — a re-armed drone mid-course never flies a cross-country leg.
       A pilot takeover (offboard inactive) pauses the waypoint deadline, so
       re-entering offboard grants a fresh timeout window.
     * **No landing descent** — heights are absolute in the odom frame, so a
@@ -800,13 +801,15 @@ class MissionEngine:
     """
 
     def __init__(self, waypoints_xy, hover_z, pad_xy, arrival_radius_m,
-                 waypoint_timeout_s=45.0, max_tracking_losses=3):
+                 waypoint_timeout_s=45.0, max_tracking_losses=3,
+                 launch_proximity_m=0.50):
         self.waypoints = [tuple(w) for w in waypoints_xy]
         self.hover_z = float(hover_z)
         self.pad_xy = tuple(pad_xy)
         self.arrival_radius_m = float(arrival_radius_m)
         self.waypoint_timeout_s = float(waypoint_timeout_s)
         self.max_tracking_losses = int(max_tracking_losses)
+        self.launch_proximity_m = float(launch_proximity_m)
         self.state = 'WAIT_FOR_OFFBOARD'
         self.idx = 0
         self.deadline = None
@@ -838,12 +841,20 @@ class MissionEngine:
         if position is None:
             self._once(events, 'no_odom', 'waiting for odometry ...')
             return None, events
-        if (offboard_active and not self._offboard_was_active
-                and self.state == 'NAVIGATE'):
-            # Re-entry after a pilot takeover: the deadline must not have
-            # kept running while the pilot had control.
-            self.deadline = now + self.waypoint_timeout_s
-            events.append('Offboard re-entered — fresh waypoint timeout window.')
+        if (offboard_active and not self._offboard_was_active):
+            if self.state in ('HOLD_FAULT', 'HOLD_OVER_PAD'):
+                # Offboard cannot re-enter without a disarm/re-arm (the kit
+                # blocks re-entry until then), so reaching here with a
+                # completed or aborted attempt means the disarm was missed at
+                # the 5 Hz state rate — reset so nothing stale survives.
+                self.reset()
+                events.append('Offboard re-entered after a completed or '
+                              'aborted attempt — starting a fresh mission.')
+            elif self.state == 'NAVIGATE':
+                # Re-entry after a pilot takeover: the deadline must not have
+                # kept running while the pilot had control.
+                self.deadline = now + self.waypoint_timeout_s
+                events.append('Offboard re-entered — fresh waypoint timeout window.')
         self._offboard_was_active = offboard_active
         if not offboard_active and self.state != 'WAIT_FOR_OFFBOARD':
             self._once(events, 'offboard_lost',
@@ -859,6 +870,15 @@ class MissionEngine:
                 self._once(events, 'wait_tracking',
                            f'Offboard active but tracking is "{tracking_status}" '
                            '— holding position.')
+                return tuple(position), events
+            if math.hypot(position[0] - self.waypoints[0][0],
+                          position[1] - self.waypoints[0][1]) > self.launch_proximity_m:
+                # A fresh attempt only starts at the launch mark: a re-armed
+                # drone mid-course must never fly a cross-country leg back.
+                self._once(events, 'not_at_launch',
+                           'not at the launch mark — holding; reposition the '
+                           'drone to the launch mark (or restart the node) to '
+                           'start the mission.')
                 return tuple(position), events
             self.state = 'CLIMB'
             self.last_target = (self.waypoints[0][0], self.waypoints[0][1],

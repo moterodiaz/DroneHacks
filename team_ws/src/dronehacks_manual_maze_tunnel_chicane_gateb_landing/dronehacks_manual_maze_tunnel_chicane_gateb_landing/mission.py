@@ -95,6 +95,7 @@ class FullCourseMission(Node):
         timeout_s = param('waypoint_timeout_s', 45.0)
         stale_after = param('tracking_stale_after_s', 0.5)
         frozen_window = param('tracking_frozen_window_s', 1.0)
+        launch_proximity = param('launch_proximity_m', 0.50)
         rate_hz = param('publish_rate_hz', 10.0)
 
         route = W.derive_route(data, goals, arrival_r)
@@ -108,7 +109,8 @@ class FullCourseMission(Node):
 
         self.engine = W.MissionEngine(
             odom_xy, hover_alt, pad_odom, arrival_r,
-            waypoint_timeout_s=timeout_s)
+            waypoint_timeout_s=timeout_s,
+            launch_proximity_m=launch_proximity)
         self.monitor = W.TrackingMonitor(stale_after_s=stale_after,
                                          frozen_window_s=frozen_window)
         self._dt = 1.0 / rate_hz
