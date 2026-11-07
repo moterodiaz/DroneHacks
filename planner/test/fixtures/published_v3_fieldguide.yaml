@@ -1,0 +1,156 @@
+# PROVISIONAL planner test fixture: the published v3 course, sliced at 0.8 m.
+#
+# Not the real map. Transcribed from the course SVG in docs/field-guide.html
+# (branch contracts/field-guide-extraction, commit 6c591173684c), which draws
+# the organisers' v3 course files cut at the 0.8 m flight height. Transform:
+# east = (x - 349.8) / 100, north = (349.8 - y) / 100 (100 px per metre, origin
+# at the floor centre). Checked: launch mark, pad centre and the SVG's window
+# marker land on contracts/course.md's published values.
+#
+# Walls are the slice's outline edges, so thickness is 0. Goal dimensions, and
+# each opening's depth (the 0.102 m wall thickness), are the organisers'
+# (contracts/course.md geometry table). Replace this with the CAD-sliced,
+# surveyed map from the course area before it flies anything.
+#
+# Fields marked PROPOSED are not in contracts/course.md yet; see planner/README.md.
+origin: [0.0, 0.0]
+slice_height: 0.8
+launch:                       # PROPOSED
+  position: [-2.5150, 0.9140]
+  heading: [0.0, 1.0]         # facing north up the first corridor
+segments:
+  # net
+  - {start: [-3.0480, 3.0480], end: [3.0480, 3.0480], thickness: 0.0}
+  - {start: [3.0480, 3.0480], end: [3.0480, -3.0480], thickness: 0.0}
+  - {start: [3.0480, -3.0480], end: [-3.0480, -3.0480], thickness: 0.0}
+  - {start: [-3.0480, -3.0480], end: [-3.0480, 3.0480], thickness: 0.0}
+  # walls (outline edges of the 0.8 m slice)
+  - {start: [-0.9250, 0.4060], end: [-0.9790, 0.4060], thickness: 0.0}
+  - {start: [-1.0260, 0.4060], end: [-0.9790, 0.4060], thickness: 0.0}
+  - {start: [-1.0260, 0.4060], end: [-1.0260, -0.1460], thickness: 0.0}
+  - {start: [-1.0260, -0.6220], end: [-1.0260, -0.1460], thickness: 0.0}
+  - {start: [-1.0260, -0.6220], end: [-0.9720, -0.6220], thickness: 0.0}
+  - {start: [-0.9250, -0.6220], end: [-0.9720, -0.6220], thickness: 0.0}
+  - {start: [-0.9250, -0.6220], end: [-0.9250, -0.0700], thickness: 0.0}
+  - {start: [-0.9250, 0.4060], end: [-0.9250, -0.0700], thickness: 0.0}
+  - {start: [-3.0480, 0.5080], end: [-3.0480, 0.4530], thickness: 0.0}
+  - {start: [-3.0480, 0.4060], end: [-3.0480, 0.4530], thickness: 0.0}
+  - {start: [-3.0480, 0.4060], end: [-2.1820, 0.4060], thickness: 0.0}
+  - {start: [-1.4350, 0.4060], end: [-2.1820, 0.4060], thickness: 0.0}
+  - {start: [-1.4350, 0.4060], end: [-1.4350, 0.4610], thickness: 0.0}
+  - {start: [-1.4350, 0.5080], end: [-1.4350, 0.4610], thickness: 0.0}
+  - {start: [-1.4350, 0.5080], end: [-2.3010, 0.5080], thickness: 0.0}
+  - {start: [-3.0480, 0.5080], end: [-2.3010, 0.5080], thickness: 0.0}
+  - {start: [-1.4350, 0.5080], end: [-1.4350, 0.4530], thickness: 0.0}
+  - {start: [-1.4350, 0.4060], end: [-1.4350, 0.4530], thickness: 0.0}
+  - {start: [-1.4350, 0.4060], end: [-0.5690, 0.4060], thickness: 0.0}
+  - {start: [0.1780, 0.4060], end: [-0.5690, 0.4060], thickness: 0.0}
+  - {start: [0.1780, 0.4060], end: [0.1780, 0.4610], thickness: 0.0}
+  - {start: [0.1780, 0.5080], end: [0.1780, 0.4610], thickness: 0.0}
+  - {start: [0.1780, 0.5080], end: [-0.6880, 0.5080], thickness: 0.0}
+  - {start: [-1.4350, 0.5080], end: [-0.6880, 0.5080], thickness: 0.0}
+  - {start: [0.1780, 0.5080], end: [0.1780, 0.4530], thickness: 0.0}
+  - {start: [0.1780, 0.4060], end: [0.1780, 0.4530], thickness: 0.0}
+  - {start: [0.1780, 0.4060], end: [0.9280, 0.4060], thickness: 0.0}
+  - {start: [1.5750, 0.4060], end: [0.9280, 0.4060], thickness: 0.0}
+  - {start: [1.5750, 0.4060], end: [1.5750, 0.4610], thickness: 0.0}
+  - {start: [1.5750, 0.5080], end: [1.5750, 0.4610], thickness: 0.0}
+  - {start: [1.5750, 0.5080], end: [0.8250, 0.5080], thickness: 0.0}
+  - {start: [0.1780, 0.5080], end: [0.8250, 0.5080], thickness: 0.0}
+  - {start: [0.9260, -1.1110], end: [0.9770, -1.1300], thickness: 0.0}
+  - {start: [1.0210, -1.1460], end: [0.9770, -1.1300], thickness: 0.0}
+  - {start: [1.0210, -1.1460], end: [1.3170, -0.3320], thickness: 0.0}
+  - {start: [1.5730, 0.3700], end: [1.3170, -0.3320], thickness: 0.0}
+  - {start: [1.5730, 0.3700], end: [1.5210, 0.3880], thickness: 0.0}
+  - {start: [1.4770, 0.4040], end: [1.5210, 0.3880], thickness: 0.0}
+  - {start: [1.4770, 0.4040], end: [1.1810, -0.4090], thickness: 0.0}
+  - {start: [0.9260, -1.1110], end: [1.1810, -0.4090], thickness: 0.0}
+  - {start: [-0.7940, -3.0120], end: [-0.7430, -3.0310], thickness: 0.0}
+  - {start: [-0.6990, -3.0470], end: [-0.7430, -3.0310], thickness: 0.0}
+  - {start: [-0.1470, -1.5320], end: [-0.1990, -1.5130], thickness: 0.0}
+  - {start: [-0.2430, -1.4970], end: [-0.1990, -1.5130], thickness: 0.0}
+  - {start: [-0.5800, -2.7190], end: [-0.6210, -2.8320], thickness: 0.0}
+  - {start: [-0.1470, -1.5320], end: [-0.2260, -1.7470], thickness: 0.0}
+  - {start: [-0.2670, -1.8600], end: [-0.2260, -1.7470], thickness: 0.0}
+  - {start: [-0.6990, -3.0470], end: [-0.6210, -2.8320], thickness: 0.0}
+  - {start: [-0.3620, -1.8250], end: [-0.3210, -1.7120], thickness: 0.0}
+  - {start: [-0.7940, -3.0120], end: [-0.7160, -2.7970], thickness: 0.0}
+  - {start: [-0.6750, -2.6840], end: [-0.7160, -2.7970], thickness: 0.0}
+  - {start: [-0.2430, -1.4970], end: [-0.3210, -1.7120], thickness: 0.0}
+  - {start: [-0.5800, -2.7190], end: [-0.6310, -2.7000], thickness: 0.0}
+  - {start: [-0.6750, -2.6840], end: [-0.6310, -2.7000], thickness: 0.0}
+  - {start: [-0.2670, -1.8600], end: [-0.3110, -1.8440], thickness: 0.0}
+  - {start: [-0.3620, -1.8250], end: [-0.3110, -1.8440], thickness: 0.0}
+  - {start: [-0.2430, -1.4970], end: [-0.1910, -1.5150], thickness: 0.0}
+  - {start: [-0.1470, -1.5310], end: [-0.1910, -1.5150], thickness: 0.0}
+  - {start: [-0.1470, -1.5310], end: [0.0420, -1.0120], thickness: 0.0}
+  - {start: [0.2040, -0.5650], end: [0.0420, -1.0120], thickness: 0.0}
+  - {start: [0.2040, -0.5650], end: [0.1530, -0.5460], thickness: 0.0}
+  - {start: [0.1090, -0.5300], end: [0.1530, -0.5460], thickness: 0.0}
+  - {start: [0.1090, -0.5300], end: [-0.0800, -1.0490], thickness: 0.0}
+  - {start: [-0.2430, -1.4970], end: [-0.0800, -1.0490], thickness: 0.0}
+  - {start: [-1.9810, 0.5080], end: [-1.9270, 0.5080], thickness: 0.0}
+  - {start: [-1.8800, 0.5080], end: [-1.9270, 0.5080], thickness: 0.0}
+  - {start: [-1.8800, 0.5080], end: [-1.8800, 1.3740], thickness: 0.0}
+  - {start: [-1.8800, 2.1210], end: [-1.8800, 1.3740], thickness: 0.0}
+  - {start: [-1.8800, 2.1210], end: [-1.9340, 2.1210], thickness: 0.0}
+  - {start: [-1.9810, 2.1210], end: [-1.9340, 2.1210], thickness: 0.0}
+  - {start: [-1.9810, 2.1210], end: [-1.9810, 1.2550], thickness: 0.0}
+  - {start: [-1.9810, 0.5080], end: [-1.9810, 1.2550], thickness: 0.0}
+  - {start: [-0.7620, 3.0480], end: [-0.8160, 3.0480], thickness: 0.0}
+  - {start: [-0.8640, 3.0480], end: [-0.8160, 3.0480], thickness: 0.0}
+  - {start: [-0.8640, 3.0480], end: [-0.8640, 2.1820], thickness: 0.0}
+  - {start: [-0.8640, 1.4350], end: [-0.8640, 2.1820], thickness: 0.0}
+  - {start: [-0.8640, 1.4350], end: [-0.8090, 1.4350], thickness: 0.0}
+  - {start: [-0.7620, 1.4350], end: [-0.8090, 1.4350], thickness: 0.0}
+  - {start: [-0.7620, 1.4350], end: [-0.7620, 2.3010], thickness: 0.0}
+  - {start: [-0.7620, 3.0480], end: [-0.7620, 2.3010], thickness: 0.0}
+  - {start: [0.2540, 0.5080], end: [0.3090, 0.5080], thickness: 0.0}
+  - {start: [0.3560, 0.5080], end: [0.3090, 0.5080], thickness: 0.0}
+  - {start: [0.3560, 0.5080], end: [0.3560, 1.3740], thickness: 0.0}
+  - {start: [0.3560, 2.1210], end: [0.3560, 1.3740], thickness: 0.0}
+  - {start: [0.3560, 2.1210], end: [0.3010, 2.1210], thickness: 0.0}
+  - {start: [0.2540, 2.1210], end: [0.3010, 2.1210], thickness: 0.0}
+  - {start: [0.2540, 2.1210], end: [0.2540, 1.2550], thickness: 0.0}
+  - {start: [0.2540, 0.5080], end: [0.2540, 1.2550], thickness: 0.0}
+  - {start: [3.0390, -0.3050], end: [3.0390, 0.9560], thickness: 0.0}
+  - {start: [1.5840, -0.3050], end: [1.5840, 0.0900], thickness: 0.0}
+  - {start: [1.5840, 1.2190], end: [1.5840, 0.0900], thickness: 0.0}
+  - {start: [3.0390, 1.2190], end: [3.0390, 0.9560], thickness: 0.0}
+  - {start: [3.0390, 1.2190], end: [3.0370, 1.2190], thickness: 0.0}
+  - {start: [3.0330, 1.2190], end: [3.0370, 1.2190], thickness: 0.0}
+  - {start: [1.5900, 1.2190], end: [1.5860, 1.2190], thickness: 0.0}
+  - {start: [1.5840, 1.2190], end: [1.5860, 1.2190], thickness: 0.0}
+  - {start: [1.5840, -0.3050], end: [1.5860, -0.3050], thickness: 0.0}
+  - {start: [3.0330, -0.3050], end: [3.0370, -0.3050], thickness: 0.0}
+  - {start: [1.5900, -0.3050], end: [1.5860, -0.3050], thickness: 0.0}
+  - {start: [3.0390, -0.3050], end: [3.0370, -0.3050], thickness: 0.0}
+  - {start: [1.5900, -0.3050], end: [1.5900, 0.5410], thickness: 0.0}
+  - {start: [3.0330, -0.3050], end: [3.0330, 0.7370], thickness: 0.0}
+  - {start: [3.0330, 1.2190], end: [3.0330, 0.7370], thickness: 0.0}
+  - {start: [1.5900, 1.2190], end: [1.5900, 0.5410], thickness: 0.0}
+boulders:                     # height: PROPOSED (organisers: 0.533 m tall)
+  - {centre: [2.0120, -2.4690], radius: 0.2290, height: 0.533}
+  - {centre: [2.5300, -1.5540], radius: 0.2290, height: 0.533}
+  - {centre: [0.7920, -2.3470], radius: 0.2290, height: 0.533}
+  - {centre: [-2.5600, -2.4990], radius: 0.2290, height: 0.533}
+  - {centre: [-1.3410, -2.3770], radius: 0.2290, height: 0.533}
+goals:                        # axis = direction of travel through the opening
+  - name: tunnel
+    shape: oval
+    centre: [2.3115, 0.4570]
+    params: {axis: [0.0, -1.0], length: 1.524, width: 1.473, height: 1.829}   # out of the south end; 60 x 58 x 72 in
+  - name: window
+    shape: rect
+    group: landing_entry        # PROPOSED: window or gate_b, either enters the landing area
+    centre: [-0.4710, -2.2720]
+    params: {axis: [-0.9396, 0.3424], width: 0.914, depth: 0.102, bottom: 0.305, top: 1.219}
+  - name: gate_b
+    shape: gate                 # PROPOSED shape: a plain gap between two walls
+    group: landing_entry
+    centre: [-0.4095, -0.5847]
+    params: {axis: [0.0657, -0.9978], width: 1.13, depth: 0.102}
+  - name: pad
+    shape: disc
+    centre: [-2.0420, -0.7920]
+    params: {radius: 0.7620}
