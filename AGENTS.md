@@ -27,11 +27,12 @@ A reviewer may cite any invariant by number (e.g. "§3.4").
 4. **Every PR goes through docs/BOARD.md's label lifecycle before merge.** There is no out-of-band merge.
 5. **Escalate to a human (`needs-human` label + assignee) rather than guessing on:** spend, production/deployment actions, security-relevant guard changes, or any cross-area contract break.
 
-Invariants 6–7 are reserved for real constraints that emerge once code and areas exist. Do not invent entries here.
+6. **Never write a PX4 parameter outside `contracts/px4.md`'s allowlist.** Rule 8.5; the organisers' failsafes, kill switch, geofence and battery limits are theirs. Save their `.params` baseline before the first write.
+7. **No course geometry or route literals in code.** Every coordinate traces to `contracts/course.md` or the map file it defines. Rule 9.5 — an AI code review screens every repo for layout-specific hard-coding, and its flags go to the judges for the 15 generality points.
 
 ## §4 Tech conventions
 
-No stack has been chosen yet. Add language/framework conventions here once the first service/module lands; keep this section a living pointer, not boilerplate.
+ROS 2 Humble / Python nodes on the Jetson, PX4 v1.16.1. See `contracts/px4.md` for the version and transport pins.
 
 ## §5 Validation
 
