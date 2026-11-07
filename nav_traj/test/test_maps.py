@@ -7,7 +7,9 @@ import _paths
 import yaml
 
 from dronehacks_planner.convert import convert
+from dronehacks_planner.course_map import load_map
 from dronehacks_traj.factory import flight_checks, prepare
+from dronehacks_traj.frames import model_odom_frame
 from dronehacks_traj.mission import MissionConfig
 from dronehacks_traj.vehicle_sim import fly, summary
 
@@ -33,13 +35,17 @@ class StepMapTest(unittest.TestCase):
         self.assertEqual(doc["launch"]["heading"], [0.0, 1.0])                         # frames.md: facing north
 
     def test_whole_mission_on_the_step_map(self):
-        prep = prepare(str(MAPS / "course_v3_step.yaml"), MissionConfig(rest_height_m=0.07))
+        cmap = load_map(str(MAPS / "course_v3_step.yaml"))
+        # The model's odom frame starts at the launch pose; the node's frame is measured.
+        # land is off by default (px4.md): the dry run of a whole mission opts in explicitly.
+        frame = model_odom_frame(cmap.launch.position, cmap.launch.heading)
+        prep = prepare(cmap, MissionConfig(rest_height_m=0.07, land=True), frame=frame)
         log = fly(prep.mission)
         checks = flight_checks(prep, log.pos)
         self.assertEqual(summary(log)["states"], ["WAIT", "TAKEOFF", "FOLLOW", "HOLD", "LAND", "LANDED"])
         self.assertIn("disarm", log.events)
         self.assertEqual(checks["wall_touches"], 0)
-        self.assertEqual(checks["openings"], {"tunnel": True, "window": True})
+        self.assertEqual(checks["openings"], {"tunnel": True, "gate_b": True})
         self.assertTrue(checks["on_pad"])
 
 

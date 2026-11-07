@@ -8,7 +8,9 @@
 At start-up it plans from the map file:
 * ``dronehacks_planner.pipeline.fastest`` picks the quickest verified
   alternative, then smooths it and profiles its speed;
-* it places the odom frame on the course by the map's launch mark and heading.
+* it places the odom frame by the **measured** course->odom transform
+  (contracts/frames.md): three required parameters, no defaults. It never
+  derives the transform from the map's launch heading.
 
 Any failure is a configuration error: the node publishes nothing and exits.
 With no team setpoint, the kit refuses Offboard, so the pilot keeps the
@@ -21,7 +23,10 @@ publishes to ``/fmu/in/*``, and reads no lidar.
 Parameters:
 
     map_file              the course map (contracts/course.md format)          required
-    rest_height_m         body centre above the floor when landed, m           required
+    rest_height_m         body centre above the floor when landed, m           required (measure it)
+    course_to_odom_yaw    rotation of the measured R_odom_course, rad          required (measure it)
+    course_to_odom_x      o_odom x: the course origin's odom reading, m         required (measure it)
+    course_to_odom_y      o_odom y                                          required (measure it)
     v_max_mps             MPC_XY_VEL_MAX as set on the drone                   1.0
     odometry_topic        the pose (the Guard's, or cuVSLAM's)                 /vo_guard/odometry
     state_topic           the kit's state JSON                                 /skybeta/state
@@ -55,7 +60,7 @@ from dronehacks_planner.limits import VehicleLimits
 from dronehacks_planner.route import PlannerConfig
 
 from .factory import prepare
-from .frames import body_to_world, ned_yaw_to_enu, quat_to_yaw, yaw_to_quat
+from .frames import OdomFrame, body_to_world, ned_yaw_to_enu, quat_to_yaw, yaw_to_quat
 from .mission import Command, MissionConfig, OdomPose
 
 QUEUE_DEPTH = 10
@@ -72,6 +77,9 @@ class MissionNode(Node):
         super().__init__("mission", **kwargs)
         self.declare_parameter("map_file", "")
         self.declare_parameter("rest_height_m", float("nan"))
+        self.declare_parameter("course_to_odom_yaw", float("nan"))
+        self.declare_parameter("course_to_odom_x", float("nan"))
+        self.declare_parameter("course_to_odom_y", float("nan"))
         self.declare_parameter("v_max_mps", VehicleLimits().v_max_mps)
         self.declare_parameter("odometry_topic", "/vo_guard/odometry")
         self.declare_parameter("state_topic", "/skybeta/state")
@@ -95,10 +103,20 @@ class MissionNode(Node):
             rest = float(self._param("rest_height_m"))
             if not math.isfinite(rest):
                 raise ValueError("parameter rest_height_m is required: measure it (it has no default)")
+            transform = tuple(float(self._param(n)) for n in
+                              ("course_to_odom_yaw", "course_to_odom_x", "course_to_odom_y"))
+            if not all(math.isfinite(v) for v in transform):
+                raise ValueError("parameters course_to_odom_yaw, course_to_odom_x and course_to_odom_y "
+                                 "are required: the measured course->odom transform, contracts/frames.md "
+                                 "(the rotation of R_odom_course, then the translation o_odom). They have "
+                                 "no defaults and are not derived from the launch heading: measure them "
+                                 "at each tracking initialisation")
+            frame = OdomFrame.from_measured(transform[0], transform[1:])
             config = MissionConfig(rest_height_m=rest, **{f.name: self._param(f.name) for f in cfg_fields})
             limits = dataclasses.replace(VehicleLimits(), v_max_mps=float(self._param("v_max_mps")))
             prefer = tuple(p for p in self._param("prefer") if p)
-            self.prepared = prepare(map_file, config, limits, dataclasses.replace(PlannerConfig(), prefer=prefer))
+            self.prepared = prepare(map_file, config, limits,
+                                   dataclasses.replace(PlannerConfig(), prefer=prefer), frame=frame)
         except Exception as exc:  # noqa: BLE001 - every start-up failure must stop the node before it publishes
             raise ConfigError(str(exc)) from exc
         self.mission = self.prepared.mission

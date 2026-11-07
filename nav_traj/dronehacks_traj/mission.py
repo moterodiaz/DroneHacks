@@ -4,9 +4,9 @@ The state machine is ported from the lidar stream's ``follower/mission.py``,
 at commit ``6dc1263`` on ``core/port-depth-camera-testing``. Three things differ:
 
 1. **FOLLOW flies this repo's Follower** (``dronehacks_planner.follower``):
-   the smoothed trajectory with its speed profile, lead-formula poses with a
-   collision-checked lead, and the progress governor. The lidar stream flies
-   a carrot on the polyline.
+   the smoothed trajectory with its speed profile, its reference poses (the
+   lead formula is opt-in and off by default), and the progress governor.
+   The lidar stream flies a carrot on the polyline.
 2. **It publishes the takeoff pose while waiting, but only while the
    prechecks pass.** The kit grants Offboard only if a team setpoint is under
    1 s old when the pilot switches to Position (``auto_offboard.py``). The
@@ -26,8 +26,10 @@ at commit ``6dc1263`` on ``core/port-depth-camera-testing``. Three things differ
 Rules kept from the lidar stream (competitor_guide.md §3-§4):
 * Nothing before Offboard except the takeoff pose. If Offboard ends, for any
   reason, stop for good: never re-request it, never arm, disarm or change mode.
-* Landing uses a velocity setpoint. The kit floors poses at ``min_altitude_m``,
-  but only caps twists. PX4 disarms itself ``COM_DISARM_LAND`` after landing.
+* Landing uses a velocity setpoint, and only with ``land: true`` (off by
+  default: the mission then holds over the pad for the pilot, px4.md). The
+  kit floors poses at ``min_altitude_m``, but only caps twists. PX4 disarms
+  itself ``COM_DISARM_LAND`` after landing.
 
 Added for safety:
 * **GROUNDED.** Offboard starts but the pose is stale or a precheck now
@@ -88,7 +90,10 @@ class MissionConfig:
     max_prediction_s: float = 0.2
     #: Off the path by more than this: hold and wait for the pilot. The 0.93 m passage leaves +-0.18 m.
     abort_cross_track_m: float = 0.35
-    land: bool = True
+    #: Land on the pad after the hold. False by default: the drone holds over the pad
+    #: for the pilot, because contracts/px4.md blocks the twist descent until a landing
+    #: API is contracted. Set true only per that contract.
+    land: bool = False
 
     def __post_init__(self) -> None:
         for f in dataclasses.fields(self):
@@ -131,12 +136,17 @@ class Mission:
     """One run. Call :meth:`update` on a timer and publish what it returns (None = send nothing)."""
 
     def __init__(self, plan: FlightPlan, frame: OdomFrame, field: ObstacleField, slice_height_m: float,
-                 limits: VehicleLimits, config: MissionConfig, follower: FollowerConfig = FollowerConfig()):
+                 limits: VehicleLimits, config: MissionConfig, follower: FollowerConfig = FollowerConfig(),
+                 launch_heading: Optional[float] = None):
+        """``frame``: the measured course->odom transform (frames.py). ``launch_heading``: the
+        map's launch heading in course radians, the precheck's heading reference (None: no
+        heading precheck -- the frame itself is still measured, never derived from it)."""
         self.plan = plan
         self.frame = frame
         self.field = field
         self.limits = limits
         self.config = config
+        self._launch_yaw_odom = None if launch_heading is None else frame.yaw_to_odom(launch_heading)
         # The mission predicts across the odometry's real age itself, so the Follower must not again.
         self.follower_config = dataclasses.replace(follower, odom_latency_s=0.0)
         self.z_fly = slice_height_m - config.rest_height_m
@@ -213,9 +223,10 @@ class Mission:
         d = math.hypot(pose.x - self.start_odom[0], pose.y - self.start_odom[1])
         if d > cfg.start_tolerance_m:
             return f"{d:.2f} m from the route start (allowed {cfg.start_tolerance_m:.2f} m)"
-        heading_err = abs(wrap(pose.yaw - self.frame.yaw_to_odom(self.frame.heading)))
-        if math.degrees(heading_err) > cfg.heading_tolerance_deg:
-            return f"heading {math.degrees(heading_err):.1f} deg off the launch heading"
+        if self._launch_yaw_odom is not None:
+            heading_err = abs(wrap(pose.yaw - self._launch_yaw_odom))
+            if math.degrees(heading_err) > cfg.heading_tolerance_deg:
+                return f"heading {math.degrees(heading_err):.1f} deg off the launch heading"
         if cfg.px4_heading_gate_deg > 0:
             if px4_yaw is None:
                 return "no heading from PX4 for the heading gate"

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import dataclasses
+import math
 import time
 from typing import Optional
 
@@ -29,15 +30,23 @@ class Prepared:
 def prepare(map_source, mission_config: MissionConfig, limits: VehicleLimits = VehicleLimits(),
             planner: PlannerConfig = PlannerConfig(), follower: FollowerConfig = FollowerConfig(),
             frame: Optional[OdomFrame] = None) -> Prepared:
-    """``map_source``: a path or a CourseMap. Raises on anything that can't be planned or verified."""
+    """``map_source``: a path or a CourseMap. Raises on anything that can't be planned or verified.
+
+    ``frame`` is the **measured** course->odom transform (contracts/frames.md), and it is
+    required: it is never derived from the map's launch heading. The node passes it from its
+    required parameters; the offline model builds it with ``frames.model_odom_frame``."""
     t0 = time.perf_counter()
     cmap = map_source if isinstance(map_source, CourseMap) else load_map(map_source)
     if frame is None:
-        if cmap.launch is None or cmap.launch.heading is None:
-            raise ValueError("the map has no launch position and heading; the odom frame is placed by them")
-        frame = OdomFrame.from_launch(cmap.launch.position, cmap.launch.heading)
+        raise ValueError("the measured course->odom transform is required (contracts/frames.md): "
+                          "pass OdomFrame.from_measured(yaw, o_odom); it has no default and is not "
+                          "derived from the map's launch heading")
+    launch = cmap.launch
+    launch_heading = None if launch is None or launch.heading is None else math.atan2(
+        float(launch.heading[1]), float(launch.heading[0]))
     plan, alternatives = fastest(cmap, planner, limits)
-    mission = Mission(plan, frame, make_field(cmap, planner), cmap.slice_height, limits, mission_config, follower)
+    mission = Mission(plan, frame, make_field(cmap, planner), cmap.slice_height, limits, mission_config,
+                      follower, launch_heading=launch_heading)
     return Prepared(cmap, plan, frame, mission, alternatives, time.perf_counter() - t0)
 
 

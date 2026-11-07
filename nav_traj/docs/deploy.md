@@ -44,16 +44,22 @@ which. The STEP map isn't surveyed, so before relying on it:
 
 ## 3. Parameters
 
-Set the two measured values when you run the script, e.g.
-`V_MAX=1.0 REST_HEIGHT=0.07 nav_traj/scripts/install_on_drone.sh`. It writes them
-into the installed `config/traj_nav.example.yaml` and dry-runs with the same
-values. A rerun without them keeps what the last run wrote. Don't edit the copy
-in `~/team_ws/src`: every run replaces it. Change other parameters in the
+Set the measured values when you run the script, e.g.
+`V_MAX=1.0 REST_HEIGHT=<measured> ODOM_YAW=<measured> ODOM_X=<measured> ODOM_Y=<measured> nav_traj/scripts/install_on_drone.sh`.
+It writes them into the installed `config/traj_nav.example.yaml` and dry-runs with the same
+values. A rerun without them keeps what the last run wrote. Don't edit the copy in
+`~/team_ws/src`: every run replaces it. Change other parameters in the
 checkout's `nav_traj/config/traj_nav.example.yaml` before running the script.
 
 * `v_max_mps`: the live `MPC_XY_VEL_MAX`, from QGroundControl > Parameters.
   The SN0001 file says 1.0, the baseline file 12.
-* `rest_height_m`: the body centre above the floor when landed. Tape-measure it.
+* `rest_height_m`: the body centre above the floor when landed. Tape-measure it
+  on drone 1 (`frames.md`'s 0.07 m is the lab stand-in's, not this kit's).
+* `course_to_odom_yaw`, `course_to_odom_x`, `course_to_odom_y`: the **measured**
+  course->odom transform (`contracts/frames.md`): the rotation of `R_odom_course`
+  in radians, then the translation `o_odom` in metres. Measure it at each
+  tracking initialisation; do not assume an identity rotation from the launch
+  heading. The node refuses to start and publishes nothing without them.
 * `px4_heading_gate_deg`: 2.0. Leave it on unless the first bench test shows
   PX4's and vision's headings differ by a constant (competitor_guide.md §1).
   In that case, set the interface's offset first.
@@ -64,8 +70,8 @@ In `/etc/skybeta/drone.env` (sudo):
 
 ```sh
 COMPETITOR_PKG=dronehacks_traj
-COMPETITOR_LAUNCH=traj_nav_competitor.launch.py        # Guard if dronehacks_vo is installed, else raw cuVSLAM
-# COMPETITOR_LAUNCH=traj_nav_competitor_raw.launch.py  # always raw cuVSLAM
+COMPETITOR_LAUNCH=traj_nav_competitor.launch.py        # raw cuVSLAM, the default (no Guard)
+# COMPETITOR_LAUNCH=traj_nav_competitor_raw.launch.py  # also raw cuVSLAM
 ```
 
 The kit passes only its own drone.env keys into the container, so don't put
@@ -83,8 +89,8 @@ ros2 launch dronehacks_traj traj_nav.launch.py map_file:=/root/team_ws/course_ma
 
 ```
 dronehacks_traj: map .../course_v3_step.yaml
-dronehacks_traj: Guard dronehacks_vo/vo_guard -> /vo_guard/odometry      (or the WARNING: no Guard)
-[mission]: map ...: route tunnel > window > pad, 16.62 m, planned 22.80 s at v_max 1.0 m/s ...
+dronehacks_traj: Guard dronehacks_vo/vo_guard -> /vo_guard/odometry      (only with guard_package:=auto or a named package; the default runs no Guard)
+[mission]: map ...: route tunnel > gate_b > pad, 17.70 m, planned 24.42 s at v_max 1.0 m/s ...
 ```
 
 ## 6. Before the first flight

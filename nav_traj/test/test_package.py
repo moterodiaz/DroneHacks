@@ -2,6 +2,7 @@
 
 import ast
 import dataclasses
+import math
 import unittest
 
 import _paths
@@ -9,7 +10,8 @@ import yaml
 
 from dronehacks_traj.mission import MissionConfig
 
-NODE_PARAMS = {"map_file", "rest_height_m", "v_max_mps", "odometry_topic", "state_topic", "land_detected_topic",
+NODE_PARAMS = {"map_file", "rest_height_m", "course_to_odom_yaw", "course_to_odom_x", "course_to_odom_y",
+               "v_max_mps", "odometry_topic", "state_topic", "land_detected_topic",
                "attitude_topic", "setpoint_pose_out", "setpoint_twist_out", "frame_id", "rate_hz",
                "state_timeout_s", "prefer"}
 
@@ -25,7 +27,20 @@ class ConfigTest(unittest.TestCase):
             if f.name in params:
                 # ROS 2 refuses an int for a float parameter (and the reverse)
                 self.assertIs(type(params[f.name]), type(getattr(defaults, f.name)), f.name)
-        MissionConfig(**{k: v for k, v in params.items() if k in {f.name for f in dataclasses.fields(MissionConfig)}})
+        # .nan in the file is the "measure it" marker for the required measured values, so the
+        # rest height is given a measured stand-in before a MissionConfig is built from the file.
+        given = {k: v for k, v in params.items()
+                 if k in {f.name for f in dataclasses.fields(MissionConfig)} and k != "rest_height_m"}
+        MissionConfig(rest_height_m=0.07, **given)
+
+    def test_decided_defaults_in_the_config(self):
+        doc = yaml.safe_load((_paths.PACKAGE_ROOT / "config" / "traj_nav.example.yaml").read_text(encoding="utf-8"))
+        params = doc["mission"]["ros__parameters"]
+        self.assertIs(params["land"], False)          # px4.md: hold over the pad for the pilot
+        self.assertIs(MissionConfig(rest_height_m=0.07).land, False)
+        for required in ("rest_height_m", "course_to_odom_yaw", "course_to_odom_x", "course_to_odom_y"):
+            # contracts/frames.md: measured, never defaulted -- the file ships unset on purpose
+            self.assertFalse(math.isfinite(params[required]), required)
 
     def test_node_declares_what_the_config_uses(self):
         src = (_paths.PACKAGE_ROOT / "dronehacks_traj" / "mission_node.py").read_text(encoding="utf-8")

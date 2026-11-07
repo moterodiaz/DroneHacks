@@ -12,12 +12,23 @@ import _paths
 import numpy as np
 
 from dronehacks_planner import parse_map
+from dronehacks_planner.course_map import CourseMap, load_map
 from dronehacks_traj.factory import flight_checks, prepare
+from dronehacks_traj.frames import model_odom_frame
 from dronehacks_traj.mission import (FOLLOW, GROUNDED, HELD, HOLD, LAND, LANDED, STOPPED, TAKEOFF, WAIT,
                                      MissionConfig, OdomPose)
 from dronehacks_traj.vehicle_sim import VehicleSimConfig, fly, summary
 
-CONFIG = MissionConfig(rest_height_m=0.07)
+# These tests fly the landing too, so they opt into it: land is off by default (px4.md:
+# the drone holds over the pad for the pilot unless a landing API is contracted).
+CONFIG = MissionConfig(rest_height_m=0.07, land=True)
+
+
+def prep(map_source, config, **kw):
+    """prepare() with the offline model's odom frame, which starts at the launch pose
+    (frames.model_odom_frame). The node's frame is measured; nothing derives it."""
+    cmap = map_source if isinstance(map_source, CourseMap) else load_map(map_source)
+    return prepare(cmap, config, frame=model_odom_frame(cmap.launch.position, cmap.launch.heading), **kw)
 
 
 def l_course():
@@ -35,8 +46,8 @@ def l_course():
 
 class StateMachineTest(unittest.TestCase):
     def setUp(self):
-        self.prep = prepare(l_course(), CONFIG)
-        self.m = self.prep.mission
+        self.prepared = prep(l_course(), CONFIG)
+        self.m = self.prepared.mission
 
     def pose(self, t=0.0, x=0.0, y=0.0, z=0.0, yaw=0.0):
         return OdomPose(t=t, x=x, y=y, z=z, yaw=yaw)
@@ -62,7 +73,7 @@ class StateMachineTest(unittest.TestCase):
         self.assertEqual(self.m.state, WAIT)
 
     def test_gate_off(self):
-        m = prepare(l_course(), dataclasses.replace(CONFIG, px4_heading_gate_deg=0.0)).mission
+        m = prep(l_course(), dataclasses.replace(CONFIG, px4_heading_gate_deg=0.0)).mission
         self.assertIsNotNone(m.update(0.0, False, self.pose(), True, None))
 
     def test_offboard_with_a_stale_pose_stays_grounded(self):
@@ -112,26 +123,31 @@ class StateMachineTest(unittest.TestCase):
 
     def test_rest_height_must_be_below_flight_height(self):
         with self.assertRaises(ValueError):
-            prepare(l_course(), MissionConfig(rest_height_m=0.9))
+            prep(l_course(), MissionConfig(rest_height_m=0.9))
         with self.assertRaises(ValueError):
             MissionConfig(rest_height_m=float("nan"))
+
+    def test_land_defaults_to_false(self):
+        # px4.md blocks landing until a landing API is contracted: the default holds over
+        # the pad for the pilot.
+        self.assertIs(MissionConfig(rest_height_m=0.07).land, False)
 
 
 class WholeFlightTest(unittest.TestCase):
     def test_nominal_flight(self):
-        prep = prepare(l_course(), CONFIG)
-        log = fly(prep.mission)
+        prepared = prep(l_course(), CONFIG)
+        log = fly(prepared.mission)
         s = summary(log)
         self.assertEqual(s["states"], [WAIT, TAKEOFF, FOLLOW, HOLD, LAND, LANDED])
         self.assertEqual(log.final_state, STOPPED)
         self.assertIn("disarm", log.events)
-        checks = flight_checks(prep, log.pos)
+        checks = flight_checks(prepared, log.pos)
         self.assertEqual(checks["wall_touches"], 0)
         self.assertTrue(checks["on_pad"])
 
     def test_failed_heading_gate_means_no_offboard(self):
-        prep = prepare(l_course(), CONFIG)
-        log = fly(prep.mission, cfg=VehicleSimConfig(px4_yaw_offset_rad=math.radians(5)))
+        prepared = prep(l_course(), CONFIG)
+        log = fly(prepared.mission, cfg=VehicleSimConfig(px4_yaw_offset_rad=math.radians(5)))
         self.assertNotIn("offboard", log.events)
         self.assertEqual(log.offboard_refused, "no team setpoint under 1 s old")
         self.assertNotIn("takeoff", log.events)
@@ -139,40 +155,50 @@ class WholeFlightTest(unittest.TestCase):
         self.assertTrue(any("PX4's heading" in r for r in log.reasons), log.reasons)
 
     def test_pilot_takeover_stops_the_mission(self):
-        prep = prepare(l_course(), CONFIG)
-        log = fly(prep.mission, cfg=VehicleSimConfig(pilot_takeover_s=5.0))
+        prepared = prep(l_course(), CONFIG)
+        log = fly(prepared.mission, cfg=VehicleSimConfig(pilot_takeover_s=5.0))
         self.assertEqual(log.final_state, STOPPED)
         self.assertIn("pilot", log.final_reason)
-        self.assertIsNone(prep.mission.update(6.0, True, OdomPose(6.0, 0, 0, 0.7, 0), False, 0.0))
+        self.assertIsNone(prepared.mission.update(6.0, True, OdomPose(6.0, 0, 0, 0.7, 0), False, 0.0))
 
     def test_odometry_dropout_mid_flight(self):
-        prep = prepare(l_course(), CONFIG)
-        log = fly(prep.mission, cfg=VehicleSimConfig(dropout_s=(5.0, 5.6)))
+        prepared = prep(l_course(), CONFIG)
+        log = fly(prepared.mission, cfg=VehicleSimConfig(dropout_s=(5.0, 5.6)))
         self.assertIn("disarm", log.events)
-        self.assertEqual(flight_checks(prep, log.pos)["wall_touches"], 0)
+        self.assertEqual(flight_checks(prepared, log.pos)["wall_touches"], 0)
 
     def test_odometry_dropout_while_landing_never_climbs(self):
         # If the twist stopped, the interface would expire it into its last pose, the pad at
         # flight height, and the drone would climb (review of #26 at a616fdf, mission.py:187-189).
-        nominal = fly(prepare(l_course(), CONFIG).mission)
+        nominal = fly(prep(l_course(), CONFIG).mission)
         t_land = next(t for t, s in zip(nominal.t, nominal.state) if s == LAND)
         start = t_land + 0.5
-        prep = prepare(l_course(), CONFIG)
-        log = fly(prep.mission, cfg=VehicleSimConfig(dropout_s=(start, start + 2.0)))
+        prepared = prep(l_course(), CONFIG)
+        log = fly(prepared.mission, cfg=VehicleSimConfig(dropout_s=(start, start + 2.0)))
         z = log.pos[log.t >= t_land, 2]
         climb = float((z - np.minimum.accumulate(z)).max())          # height regained since LAND began
         self.assertLess(climb, 0.02)
         self.assertIn("disarm", log.events)
-        self.assertTrue(flight_checks(prep, log.pos)["on_pad"])
+        self.assertTrue(flight_checks(prepared, log.pos)["on_pad"])
         self.assertTrue(any("no fresh pose" in r and "straight down" in r for r in log.reasons), log.reasons)
 
+    def test_the_default_holds_over_the_pad_for_the_pilot(self):
+        # land defaults to False (px4.md): the drone never descends; it holds over the pad
+        # until the pilot takes it back.
+        prepared = prep(l_course(), MissionConfig(rest_height_m=0.07))
+        log = fly(prepared.mission, cfg=VehicleSimConfig(pilot_takeover_s=30.0))
+        self.assertEqual(summary(log)["states"], [WAIT, TAKEOFF, FOLLOW, HOLD, STOPPED])
+        self.assertIn("pilot_takeover", log.events)
+        self.assertNotIn("touchdown", log.events)
+        self.assertTrue(flight_checks(prepared, log.pos)["on_pad"])
+
     def test_published_map(self):
-        prep = prepare(str(_paths.PUBLISHED_MAP), CONFIG)
-        log = fly(prep.mission)
-        checks = flight_checks(prep, log.pos)
+        prepared = prep(str(_paths.PUBLISHED_MAP), CONFIG)
+        log = fly(prepared.mission)
+        checks = flight_checks(prepared, log.pos)
         self.assertEqual(summary(log)["states"], [WAIT, TAKEOFF, FOLLOW, HOLD, LAND, LANDED])
         self.assertEqual(checks["wall_touches"], 0)
-        self.assertEqual(checks["openings"], {"tunnel": True, "window": True})
+        self.assertEqual(checks["openings"], {"tunnel": True, "gate_b": True})
         self.assertTrue(checks["on_pad"])
 
 

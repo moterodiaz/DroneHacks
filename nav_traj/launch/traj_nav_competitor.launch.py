@@ -8,8 +8,10 @@ window takes:
 * the map: ``/root/team_ws/course_map.yaml`` (``~/team_ws/course_map.yaml`` on the drone) if that file
   exists, else the map generated from the STEP model and installed with the package. The launch
   log says which;
-* the Guard: ``auto``, meaning ``dronehacks_vo``'s ``vo_guard`` if that package is installed, else
-  raw cuVSLAM (with a warning). ``traj_nav_competitor_raw.launch.py`` always flies on raw cuVSLAM.
+* the Guard: none, meaning raw cuVSLAM -- the default and the contracted path
+  (contracts/ros-graph.md). ``auto`` (``dronehacks_vo``'s ``vo_guard`` if that
+  package is installed) is still available by hand with ``DRONEHACKS_GUARD=auto``.
+  ``traj_nav_competitor_raw.launch.py`` also always flies on raw cuVSLAM.
 
 ``DRONEHACKS_MAP`` and ``DRONEHACKS_GUARD`` override both when launching by hand in the container.
 Nothing here reads the lidar.
@@ -34,7 +36,7 @@ def choose_map(share: str) -> str:
     return os.path.join(share, "maps", "course_v3_step.yaml")
 
 
-def generate_launch_description(guard_default: str = "auto"):
+def generate_launch_description(guard_default: str = "none"):
     share = get_package_share_directory("dronehacks_traj")
     return LaunchDescription([IncludeLaunchDescription(
         PythonLaunchDescriptionSource(os.path.join(share, "launch", "traj_nav.launch.py")),

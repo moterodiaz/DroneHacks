@@ -2,7 +2,7 @@
 
     ros2 launch dronehacks_traj traj_nav.launch.py                                   # the packaged STEP map
     ros2 launch dronehacks_traj traj_nav.launch.py map_file:=/root/team_ws/course_map.yaml
-    ros2 launch dronehacks_traj traj_nav.launch.py guard_package:=none               # raw cuVSLAM
+    ros2 launch dronehacks_traj traj_nav.launch.py guard_package:=auto               # the Guard, if installed
 
 ``map_file`` defaults to the map generated from the organisers' STEP model and
 installed with the package (``maps/course_v3_step.yaml``; it is not
@@ -21,10 +21,11 @@ Started:
 * ``vo_guard``: from ``guard_package``. It withholds cuVSLAM poses that
   can't be trusted. Both no-lidar variants then run the same Guard and
   differ only in the follower.
-  * ``auto`` (the default): ``dronehacks_vo``'s Guard (the lidar-free build
-    on branch ``core/vo-nav-no-lidar``) if that package is installed;
-    otherwise none, with a warning in the log.
-  * ``none``: no Guard; the mission reads cuVSLAM directly.
+  * ``none`` (the default): no Guard; the mission reads cuVSLAM directly
+    (contracts/ros-graph.md: cuVSLAM direct is the contracted path).
+  * ``auto``: ``dronehacks_vo``'s Guard (the lidar-free build on branch
+    ``core/vo-nav-no-lidar``) if that package is installed; otherwise none,
+    with a warning in the log.
   * A package name: that package's ``vo_guard``. If it isn't installed, the
     launch fails before anything starts.
 * ``mission``: plans from the map, then flies takeoff, the route with this
@@ -100,9 +101,9 @@ def generate_launch_description():
     declared += [
         DeclareLaunchArgument("map_file", default_value=STEP_MAP,
                               description="the course map, contracts/course.md format (default: from the STEP model)"),
-        DeclareLaunchArgument("guard_package", default_value="auto",
-                              description="'auto' (dronehacks_vo if installed), 'none' (raw cuVSLAM) or a package "
-                                          "providing vo_guard"),
+        DeclareLaunchArgument("guard_package", default_value="none",
+                              description="'none' (raw cuVSLAM, the default), 'auto' (dronehacks_vo if "
+                                          "installed) or a package providing vo_guard"),
         DeclareLaunchArgument("params_file", default_value=os.path.join(SHARE, "config", "traj_nav.example.yaml"),
                               description="parameters for the mission node"),
     ]

@@ -5,15 +5,22 @@
 # Run on the drone's HOST shell (not in a container), from a checkout of this repo on branch
 # navigation/vo-traj-follower (or main, once merged):
 #
-#   V_MAX=1.0 REST_HEIGHT=0.07 nav_traj/scripts/install_on_drone.sh
+#   V_MAX=1.0 REST_HEIGHT=<measured> nav_traj/scripts/install_on_drone.sh
+#   V_MAX=1.0 REST_HEIGHT=<measured> ODOM_YAW=<measured> ODOM_X=<measured> ODOM_Y=<measured> \
+#     nav_traj/scripts/install_on_drone.sh                       # also the course->odom transform
 #   nav_traj/scripts/install_on_drone.sh                     # keeps the values the last install set
 #   GUARD_SRC=~/DroneHacks-vo/depthcam nav_traj/scripts/install_on_drone.sh    # also install dronehacks_vo (the Guard)
 #
-# V_MAX (the live MPC_XY_VEL_MAX) and REST_HEIGHT (measured) are written into the installed
-# config/traj_nav.example.yaml, so the dry run and the launched mission use the same values. If one
-# is not given, the value the last install wrote is kept; the first install uses the checkout's.
-# Change other parameters in the checkout's nav_traj/config/traj_nav.example.yaml: the copy in
-# $TEAM_WS/src is replaced on every run.
+# V_MAX (the live MPC_XY_VEL_MAX) and REST_HEIGHT (measured: tape-measure the body centre's height
+# above the floor on drone 1; frames.md's 0.07 m is the lab stand-in's, not drone 1's) are written
+# into the installed config/traj_nav.example.yaml, so the dry run and the launched mission use the
+# same values. If one is not given, the value the last install wrote is kept; the first install
+# uses the checkout's. ODOM_YAW/ODOM_X/ODOM_Y are the measured course->odom transform
+# (contracts/frames.md: the rotation of R_odom_course in radians, then the translation o_odom in
+# metres; measure them, do not assume an identity from the launch heading). Without them the
+# installed config keeps its must-measure markers and the mission node refuses to start until
+# they are set. Change other parameters in the checkout's nav_traj/config/traj_nav.example.yaml:
+# the copy in $TEAM_WS/src is replaced on every run.
 #
 # It writes only under $TEAM_WS/src/{dronehacks_planner,dronehacks_traj[,dronehacks_vo]}. It does not
 # touch /etc/skybeta/drone.env, PX4 parameters or the stack service: it prints what to set.
@@ -47,6 +54,7 @@ REST_HEIGHT="${REST_HEIGHT:-$(param "$INSTALLED_CONFIG" rest_height_m)}"
 V_MAX="${V_MAX:-$(param "$REPO/nav_traj/$CONFIG_REL" v_max_mps)}"
 REST_HEIGHT="${REST_HEIGHT:-$(param "$REPO/nav_traj/$CONFIG_REL" rest_height_m)}"
 FLOAT='^[0-9]+\.[0-9]+$'   # ROS 2 refuses an int for a float parameter: 1.0, not 1
+SIGNED_FLOAT='^-?[0-9]+\.[0-9]+$'   # the course->odom transform can be negative
 [[ "$V_MAX" =~ $FLOAT ]] || die "V_MAX='$V_MAX': give metres per second with a decimal point, e.g. 1.0"
 [[ "$REST_HEIGHT" =~ $FLOAT ]] || die "REST_HEIGHT='$REST_HEIGHT': give metres with a decimal point, e.g. 0.07"
 
@@ -68,7 +76,24 @@ copy "$REPO/planner" "$TEAM_WS/src/dronehacks_planner"
 copy "$REPO/nav_traj" "$TEAM_WS/src/dronehacks_traj"
 set_param "$INSTALLED_CONFIG" v_max_mps "$V_MAX"
 set_param "$INSTALLED_CONFIG" rest_height_m "$REST_HEIGHT"
-echo "[install] $INSTALLED_CONFIG: v_max_mps $V_MAX, rest_height_m $REST_HEIGHT"
+if [[ -n "${ODOM_YAW:-}" || -n "${ODOM_X:-}" || -n "${ODOM_Y:-}" ]]; then
+  # The whole measured transform comes together (contracts/frames.md): R_odom_course's rotation
+  # and the translation o_odom.
+  [[ -n "${ODOM_YAW:-}" && -n "${ODOM_X:-}" && -n "${ODOM_Y:-}" ]] \
+    || die "ODOM_YAW, ODOM_X and ODOM_Y come together: the whole measured course->odom transform"
+  for kv in "course_to_odom_yaw:$ODOM_YAW:ODOM_YAW" "course_to_odom_x:$ODOM_X:ODOM_X" \
+            "course_to_odom_y:$ODOM_Y:ODOM_Y"; do
+    key="${kv%%:*}"; rest="${kv#*:}"; value="${rest%%:*}"; name="${rest#*:}"
+    [[ "$value" =~ $SIGNED_FLOAT ]] || die "$name='$value': give radians or metres with a decimal point, e.g. -1.5708"
+    set_param "$INSTALLED_CONFIG" "$key" "$value"
+  done
+fi
+if [[ "$(param "$INSTALLED_CONFIG" course_to_odom_yaw)" == ".nan" ]]; then
+  say "WARNING: the course->odom transform is still unset (.nan) in $INSTALLED_CONFIG"
+  say "the mission node refuses to start without it. Measure it (contracts/frames.md) and rerun with"
+  say "ODOM_YAW=<rotation of R_odom_course, rad> ODOM_X=<o_odom x, m> ODOM_Y=<o_odom y, m> $0"
+fi
+echo "[install] $INSTALLED_CONFIG: v_max_mps $V_MAX, rest_height_m $REST_HEIGHT, course_to_odom_yaw $(param "$INSTALLED_CONFIG" course_to_odom_yaw)"
 PACKAGES="dronehacks_planner dronehacks_traj"
 if [[ -n "${GUARD_SRC:-}" ]]; then
   [[ -f "$GUARD_SRC/package.xml" ]] || die "GUARD_SRC=$GUARD_SRC has no package.xml"

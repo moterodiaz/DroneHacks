@@ -14,6 +14,11 @@ import yaml
 
 STEP_MAP = str(_paths.PACKAGE_ROOT / "maps" / "course_v3_step.yaml")
 
+# A stand-in for the measured course->odom transform (contracts/frames.md), written for the
+# STEP map's launch mark (position (-2.515, 0.914), facing north): R rotates by -pi/2 and
+# o_odom is the course origin's odom reading, -R * launch_mark.
+MEASURED = {"course_to_odom_yaw": -math.pi / 2, "course_to_odom_x": -0.914, "course_to_odom_y": -2.515}
+
 
 def config_params():
     doc = yaml.safe_load((_paths.PACKAGE_ROOT / "config" / "traj_nav.example.yaml").read_text(encoding="utf-8"))
@@ -24,6 +29,8 @@ class NodeTest(unittest.TestCase):
     def setUp(self):
         params = config_params()
         params["map_file"] = STEP_MAP
+        params.update(MEASURED)
+        params["rest_height_m"] = 0.07          # the config's .nan means "measure it"; stand in here
         self.handle = fake_ros.install(fake_ros.Handle(parameters=params))
         self.mod = importlib.import_module("dronehacks_traj.mission_node")
         self.node = self.mod.MissionNode()
@@ -52,7 +59,7 @@ class NodeTest(unittest.TestCase):
         self.assertEqual(n.subscriptions["/vo_guard/odometry"][2].reliability, "best_effort")
         self.assertEqual(set(n.publishers), {"/skybeta/setpoint/pose", "/skybeta/setpoint/twist", "~/status"})
         self.assertAlmostEqual(n.timers[0][0], 1 / 50.0)
-        self.assertTrue(any("route tunnel > window > pad" in line for line in n.logged), n.logged)
+        self.assertTrue(any("route tunnel > gate_b > pad" in line for line in n.logged), n.logged)
 
     def test_publishes_only_once_the_prechecks_pass_then_takes_off(self):
         pose_pub = self.node.publishers["/skybeta/setpoint/pose"]
@@ -89,7 +96,7 @@ class NodeTest(unittest.TestCase):
         self.node.timers[1][1]()
         status = json.loads(self.node.publishers["~/status"].sent[-1].data)
         self.assertEqual(status["state"], "WAIT")
-        self.assertEqual(status["route"], ["tunnel", "window", "pad"])
+        self.assertEqual(status["route"], ["tunnel", "gate_b", "pad"])
 
     def test_body_velocity_is_rotated_into_odom(self):
         pose = self.mod.odom_to_pose(self.odom(1.5, yaw=math.pi / 2, vx_body=1.0))
@@ -108,22 +115,36 @@ class NodeConfigErrorTest(unittest.TestCase):
         return mod
 
     def test_missing_map_is_a_config_error(self):
-        mod = self.make(rest_height_m=0.07)
+        mod = self.make(rest_height_m=0.07, **MEASURED)
         with self.assertRaises(mod.ConfigError):
             mod.MissionNode()
 
     def test_missing_rest_height_is_a_config_error(self):
-        mod = self.make(map_file=STEP_MAP)
+        mod = self.make(map_file=STEP_MAP, **MEASURED)
         with self.assertRaises(mod.ConfigError):
             mod.MissionNode()
 
+    def test_missing_measured_transform_is_a_config_error(self):
+        # contracts/frames.md: the course->odom transform is measured, with no defaults and no
+        # derivation from the launch heading. Without it the node fails closed: it raises a
+        # configuration error in __init__, before creating a single publisher or timer.
+        mod = self.make(map_file=STEP_MAP, rest_height_m=0.07)
+        with self.assertRaises(mod.ConfigError) as caught:
+            mod.MissionNode()
+        self.assertIn("course_to_odom", str(caught.exception))
+        mod = self.make(map_file=STEP_MAP, rest_height_m=0.07,
+                        course_to_odom_yaw=MEASURED["course_to_odom_yaw"], course_to_odom_x=-0.914)
+        with self.assertRaises(mod.ConfigError) as caught:      # one of the three missing: still refuses
+            mod.MissionNode()
+        self.assertIn("course_to_odom", str(caught.exception))
+
     def test_int_for_a_float_parameter_is_refused(self):
-        mod = self.make(map_file=STEP_MAP, rest_height_m=0.07, descent_mps=1)
+        mod = self.make(map_file=STEP_MAP, rest_height_m=0.07, descent_mps=1, **MEASURED)
         with self.assertRaises(fake_ros.ParameterTypeError):
             mod.MissionNode()
 
     def test_main_returns_2_and_publishes_nothing(self):
-        mod = self.make(map_file="/nonexistent.yaml", rest_height_m=0.07)
+        mod = self.make(map_file="/nonexistent.yaml", rest_height_m=0.07, **MEASURED)
         self.assertEqual(mod.main([]), 2)
 
 
@@ -151,7 +172,8 @@ class LaunchTest(unittest.TestCase):
         opaque = next(e for e in desc.entities if isinstance(e, fake_ros.OpaqueFunction))
         return declared, fi, opaque.function(ctx)
 
-    def test_defaults_fly_the_packaged_map_without_a_guard_if_none_is_installed(self):
+    def test_defaults_fly_the_packaged_map_on_raw_cuvslam(self):
+        # The Guard is off by default (contracts/ros-graph.md: cuVSLAM direct is the path).
         declared, fi, actions = self.run_main()
         self.assertEqual(declared["map_file"].default_value,
                          os.path.join(str(_paths.PACKAGE_ROOT), "maps", "course_v3_step.yaml"))
@@ -159,24 +181,33 @@ class LaunchTest(unittest.TestCase):
         self.assertEqual(fi.kwargs["package"], "skybeta_flight_interface")
         self.assertEqual(declared["auto_offboard_on_arm"].default_value, "true")
         self.assertEqual(declared["allow_mode_request"].default_value, "false")
+        self.assertEqual(declared["guard_package"].default_value, "none")
         logs = [a.msg for a in actions if isinstance(a, fake_ros.LogInfo)]
-        self.assertTrue(any("WARNING dronehacks_vo is not installed" in m for m in logs), logs)
+        self.assertFalse(any("WARNING" in m for m in logs), logs)
         nodes = [a for a in actions if isinstance(a, fake_ros.LaunchNode)]
         self.assertEqual([n.kwargs["executable"] for n in nodes], ["mission"])
         self.assertEqual(nodes[0].kwargs["parameters"][1]["odometry_topic"], "/visual_slam/tracking/odometry")
 
-    def test_auto_uses_the_guard_when_installed(self):
-        _, _, actions = self.run_main(installed={"dronehacks_vo"})
+    def test_auto_still_starts_the_guard_when_installed(self):
+        _, _, actions = self.run_main(installed={"dronehacks_vo"}, guard_package="auto")
         nodes = {a.kwargs["executable"]: a for a in actions if isinstance(a, fake_ros.LaunchNode)}
         self.assertEqual(nodes["vo_guard"].kwargs["package"], "dronehacks_vo")
         self.assertEqual(nodes["vo_guard"].kwargs["parameters"][0]["output_topic"], "/vo_guard/odometry")
         self.assertEqual(nodes["mission"].kwargs["parameters"][1]["odometry_topic"], "/vo_guard/odometry")
 
+    def test_auto_without_the_guard_warns_and_flies_raw(self):
+        _, _, actions = self.run_main(guard_package="auto")
+        logs = [a.msg for a in actions if isinstance(a, fake_ros.LogInfo)]
+        self.assertTrue(any("WARNING dronehacks_vo is not installed" in m for m in logs), logs)
+        nodes = [a for a in actions if isinstance(a, fake_ros.LaunchNode)]
+        self.assertEqual(nodes[0].kwargs["parameters"][1]["odometry_topic"], "/visual_slam/tracking/odometry")
+
     def test_a_named_guard_that_is_missing_aborts_the_launch(self):
         with self.assertRaises(fake_ros.PackageNotFoundError):
             self.run_main(guard_package="dronehacks_vo")
 
-    def test_competitor_launch_picks_the_packaged_map_and_auto_guard(self):
+    def test_competitor_launch_picks_the_packaged_map_and_no_guard(self):
+        # The Guard is off by default (ros-graph.md); DRONEHACKS_GUARD=auto still requests it by hand.
         handle = fake_ros.install(fake_ros.Handle())
         handle.share["dronehacks_traj"] = str(_paths.PACKAGE_ROOT)
         with mock.patch.dict(os.environ, {}, clear=False):
@@ -186,7 +217,7 @@ class LaunchTest(unittest.TestCase):
             raw = load_launch("traj_nav_competitor_raw.launch.py").generate_launch_description().entities[0]
         if not os.path.isfile("/root/team_ws/course_map.yaml"):
             self.assertTrue(inc.launch_arguments["map_file"].endswith(os.path.join("maps", "course_v3_step.yaml")))
-        self.assertEqual(inc.launch_arguments["guard_package"], "auto")
+        self.assertEqual(inc.launch_arguments["guard_package"], "none")
         self.assertEqual(raw.launch_arguments["guard_package"], "none")
         self.assertTrue(inc.source.path.endswith("traj_nav.launch.py"))
 

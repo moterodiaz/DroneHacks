@@ -5,10 +5,14 @@
 
 The mission is built exactly as the ROS node builds it (``factory.prepare``)
 and flown in ``vehicle_sim``: the kit's interface and Offboard rule, and a
-stand-in PX4 with drone 1's parameters. It prints the state timeline and the
-checks: wall touches, openings crossed whole-drone, and the landing on the
-pad. Exit status 0 only if the mission reached STOPPED after landing,
-untouched, through every opening and on the pad. Model output, not a flight.
+stand-in PX4 with drone 1's parameters. One difference from the node: the
+dry run flies the *model's* odom frame, which starts at the launch pose
+(``frames.model_odom_frame``); the node's frame is measured
+(``course_to_odom_*`` parameters, contracts/frames.md). It prints the state
+timeline and the checks: wall touches, openings crossed whole-drone, and the
+landing on the pad. Exit status 0 only if the mission reached STOPPED after
+landing, untouched, through every opening and on the pad. Model output, not a
+flight.
 """
 
 from __future__ import annotations
@@ -19,9 +23,11 @@ import json
 import math
 import sys
 
+from dronehacks_planner.course_map import load_map
 from dronehacks_planner.limits import VehicleLimits
 
 from .factory import flight_checks, prepare
+from .frames import model_odom_frame
 from .mission import MissionConfig
 from .vehicle_sim import VehicleSimConfig, fly, summary
 
@@ -39,7 +45,14 @@ def main(argv=None) -> int:
 
     limits = dataclasses.replace(VehicleLimits(), v_max_mps=args.v_max)
     try:
-        prepared = prepare(args.map, MissionConfig(rest_height_m=args.rest_height), limits)
+        cmap = load_map(args.map)
+        if cmap.launch is None or cmap.launch.heading is None:
+            raise ValueError("the map has no launch position and heading, so the model's odom frame "
+                             "(which starts at the launch pose) is undefined")
+        frame = model_odom_frame(cmap.launch.position, cmap.launch.heading)
+        # land: the default holds over the pad for the pilot (px4.md); the dry run exercises
+        # the landing too, so it opts in explicitly.
+        prepared = prepare(cmap, MissionConfig(rest_height_m=args.rest_height, land=True), limits, frame=frame)
     except Exception as exc:  # noqa: BLE001 - report any planning failure and fail the run
         print(f"dry_run: could not build the mission: {exc}", file=sys.stderr)
         return 2

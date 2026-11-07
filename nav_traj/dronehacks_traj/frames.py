@@ -1,23 +1,23 @@
 """Course frame <-> the ``odom`` frame the kit's flight interface takes.
 
-``contracts/frames.md`` (PR #5), "Origin": the tracker's frame starts at the
-drone's body resting on the launch mark, facing up the first corridor. The
-organisers' cuVSLAM ``odom`` frame is exactly that (competitor_guide.md §1):
-ENU-labelled, but "east" is whatever the vehicle's x axis pointed at when the
-tracker started, and the origin is the start pose. So:
+The transform between them is **measured**, not assumed
+(``contracts/frames.md``, "Measure a rigid course-to-odom transform at each
+tracking initialization"):
 
-* odom +x = the launch heading (the map's ``launch.heading``: north on the published course);
-* odom +y = 90 degrees to its left;
-* odom +z = up, from the body resting on the floor.
+    p_odom = o_odom + R_odom_course * p_course
 
-With the drone facing north this is the contract's transform: subtract the
-launch mark, then ``x = north``, ``y = -east`` (FLU, the ROS side of the
-contract's FRD step). A heading measured counter-clockwise from east becomes
-an odom yaw ``heading - launch_heading``. Setpoint height is
-``flight height - body resting height`` (frames.md step 3).
+``o_odom`` is the odom reading simultaneous with the course reference pose,
+and ``R_odom_course`` rotates course-world vectors into odom-world vectors.
+frames.md: "Do not assume an identity rotation from the launch heading" --
+stereo-only cuVSLAM starts at the rig's startup pose, without compass or
+gravity alignment, so the map's launch heading does not place the odom frame.
+A measured identity (yaw 0, ``o_odom`` zero) may still be *passed explicitly*;
+nothing here supplies a default. The node's parameters are required and it
+fails closed without them (``mission_node.py``).
 
-No coordinate is written here: the launch mark and heading come from the map
-file (AGENTS.md §3.7 on the contracts branch).
+Setpoint height is ``flight height - body resting height`` (frames.md step 3);
+the resting height is measured too. No coordinate is written here: the course
+geometry comes from the map file (AGENTS.md §3.7 on the contracts branch).
 """
 
 from __future__ import annotations
@@ -31,44 +31,72 @@ Vec = Tuple[float, float]
 
 @dataclasses.dataclass(frozen=True)
 class OdomFrame:
-    """The odom frame, as placed on the course: its origin and x direction in course coordinates."""
+    """The measured course->odom transform, contracts/frames.md:
+    ``p_odom = o_odom + R_odom_course * p_course``.
 
-    east: float
-    north: float
-    heading: float  # course heading of odom +x, radians counter-clockwise from east
+    ``yaw`` is the rotation of ``R_odom_course``, radians counter-clockwise
+    from east: a course direction at heading ``a`` points at odom heading
+    ``a + yaw``. ``(x, y)`` is ``o_odom``, the odom reading of the course
+    origin, in metres. Both are measured at each tracking initialisation and
+    passed in -- never derived, never defaulted. A measured identity
+    (``yaw`` 0, ``o_odom`` zero) is passed explicitly.
+    """
+
+    yaw: float
+    x: float
+    y: float
 
     @classmethod
-    def from_launch(cls, position: Sequence[float], heading_vec: Sequence[float]) -> "OdomFrame":
-        hx, hy = float(heading_vec[0]), float(heading_vec[1])
-        if math.hypot(hx, hy) < 1e-9:
-            raise ValueError("launch heading has zero length")
-        return cls(float(position[0]), float(position[1]), math.atan2(hy, hx))
+    def from_measured(cls, yaw: float, o_odom: Sequence[float]) -> "OdomFrame":
+        """The transform as measured (contracts/frames.md). No defaults: every
+        caller passes measured numbers, and anything non-finite is refused."""
+        if not (math.isfinite(yaw) and math.isfinite(o_odom[0]) and math.isfinite(o_odom[1])):
+            raise ValueError("the measured course->odom transform must be three finite numbers")
+        return cls(float(yaw), float(o_odom[0]), float(o_odom[1]))
 
     # -- positions and directions --------------------------------------------------
 
     def to_odom(self, east: float, north: float) -> Vec:
-        de, dn = east - self.east, north - self.north
-        return self.rotate_to_odom(de, dn)
+        c, s = math.cos(self.yaw), math.sin(self.yaw)
+        return east * c - north * s + self.x, east * s + north * c + self.y
 
     def to_course(self, x: float, y: float) -> Vec:
-        de, dn = self.rotate_to_course(x, y)
-        return self.east + de, self.north + dn
+        c, s = math.cos(self.yaw), math.sin(self.yaw)
+        dx, dy = x - self.x, y - self.y
+        return dx * c + dy * s, -dx * s + dy * c
 
     def rotate_to_odom(self, ve: float, vn: float) -> Vec:
-        c, s = math.cos(self.heading), math.sin(self.heading)
-        return ve * c + vn * s, -ve * s + vn * c
+        c, s = math.cos(self.yaw), math.sin(self.yaw)
+        return ve * c - vn * s, ve * s + vn * c
 
     def rotate_to_course(self, vx: float, vy: float) -> Vec:
-        c, s = math.cos(self.heading), math.sin(self.heading)
-        return vx * c - vy * s, vx * s + vy * c
+        c, s = math.cos(self.yaw), math.sin(self.yaw)
+        return vx * c + vy * s, -vx * s + vy * c
 
     # -- headings ------------------------------------------------------------------------
 
     def yaw_to_odom(self, course_heading: float) -> float:
-        return wrap(course_heading - self.heading)
+        return wrap(course_heading + self.yaw)
 
     def yaw_to_course(self, odom_yaw: float) -> float:
-        return wrap(odom_yaw + self.heading)
+        return wrap(odom_yaw - self.yaw)
+
+
+def model_odom_frame(position: Sequence[float], heading_vec: Sequence[float]) -> OdomFrame:
+    """The odom frame the offline model flies in (``vehicle_sim``, ``dry_run``, the tests):
+    cuVSLAM starts at the drone's pose on the launch mark, so the *model's* odom origin
+    is the map's launch position and its +x is the launch heading.
+
+    A model, for offline runs only. The node's frame is measured (contracts/frames.md)
+    and is never derived from the launch heading."""
+    hx, hy = float(heading_vec[0]), float(heading_vec[1])
+    if math.hypot(hx, hy) < 1e-9:
+        raise ValueError("launch heading has zero length")
+    h = math.atan2(hy, hx)               # odom +x's course heading, so R rotates by -h
+    c, s = math.cos(-h), math.sin(-h)
+    e, n = float(position[0]), float(position[1])
+    return OdomFrame.from_measured(-h, (-(e * c - n * s), -(e * s + n * c)))   # o_odom = -R * launch
+
 
 
 def quat_to_yaw(x: float, y: float, z: float, w: float) -> float:
