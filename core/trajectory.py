@@ -98,7 +98,18 @@ class Trajectory:
         geometry_s = np.concatenate(([0.0], np.cumsum(np.linalg.norm(np.diff(geometry, axis=0), axis=1))))
         # Retain every geometry vertex: interpolating only at regular samples
         # joins different, unchecked chords across the fillet's vertices.
-        self.s = np.unique(np.concatenate((np.arange(0.0, geometry_s[-1], ds), geometry_s)))
+        regular = np.arange(0.0, geometry_s[-1], ds)
+        neighbours = np.searchsorted(geometry_s, regular)
+        distance = np.minimum(
+            np.abs(regular - geometry_s[np.maximum(neighbours - 1, 0)]),
+            np.abs(regular - geometry_s[np.minimum(neighbours, len(geometry_s) - 1)]),
+        )
+        # Cumulative lengths and regular-grid multiplication can differ by a
+        # few rounding units. Prefer geometry vertices over such near-duplicates;
+        # tiny regular/vertex gaps destabilize the nonuniform gradient below.
+        tolerance = 8 * np.finfo(float).eps * max(1.0, geometry_s[-1]) * len(geometry_s)
+        regular = regular[distance > tolerance]
+        self.s = np.unique(np.concatenate((regular, geometry_s)))
         self.points = np.column_stack([np.interp(self.s, geometry_s, geometry[:, axis]) for axis in range(2)])
         self.length = float(self.s[-1])
         tangent = np.gradient(self.points, self.s, axis=0)

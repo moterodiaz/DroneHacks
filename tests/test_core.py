@@ -474,3 +474,25 @@ def test_resampling_preserves_safe_fillet_geometry():
         probes = np.linspace(0.0, trajectory.length, 1001)
         for _ in range(2):
             assert min(clearance_at(trajectory.position_at(s)) for s in probes) >= 0.32
+
+
+def test_regular_samples_near_geometry_vertices_keep_finite_velocity():
+    for ds in (0.02, 0.01, 0.04, 0.03):
+        for shift, angle in ((0.0, 0.0), (10.0, 0.0), (-1.75, 0.37)):
+            direction = np.array([math.cos(angle), math.sin(angle)])
+            points = np.array([n * direction + [shift, 2 * shift] for n in (1.0, 1.6, 2.2)])
+            with np.errstate(divide="raise", invalid="raise"):
+                trajectory = build_trajectory(points, synthetic_map(), ds=ds)
+                assert np.all(np.isfinite(trajectory.tangent))
+                assert np.allclose(trajectory.tangent, direction, atol=1e-9)
+                assert np.all(np.diff(trajectory.s) > 1e-10)
+                # Prefer the exact geometry vertex, not the near-equal regular
+                # sample: the clearance-preserving geometry must remain intact.
+                geometry_s = np.concatenate(([0.0], np.cumsum(np.linalg.norm(np.diff(points, axis=0), axis=1))))
+                assert all(s in trajectory.s for s in geometry_s)
+                for _ in range(2):
+                    for s in np.unique(np.concatenate((trajectory.s, geometry_s))):
+                        velocity = trajectory.velocity_at(s)
+                        assert np.all(np.isfinite(velocity))
+                        assert float(velocity @ direction) >= -1e-12
+                        assert abs(direction[0] * velocity[1] - direction[1] * velocity[0]) < 1e-9
