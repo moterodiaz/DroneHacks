@@ -170,6 +170,14 @@ def test_missing_window_part_fails_closed(tmp_path):
         generate(write_model(tmp_path, text))
 
 
+def test_goal_parts_are_found_by_role_not_by_label(tmp_path):
+    # a relabelled tube still provides the tunnel; nothing is keyed to the label
+    text = transform(step_text(), replacements=(("Tube oval 58 x 72 x 60", "Tube oval 61 x 73 x 63"),))
+    data = generate(write_model(tmp_path, text))
+    assert goal(data, "tunnel")["params"]["width"] == pytest.approx(1.4732, abs=1e-3)
+    assert goal(data, "tunnel")["params"]["height"] == pytest.approx(1.8288, abs=1e-3)
+
+
 def test_tube_without_ellipses_fails_closed(tmp_path):
     text = re.sub(r"#\d+\s*=\s*ELLIPSE\([^;]*;", "", step_text())
     with pytest.raises(stm.StepError):

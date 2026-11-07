@@ -33,7 +33,7 @@ ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_STEP = ROOT / "dronehacks-course-v3.step"
 DEFAULT_OUTPUT = ROOT / "contracts/course_v3_layout.yaml"
 SLICE_HEIGHT = 0.8
-WINDOW_NAME = "C2a chicane wall (window)"
+WINDOW_SUFFIX = "(window)"
 
 # contracts/course.md's geometry table (organisers rows), course v3. The
 # self-check compares the model's measured geometry against these nominal
@@ -262,6 +262,16 @@ def is_segment_name(name: str) -> bool:
     return is_wall_name(name) or name.startswith("Net side")
 
 
+def unique_role(names: list[str], predicate, purpose: str) -> str:
+    """The one part playing a given role, by predicate — never a typed label."""
+    matches = [name for name in names if predicate(name)]
+    if not matches:
+        raise StepError(f"missing the part that provides the {purpose}")
+    if len(matches) > 1:
+        raise StepError(f"ambiguous parts provide the {purpose}: {matches}")
+    return matches[0]
+
+
 def disc_geometry(name: str, circles: list[dict[str, object]]) -> tuple[tuple[float, float], float]:
     """Centre and radius of a disc part, from its CAD circles (fail closed)."""
     if not circles:
@@ -385,8 +395,24 @@ def generate_map(step_path: Path, heading_deg: float, clearance: float | None) -
     part_data = {name: part_geometry(root, entities) for name, root in roots.items()}
 
     selected_names = [name for name in roots if is_segment_name(name)]
-    if WINDOW_NAME not in selected_names:
-        raise StepError(f"missing required part {WINDOW_NAME!r}")
+    window_name = unique_role(selected_names, lambda name: name.endswith(WINDOW_SUFFIX), "window wall")
+
+    tube_name = unique_role(list(roots), lambda name: name.startswith("Tube oval"), "tunnel goal")
+    launch_name = unique_role(list(roots), lambda name: name.startswith("Launch mark"), "launch goal")
+    # The pad part is the pure disc: a single distinct circle radius. The pad's
+    # decorative rings are bands (inner and outer radii) and its cross has no
+    # circles, so exactly one disc part must remain (checkpoint 5 lands inside
+    # the outer ring, whose radius is the disc's).
+    pad_discs = [
+        name for name in roots if name.startswith("Landing pad")
+        if part_data[name][1]
+        and max(float(circle["radius"]) for circle in part_data[name][1]) - min(float(circle["radius"]) for circle in part_data[name][1]) <= 1e-9
+    ]
+    if not pad_discs:
+        raise StepError("missing the disc part that provides the pad goal")
+    if len(pad_discs) > 1:
+        raise StepError(f"ambiguous disc parts provide the pad goal: {sorted(pad_discs)}")
+    pad_name = pad_discs[0]
 
     segments: list[dict[str, object]] = []
     segment_names: list[str] = []
@@ -406,15 +432,15 @@ def generate_map(step_path: Path, heading_deg: float, clearance: float | None) -
         centre, radius = disc_geometry(name, part_data[name][1])
         boulders.append({"centre": rounded_point(centre), "radius": round_value(radius)})
 
-    pad_centre, pad_radius = disc_geometry("Landing pad 5 ft", part_data["Landing pad 5 ft"][1])
-    launch_centre, _launch_radius = disc_geometry("Launch mark", part_data["Launch mark"][1])
+    pad_centre, pad_radius = disc_geometry(pad_name, part_data[pad_name][1])
+    launch_centre, _launch_radius = disc_geometry(launch_name, part_data[launch_name][1])
 
-    tube = tube_geometry("Tube oval 58 x 72 x 60", part_data["Tube oval 58 x 72 x 60"][2], pad_centre)
+    tube = tube_geometry(tube_name, part_data[tube_name][2], pad_centre)
 
-    window_points = part_data[WINDOW_NAME][0]
-    sill, head, opening_edges = window_opening(WINDOW_NAME, window_points)
+    window_points = part_data[window_name][0]
+    sill, head, opening_edges = window_opening(window_name, window_points)
     window_centre = mean_xy(opening_edges)
-    wall = raw_segments[WINDOW_NAME]
+    wall = raw_segments[window_name]
     wall_start, wall_end = wall["start"], wall["end"]
     wall_length = math.dist(wall_start, wall_end)
     along = ((wall_end[0] - wall_start[0]) / wall_length, (wall_end[1] - wall_start[1]) / wall_length)
@@ -422,7 +448,7 @@ def generate_map(step_path: Path, heading_deg: float, clearance: float | None) -
     projections = [point[0] * along[0] + point[1] * along[1] for point in opening_edges]
     side = max(projections) - min(projections)
     if side <= 0.0:
-        raise StepError(f"{WINDOW_NAME!r} opening has no measurable width")
+        raise StepError(f"{window_name!r} opening has no measurable width")
     departure = (pad_centre[0] - window_centre[0]) * normal[0] + (pad_centre[1] - window_centre[1]) * normal[1]
     if abs(departure) < 0.05:
         raise StepError("window traversal direction is ambiguous: the pad is not clearly on one side of the wall")
@@ -437,7 +463,7 @@ def generate_map(step_path: Path, heading_deg: float, clearance: float | None) -
             "width": round_value(tube["width"]), "height": round_value(tube["height"]),
         }},
         {"name": "window", "shape": "rect", "centre": rounded_point(window_centre), "params": {
-            "wall_segment_index": segment_names.index(WINDOW_NAME),
+            "wall_segment_index": segment_names.index(window_name),
             "axis_start": rounded_point(window_axis_start), "axis_end": rounded_point(window_axis_end),
             "side": round_value(side), "sill_height": round_value(sill), "head_height": round_value(head),
             "clearance_radius": None if clearance is None else round_value(clearance),
@@ -445,7 +471,7 @@ def generate_map(step_path: Path, heading_deg: float, clearance: float | None) -
         {"name": "pad", "shape": "disc", "centre": rounded_point(pad_centre), "params": {"radius": round_value(pad_radius)}},
         {"name": "launch", "shape": "point", "centre": rounded_point(launch_centre), "params": {"heading_deg": round_value(heading_deg)}},
     ]
-    return {"origin": [0.0, 0.0], "slice_height": SLICE_HEIGHT, "segments": segments, "boulders": boulders, "goals": goals, "_segment_names": segment_names}
+    return {"origin": [0.0, 0.0], "slice_height": SLICE_HEIGHT, "segments": segments, "boulders": boulders, "goals": goals, "_segment_names": segment_names, "_window_name": window_name}
 
 
 def scalar(value: object) -> str:
@@ -604,7 +630,7 @@ def report_pass(data: dict[str, object]) -> None:
     if "window" in goals:
         params = goals["window"]["params"]
         clearance = "null (unreviewed; traversal blocked)" if params["clearance_radius"] is None else f"{params['clearance_radius']} m"
-        print(f"  window: linked to {WINDOW_NAME!r}, side {params['side']} m, sill {params['sill_height']} m, head {params['head_height']} m")
+        print(f"  window: linked to {data.get('_window_name', '?')!r}, side {params['side']} m, sill {params['sill_height']} m, head {params['head_height']} m")
         print(f"  window: clearance_radius {clearance}")
     if "pad" in goals:
         print(f"  pad: centre {tuple(goals['pad']['centre'])} m, radius {goals['pad']['params']['radius']} m")

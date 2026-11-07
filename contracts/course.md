@@ -85,7 +85,7 @@ yaw reference, not a routed waypoint.
     axis_start: [<east_m>, <north_m>]  # tube entrance centre
     axis_end:   [<east_m>, <north_m>]  # tube exit centre
     width:  1.473   # 58 in, Tube oval cross-section
-    height: 1.524   # 60 in
+    height: 1.829   # 72 in vertical; the 60 in dimension is the passage length, carried by the axis endpoints
   ```
 - **`window`** (shape `rect`): a square portal, not an obstacle disc.
   Its geometric inscribed-circle radius is `side / 2`, separate from robot
@@ -123,7 +123,9 @@ Those calculations do not validate the choice. Supply `clearance_radius`
 from a reviewed combined airframe/yaw, planner, estimator and control-error
 budget; do not substitute 0.29 m or the opening inradius as a default.
 Window traversal remains blocked until that budget and vertical clearance
-are validated on the actual kit.
+are validated on the actual kit. A generated map without a reviewed budget
+emits `clearance_radius: null`; consumers must treat that as
+traversal-blocked and refuse the window route — never substitute a default.
 
 Every listed goal parameter is required. Reject an invalid wall index,
 non-finite geometry, zero-length traversal axis, or an axis that does not

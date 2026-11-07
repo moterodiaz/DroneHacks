@@ -30,9 +30,12 @@ mistaken for a valid flight-input map:
 Measured-vs-nominal deltas now recorded by the artifact (course.md: a
 surveyed row supersedes the nominal): tunnel `height` is measured **1.8288 m
 (72 in)** — the geometry table's tunnel row is 58 × 72 × 60 in with 72 in
-vertical, while the course.md schema example's `height: 1.524 # 60 in` is
-the tube's passage *length*, not its height; that schema example needs its
-own contracts correction. Window `side` measures 0.9144 m and sill/head
+vertical, while the course.md schema example's `height: 1.524 # 60 in` was
+the tube's passage *length*, not its height. This PR corrects that schema
+example in `contracts/course.md` to `height: 1.829 # 72 in` (measured
+1.8288, within tolerance), and adds the fail-closed sentence for
+`clearance_radius: null` (consumers must refuse the window route, never
+substitute a default). Window `side` measures 0.9144 m and sill/head
 0.3048/1.2192 m, within tolerance of the nominal 0.914/0.305/1.219 rows.
 Window traversal remains blocked pending a reviewed clearance budget and
 actual-kit vertical-clearance validation; nothing here is flight acceptance.
