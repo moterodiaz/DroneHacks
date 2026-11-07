@@ -55,7 +55,13 @@ ROS 2 Humble / Python nodes on the Jetson, PX4 v1.16.1. See `contracts/px4.md` f
 
 ## §5 Validation
 
-No test suite exists yet. Once one does, document the exact command here (e.g. `make test-<area>`). Until then, PRs are validated by review against docs/BOARD.md and AGENTS.md §3.
+Core navigation math (`core/`, covered by `tests/test_core.py`): from the repo root run
+
+```
+.venv/bin/python -m pytest tests/test_core.py
+```
+
+(a Python 3.9 / NumPy 1.26 venv in `.venv/`; the same suite is also verified on Python 3.14 / NumPy 2.5 — NumPy 2 removed 2-D `np.cross`, so `core/` must not rely on it). PRs are additionally validated by review against docs/BOARD.md and AGENTS.md §3.
 
 ## §6 Parallel work
 
