@@ -5,8 +5,9 @@ import math
 
 import pytest
 
-from dronehacks_course_follower.frames import (OFFSET_LIMIT_M, REST_WINDOW_S, CourseToOdom, NotAtRest, Px4Offset,
-                                               RestOnMark, quaternion_yaw, yaw_quaternion)
+from dronehacks_course_follower.frames import (OFFSET_HEIGHT_TAU_S, OFFSET_LIMIT_M, REST_WINDOW_S, CourseToOdom,
+                                               NotAtRest, Px4Offset, RestOnMark, offset_between, quaternion_yaw,
+                                               yaw_quaternion)
 
 # An arbitrary measured transform: odom turned a third of a right angle from the course, its
 # launch reading off zero, its origin a little above the floor
@@ -115,9 +116,27 @@ def test_px4_offset_is_followed_smoothly_in_flight() -> None:
     # In the air the rangefinder reads true, so the offset settles to its airborne value over about a second
     offset = Px4Offset()
     offset.measure((0.0, 0.0, -0.15), (0.0, 0.0, 0.0))
-    offset.follow((0.0, 0.0, 0.70), (0.0, 0.0, 0.70), elapsed_s=0.05)
+    offset.follow(offset_between((0.0, 0.0, 0.70), (0.0, 0.0, 0.70)), elapsed_s=0.05)
     assert -0.15 < offset.enu[2] < -0.13
 
     for _ in range(100):
-        offset.follow((0.0, 0.0, 0.70), (0.0, 0.0, 0.70), elapsed_s=0.05)
+        offset.follow(offset_between((0.0, 0.0, 0.70), (0.0, 0.0, 0.70)), elapsed_s=0.05)
     assert offset.enu[2] == pytest.approx(0.0, abs=0.01)
+
+
+def test_the_anchored_height_offset_follows_a_step_within_its_time_constant() -> None:
+    # PX4's height drops 0.3 m as a boulder enters the rangefinder's cone; the follower ticks at 50 Hz
+    # and the horizontal is held, as from the pad descent on
+    offset = Px4Offset()
+    offset.measure((0.1, -0.1, 0.0), (0.0, 0.0, 0.0))
+    taus_s = (math.inf, math.inf, OFFSET_HEIGHT_TAU_S)
+    ticks_per_tau = round(OFFSET_HEIGHT_TAU_S / 0.02)
+    for _ in range(ticks_per_tau):
+        offset.follow((0.5, 0.5, -0.3), elapsed_s=0.02, taus_s=taus_s)
+
+    # A first-order follow covers about 1 - 1/e of the step in one time constant, nearly all in three
+    assert -0.3 < offset.enu[2] < -0.6 * 0.3
+    for _ in range(2 * ticks_per_tau):
+        offset.follow((0.5, 0.5, -0.3), elapsed_s=0.02, taus_s=taus_s)
+    assert offset.enu[2] == pytest.approx(-0.3, abs=0.015)
+    assert offset.enu[:2] == pytest.approx((0.1, -0.1))

@@ -96,8 +96,8 @@ _LANDING_PHASES = (Phase.DESCEND, Phase.RETURN_REST, Phase.RETURN_DESCEND)
 _OFFBOARD_PHASES = (Phase.CLIMB, Phase.FLY, Phase.DESCEND, Phase.RETURN_REST, Phase.RETURN_CLIMB,
                     Phase.RETURN_FLY, Phase.RETURN_DESCEND)
 
-# Phases from the pad descent on: PX4's offset stays frozen, so the rangefinder's floor error on
-# the pad and its steps over the wall tops never reach a setpoint
+# Phases from the pad descent on: the offset followed slowly from /skybeta/state stays frozen, so
+# the floor error on the pad does not reach the return's poses. The anchored height is not frozen
 _FROZEN_OFFSET_PHASES = (Phase.DESCEND, Phase.RETURN_REST, Phase.RETURN_CLIMB, Phase.RETURN_FLY,
                          Phase.RETURN_DESCEND, Phase.DONE)
 
@@ -188,7 +188,7 @@ class Mission:
 
     @property
     def offset_frozen(self) -> bool:
-        """Whether PX4's offset must stay as it is: from the pad descent on."""
+        """Whether PX4's slowly followed offset must stay as it is: from the pad descent on."""
         return self.phase in _FROZEN_OFFSET_PHASES
 
     def tick(self, now_s: float, offboard: bool, armed: bool, drone: Drone | None,

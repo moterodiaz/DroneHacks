@@ -34,6 +34,11 @@ OFFSET_LIMIT_M = 0.3
 # How fast the offset follows PX4's frame in flight, as the rangefinder comes into range
 OFFSET_TAU_S = 1.0
 
+# How fast the height offset follows PX4's local position paired with the odometry: EKF2 moves its
+# height over a rangefinder step in 0.2-0.8 s, and the tracker's latency and the interface's 0.1 s
+# resend already lag it, so a shorter constant gains little and only passes on more noise
+OFFSET_HEIGHT_TAU_S = 0.1
+
 
 class NotAtRest(RuntimeError):
     """The odometry does not show the drone resting still on the launch mark."""
@@ -139,7 +144,9 @@ class Px4Offset:
     the flight controller powered up, and the rangefinder reads wrong below its range on the floor
     and true in the air. So the offset is measured at rest, refused when too large to be the floor's
     error, and followed, smoothed, through the flight. Both inputs measure the same drone, so
-    following it moves no setpoint toward the drone: it is not a control loop."""
+    following it moves no setpoint toward the drone: it is not a control loop. The height part is
+    PX4's error over whatever the rangefinder sees, so with PX4's local position paired to the
+    odometry it is followed fast, at `OFFSET_HEIGHT_TAU_S`, and the drone holds the tracker's height."""
 
     def __init__(self) -> None:
         """Starts with no offset."""
@@ -147,19 +154,25 @@ class Px4Offset:
 
     def measure(self, px4_enu: tuple[float, float, float], odom_enu: tuple[float, float, float]) -> None:
         """Takes the offset as it is now: at rest, before Offboard."""
-        self.enu = tuple(px4 - odom for px4, odom in zip(px4_enu, odom_enu, strict=True))
+        self.enu = offset_between(px4_enu, odom_enu)
 
-    def follow(self, px4_enu: tuple[float, float, float], odom_enu: tuple[float, float, float],
-               elapsed_s: float) -> None:
-        """Moves the offset toward its value now, at `OFFSET_TAU_S`."""
-        gain = min(1.0, elapsed_s / OFFSET_TAU_S)
-        self.enu = tuple(offset + gain * (px4 - odom - offset)
-                         for offset, px4, odom in zip(self.enu, px4_enu, odom_enu, strict=True))
+    def follow(self, target_enu: tuple[float, float, float], elapsed_s: float,
+               taus_s: tuple[float, float, float] = (OFFSET_TAU_S,) * 3) -> None:
+        """Moves the offset toward `target_enu`, its value now, each axis at its time constant in
+        `taus_s`; an infinite one holds that axis."""
+        self.enu = tuple(offset + min(1.0, elapsed_s / tau_s) * (target - offset)
+                         for offset, target, tau_s in zip(self.enu, target_enu, taus_s, strict=True))
 
     def too_far(self, limit_m: float) -> str | None:
         """Why the offset is too large to fly on, or None."""
         size_m = math.hypot(*self.enu)
         return f"PX4 and cuVSLAM disagree by {size_m:.2f} m" if size_m > limit_m else None
+
+
+def offset_between(px4_enu: tuple[float, float, float],
+                   odom_enu: tuple[float, float, float]) -> tuple[float, float, float]:
+    """PX4's position minus the odometry's, ENU."""
+    return tuple(px4 - odom for px4, odom in zip(px4_enu, odom_enu, strict=True))
 
 
 def wrap_angle(angle_rad: float) -> float:

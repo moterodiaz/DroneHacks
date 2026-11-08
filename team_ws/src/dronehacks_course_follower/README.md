@@ -40,7 +40,8 @@ landing with the pilot pending an organiser-supported procedure; the organisers 
 | return_descend | the descent's twist, aimed at the launch mark | PX4 disarms |
 
 The pilot taking the drone back (Offboard ends) stops it at once; it sends nothing until a disarm.
-PX4's offset from the odometry stays frozen from the pad descent on.
+PX4's horizontal offset from the odometry stays frozen from the pad descent on; its height offset
+is anchored to PX4's own local position all flight (Height anchor, below).
 
 - **Planner** (`planner.py`): A* on a 5 cm grid, lethal within 0.32 m of a wall (prop reach
   0.28 m + 0.04 m), Nav2-style inflation cost beyond, boulders widened by the rangefinder's
@@ -161,9 +162,10 @@ the descent onto the pad goes on until `/skybeta/state` reports `landed`, then p
 `return_height_m` (2.3 m), slides straight to over the launch mark at `return_speed_mps`
 (0.5 m/s) with the heading held, and lands there as on the pad. **COM_DISARM_LAND must be 5 s**
 (raised on skybeta-11 with the organisers' permission): at 2 s PX4 disarms during the rest and the
-run ends on the pad, which still counts. PX4's offset from the odometry is frozen from the pad
-descent on, so the rangefinder's floor error on the pad and its steps over the wall tops never
-reach a setpoint. A lost odometry on the return holds 3 s, then goes straight down. A run that
+run ends on the pad, which still counts. The height anchor (below) keeps following through the
+return, so a range step over a wall top moves PX4's estimate and the setpoint together; without
+it the offset is frozen from the pad descent on. A lost odometry on the return holds 3 s, then
+goes straight down. A run that
 landed on the pad climbs the speed ladder even if the return fails.
 
 Flown once in Michael Bar On's PX4 v1.16.1 SITL (2026-11-07, the older v3 course map, organisers'
@@ -225,6 +227,55 @@ this branch does: every pose setpoint carries PX4's offset from the odometry (PX
 rangefinder reads wrong on the floor and true in the air. Over 0.3 m at rest it streams nothing, so
 the kit never takes over: the log says `PX4 and cuVSLAM disagree by 0.73 m: not streaming, so no
 Offboard. Power-cycle ...`, then `PX4 offset from cuVSLAM 0.16 m: streaming`.
+
+### Height anchor: hold the tracker's height over boulders, sills and wall tops
+
+PX4 v1.16.1 with `EKF2_HGT_REF` 2 has no terrain model while the rangefinder is its height
+reference, so anything under the 27° cone reads as the drone dropping. Above about 0.32 m/s the
+step is fused and PX4 climbs (0.25 m over a 0.53 m boulder in SITL); below it a units bug in the
+range consistency check drops the rangefinder and EKF2 runs on the barometer until a vertical speed
+over 0.5 m/s (2026-11-07 research, replayed from SITL ULogs). The window's 0.10 m sill at 0.5 m
+below the drone and the 1.727 m wall tops under the return do the same. PX4 parameters are not ours,
+so the setpoint absorbs it (`height_anchor.py`):
+
+- PX4's local position (`/fmu/out/vehicle_local_position`, name resolved from the installed
+  `px4_msgs` as the kit's interface does, best effort) is kept for 1 s.
+- Each odometry sample is paired with PX4's height when its image was taken, by its header stamp:
+  on the node's clock on the drone, on PX4's clock in the simulator (sim time). The tracker lags PX4
+  by its latency, so pairing on arrival would read a 0.5 m/s climb as 3 cm of offset per 60 ms.
+  A stamp on neither clock is paired on arrival and the log says so.
+- The height offset follows that pair at `OFFSET_HEIGHT_TAU_S` 0.1 s: EKF2 moves its height over a
+  step in 0.2-0.8 s, and the tracker's latency and the interface's 0.1 s resend already lag it; 0.05 s
+  flew the same in SITL (below). Horizontal following is unchanged (1 s, from `/skybeta/state`).
+- It is not frozen for the pad descent and the return: the landings are twists, which carry no
+  position, so it never touches them, and on the return's climb and slide it is what cancels a
+  range step over a wall top. The 0.3 m refusal at rest is unchanged.
+- Without `px4_msgs`, or with PX4's height or the pairing older than 0.5 s, the height falls back
+  to the 1 s follow from `/skybeta/state`, frozen from the pad descent on. The log says
+  `height anchor on: odometry stamped on ...` or `height anchor off: ...`.
+
+Flown in Michael Bar On's PX4 v1.16.1 SITL (2026-11-07, `scratchpad/corner/pkg_sitl_heading.py`:
+organisers' 0.3.3 interface at 10 Hz, rangefinder as height reference, 50 ms added camera latency,
+seed 3), over boulder 3 of the older v3 map with the boulders removed from the follower's map so
+the route crosses it, against the same flights without the anchor. The log read `height anchor on:
+odometry stamped on PX4's clock, paired 64 ms behind`. True heights from PX4's ground truth, above
+the rest height, against the 0.8 m flight height:
+
+| Flight | Boulder: rise from level | Range fused after it | Window pass, true height |
+|---|---|---|---|
+| 1.0 m/s, no anchor | +0.255 m | no: baro until the landing | 0.643 m |
+| 1.0 m/s, anchor | +0.114 m | yes | 0.800 m |
+| 1.0 m/s, anchor at 0.05 s | +0.109 m | yes | 0.824 m |
+| 0.5 m/s, no anchor | +0.005 m | no: latched on the first sample | 0.848 m |
+| 0.5 m/s, anchor | 0.000 m | no: latched on the first sample | 0.768 m |
+
+At 1.0 m/s the anchored setpoint trailed PX4's estimate by up to 0.13 m for about 0.5 s as EKF2 took
+the step, so half the climb remains: the tracker's latency and the interface's resend, not the time
+constant. Range stayed fused in the anchored flights; the flight without it latched onto the
+barometer on a later short reading while slowing under 0.32 m/s, one flight each, so not yet a rule.
+At 0.5 m/s EKF2 still latches onto the barometer at about 0.25 m/s; the anchor cannot stop that, but
+holds the tracker's height on the barometer. The window sill gave no range step in any run. The
+return over the walls is not yet flown with the anchor.
 
 ### The speed ladder: each clean run flies the next one faster
 

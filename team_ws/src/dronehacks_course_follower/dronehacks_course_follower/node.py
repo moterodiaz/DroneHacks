@@ -5,7 +5,8 @@ poses to `/skybeta/setpoint/pose` and, for the landing, twists to `/skybeta/setp
 mission itself works in the course frame; the course-to-odom transform (contracts/frames.md) is
 applied here, at the boundary. It is either given as parameters or, since the stack launches team
 code with no arguments, read from the odometry of the drone resting on the launch mark facing the
-launch heading, and frozen at arming.
+launch heading, and frozen at arming. PX4's own local position, paired with the odometry, sets the
+height every pose carries, so the drone holds the tracker's height over whatever its rangefinder sees.
 """
 from __future__ import annotations
 
@@ -25,8 +26,9 @@ from std_msgs.msg import String
 
 from .dry_run import packaged_map
 from .follower import TURN_RATE_DPS, Drone, HeadingMode
-from .frames import (OFFSET_LIMIT_M, CourseToOdom, NotAtRest, Px4Offset, RestOnMark, quaternion_yaw,
-                     yaw_quaternion)
+from .frames import (OFFSET_HEIGHT_TAU_S, OFFSET_LIMIT_M, OFFSET_TAU_S, CourseToOdom, NotAtRest, Px4Offset,
+                     RestOnMark, offset_between, quaternion_yaw, yaw_quaternion)
+from .height_anchor import Alignment, HeightAnchor, local_position_topic
 from .ladder import parse_steps, read_step, record_run
 from .mission import (DEFAULT_RETURN_HEIGHT_M, DEFAULT_RETURN_REST_S, DEFAULT_RETURN_SPEED_MPS, Mission, Phase,
                       PoseCommand, ReturnPlan, TwistCommand)
@@ -35,7 +37,7 @@ from .yaw_comp import (DEFAULT_GAIN_PER_S2, DEFAULT_MAX_M, DEFAULT_PUSH_GAIN, DE
                        HorizontalSpeed, Vector, YawCompensator)
 
 if TYPE_CHECKING:
-    from px4_msgs.msg import SensorCombined
+    from px4_msgs.msg import SensorCombined, VehicleLocalPosition
 
 # An odometry message older than this counts as no estimate: the setpoint waits for it
 ODOMETRY_STALE_S = 0.5
@@ -157,6 +159,12 @@ class CourseFollower(Node):
         self.px4_offset = Px4Offset()
         self.offset_problem: str | None = None
         self.previous_tick_s = time.monotonic()
+
+        # PX4's local position at its own rate, paired with the odometry for the height offset;
+        # without it the height is followed from /skybeta/state with the rest of the offset
+        self.height_anchor = HeightAnchor()
+        self.anchored: bool | None = None
+        self.anchor_available = self._subscribe_local_position()
         self.pose_publisher = self.create_publisher(PoseStamped, "/skybeta/setpoint/pose", 10)
         self.twist_publisher = self.create_publisher(TwistStamped, "/skybeta/setpoint/twist", 10)
         self.create_subscription(Odometry, self._parameter("odometry_topic", "/visual_slam/tracking/odometry"),
@@ -214,6 +222,33 @@ class CourseFollower(Node):
         self.create_subscription(SensorCombined, "/fmu/out/sensor_combined", self.on_accelerometer,
                                  qos_profile_sensor_data)
 
+    def _subscribe_local_position(self) -> bool:
+        """Subscribes PX4's local position, best effort as the kit's /fmu/out topics are; without
+        px4_msgs the height offset follows /skybeta/state as the rest of the offset does."""
+        resolved = local_position_topic()
+        if resolved is None:
+            self.get_logger().warning("height anchor off: px4_msgs cannot be imported, so the height offset "
+                                      f"follows /skybeta/state over {OFFSET_TAU_S:.0f} s and freezes from the pad "
+                                      "descent on")
+            return False
+
+        message_type, topic = resolved
+        self.create_subscription(message_type, topic, self.on_local_position, qos_profile_sensor_data)
+        self.get_logger().info(f"height anchor: PX4's height from {topic}")
+        return True
+
+    def on_local_position(self, message: VehicleLocalPosition) -> None:
+        """Keeps PX4's height, up, by its arrival on this node's clock and PX4's sample stamp."""
+        if not message.z_valid or not math.isfinite(message.z):
+            return
+
+        sample_us = message.timestamp_sample or message.timestamp
+        self.height_anchor.add_px4(self._clock_s(), sample_us * 1e-6, -float(message.z))
+
+    def _clock_s(self) -> float:
+        """The node's ROS clock now, the clock the camera driver stamps images on, in seconds."""
+        return self.get_clock().now().nanoseconds * 1e-9
+
     def on_accelerometer(self, message: SensorCombined) -> None:
         """Hands the horizontal accelerometer reading, FRD body axes, to the compensator's next step."""
         if self.yaw_comp is not None:
@@ -226,6 +261,8 @@ class CourseFollower(Node):
         odom_yaw_rad = quaternion_yaw(orientation.x, orientation.y, orientation.z, orientation.w)
         self.odom_enu = (position.x, position.y, position.z)
         self.odom_yaw_rad = odom_yaw_rad
+        stamp_s = message.header.stamp.sec + message.header.stamp.nanosec * 1e-9
+        self.height_anchor.pair(self._clock_s(), stamp_s, position.z)
         self.odom_speed.update(time.monotonic(), position.x, position.y)
         if self.placement is Placement.READING:
             self.rest.add(time.monotonic(), position.x, position.y, odom_yaw_rad)
@@ -294,16 +331,17 @@ class CourseFollower(Node):
                         f"    course_to_odom_y: {self.transform.odom_origin[1]!r}\n", encoding="utf-8")
 
     def _offset_problem(self, elapsed_s: float) -> str | None:
-        """Measures PX4's offset before Offboard and follows it after, frozen from the pad descent on;
-        before Offboard, why nothing may be streamed yet, or None. A change of answer is logged once."""
+        """Measures PX4's offset before Offboard and follows it after; before Offboard, why nothing
+        may be streamed yet, or None. A change of answer is logged once."""
         problem = None
+        anchor_m = self._anchor_offset()
         if self.odom_enu is not None and self.px4_enu is None:
             problem = "no PX4 local position in /skybeta/state yet"
         elif self.odom_enu is not None and self.mission.phase is Phase.WAIT:
             self.px4_offset.measure(self.px4_enu, self.odom_enu)
             problem = self.px4_offset.too_far(OFFSET_LIMIT_M)
-        elif self.odom_enu is not None and not self.mission.offset_frozen:
-            self.px4_offset.follow(self.px4_enu, self.odom_enu, elapsed_s)
+        elif self.odom_enu is not None:
+            self._follow_offset(elapsed_s, anchor_m)
 
         if self.mission.phase is Phase.WAIT and problem != self.offset_problem:
             if problem:
@@ -314,6 +352,38 @@ class CourseFollower(Node):
             self.offset_problem = problem
 
         return problem if self.mission.phase is Phase.WAIT else None
+
+    def _follow_offset(self, elapsed_s: float, anchor_m: float | None) -> None:
+        """Follows PX4's offset in flight: horizontally over `OFFSET_TAU_S`, frozen from the pad
+        descent on; its height from the anchor at `OFFSET_HEIGHT_TAU_S` all flight, or without the
+        anchor as the horizontal. Twists carry no position, so the landings never see it."""
+        target = offset_between(self.px4_enu, self.odom_enu)
+        horizontal_tau_s = math.inf if self.mission.offset_frozen else OFFSET_TAU_S
+        if anchor_m is None:
+            self.px4_offset.follow(target, elapsed_s, (horizontal_tau_s,) * 3)
+            return
+
+        self.px4_offset.follow((target[0], target[1], anchor_m), elapsed_s,
+                               (horizontal_tau_s, horizontal_tau_s, OFFSET_HEIGHT_TAU_S))
+
+    def _anchor_offset(self) -> float | None:
+        """The anchor's height offset now, or None while it is off; its turning on or off is logged."""
+        offset_m = self.height_anchor.offset(self._clock_s())
+        anchored = offset_m is not None
+        if not self.anchor_available or anchored == self.anchored:
+            return offset_m
+
+        alignment = self.height_anchor.alignment
+        if anchored:
+            self.get_logger().info(f"height anchor on: odometry stamped on {alignment.value}, paired "
+                                   f"{self.height_anchor.lag_s * 1000:.0f} ms behind PX4's newest height"
+                                   + (": a climb reads as offset by the tracker's latency"
+                                      if alignment is Alignment.ARRIVAL else ""))
+        elif self.anchored is not None:
+            self.get_logger().warning("height anchor off: no fresh PX4 height paired with the odometry, so the "
+                                      "height offset follows /skybeta/state with the rest")
+        self.anchored = anchored
+        return offset_m
 
     def on_tick(self) -> None:
         """One mission step: its command published, its phase changes logged. Before Offboard, nothing
