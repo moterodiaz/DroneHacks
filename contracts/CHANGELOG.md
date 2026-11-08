@@ -2,6 +2,23 @@
 
 Newest entries first. One entry per contract-affecting change, linking the PR.
 
+## 2026-11-07 — our drone is skybeta-11: drone-specific rows corrected
+
+The team switched from drone 1 to drone 11 (skybeta-11) on 2026-11-07. The
+drone-specific rows in `px4.md` were drone 1's, and now carry skybeta-11's
+values, read from its FC over USB on 2026-11-07. They equal
+`px4-baselines/skybeta-11-2026-11-07.params`, except the approved
+`COM_DISARM_LAND` 5 and two flight counters.
+
+- `NAV_RCL_ACT` is `2` (Return), not `6` (disarm). Return needs a global
+  position, so PX4 falls back to Land, or to Descend.
+- `MPC_XY_VEL_MAX` is `12` m/s, not `1.0`.
+- The firmware is `v1.16.2-1-g7a39c59` (organisers' patched build), not `v1.16.1`.
+- The DDS domain is `11`, not `1`.
+
+No value was written to the FC; this records what is there. Nothing changes
+in the allowlist. Affected owner: contracts (@moterodiaz).
+
 ## 2026-11-07 — course layout revision: M1–M3 removed, two walls added, checkpoint 1 removed
 
 Branch `course/course-v3-layout-change`. The course changed; @jsun4231

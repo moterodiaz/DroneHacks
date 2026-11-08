@@ -50,7 +50,7 @@ lidar_localizer:
     mount_y: 0.0
     mount_z: 0.035
     range_min_m: 0.25                # hardware-setup.md: ignore the drone's own arms
-    # Body centre above the floor when landed: contracts/frames.md (PR #5) body_resting_height. Confirm on drone 1.
+    # Body centre above the floor when landed: contracts/frames.md (PR #5) body_resting_height. Confirm on drone 11.
     rest_height_m: 0.07
     cov_scale: 100.0                 # starting point; calibrate on the bench
 

@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# Install the ROS 2 package dronehacks_lidar into drone 1's team workspace.
+# Install the ROS 2 package dronehacks_lidar into drone 11's team workspace.
 #
 # Run it on the drone, in the host shell, from a checkout of this repo:
 #     bash depthcam/deploy/install_on_drone.sh
 #
-# It refuses to run anywhere but drone 1 (hostname skybeta-01). Logging into or deploying to another
+# It refuses to run anywhere but drone 11 (hostname skybeta-11). Logging into or deploying to another
 # team's drone gets a team disqualified (AGENTS.md §1). It:
 #   1. copies what colcon builds from depthcam/ (the package root) to ~/team_ws/src/dronehacks_lidar:
 #      package.xml, setup.py, setup.cfg, resource/, launch/, routes/, the Python packages setup.py
@@ -20,10 +20,10 @@
 # start check. See methods/lidar-vo-fusion/docs/deploy.md.
 set -euo pipefail
 
-EXPECTED_HOST="skybeta-01"
+EXPECTED_HOST="skybeta-11"
 host="$(hostname)"
 if [ "$host" != "$EXPECTED_HOST" ]; then
-  echo "install_on_drone: this is '$host', not drone 1 ($EXPECTED_HOST). Nothing was changed." >&2
+  echo "install_on_drone: this is '$host', not drone 11 ($EXPECTED_HOST). Nothing was changed." >&2
   exit 1
 fi
 
