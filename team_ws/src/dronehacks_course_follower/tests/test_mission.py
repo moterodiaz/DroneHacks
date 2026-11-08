@@ -8,8 +8,8 @@ import pytest
 
 from dronehacks_course_follower import dry_run
 from dronehacks_course_follower.follower import Drone, HeadingMode
-from dronehacks_course_follower.mission import (LANDING_CORRECTION_MPS, Mission, Phase, PoseCommand, TwistCommand,
-                                                landing_twist)
+from dronehacks_course_follower.mission import (LANDING_CORRECTION_MPS, RETURN_CLIMBED_M, RETURN_STALE_LAND_S, Mission,
+                                                Phase, PoseCommand, ReturnPlan, TwistCommand, landing_twist)
 
 # PX4 counts ground contact only while the setpoint descends at 1.1 x LNDMC_Z_VEL_MAX, 0.25 m/s in
 # the organisers' parameter dumps
@@ -204,3 +204,151 @@ def test_the_dry_run_flies_the_packaged_map_to_a_landing() -> None:
 
 def test_the_dry_run_flies_the_packaged_map_to_a_landing_with_a_fixed_heading() -> None:
     assert dry_run.main(["--steps", "0", "--heading-mode", "fixed"]) == 0
+
+
+def test_the_dry_run_flies_the_return_to_the_launch_mark() -> None:
+    assert dry_run.main(["--steps", "0", "--return-home"]) == 0
+
+
+# The return as the launch defaults fly it, from the pad at the short route's end to the mark at the origin
+_RETURN = ReturnPlan(height_m=2.3, rest_s=2.0, speed_mps=0.5)
+
+# skybeta-11's COM_DISARM_LAND, raised from the organisers' 2 s for the return
+_DISARM_AFTER_S = 5.0
+
+
+class _Tick:
+    """One tick of a flown mission: its phase after the tick, the command and the drone it saw."""
+
+    def __init__(self, now_s: float, phase: Phase, command: PoseCommand | TwistCommand | None, drone: Drone,
+                 frozen: bool) -> None:
+        """Keeps the tick's record."""
+        self.now_s, self.phase, self.command, self.drone, self.frozen = now_s, phase, command, drone, frozen
+
+
+def _returning_mission() -> Mission:
+    """A mission over the short route that returns to the launch mark."""
+    return Mission(_ROUTE, np.empty((0, 4)), _HEIGHT_M, (0.0, 0.0), top_speed_mps=1.0, return_plan=_RETURN)
+
+
+def _fly_ideally(mission: Mission, disarm_after_s: float = _DISARM_AFTER_S, stop_at: Phase | None = None,
+                 until_s: float = 120.0) -> list[_Tick]:
+    """Flies the mission against a drone that sits on every pose, follows every twist and lands at
+    the floor, PX4 disarming it `disarm_after_s` after it lands; stops at `stop_at` or the run's end."""
+    drone, flown, landed_since_s, now_s, ticks = _on_the_ground(), False, math.nan, 0.0, []
+    while now_s < until_s and mission.phase not in (Phase.DONE, Phase.ABORTED, stop_at):
+        landed = flown and drone.height_m <= 0.0
+        landed_since_s = math.nan if not landed else (now_s if math.isnan(landed_since_s) else landed_since_s)
+        armed = not landed or now_s - landed_since_s < disarm_after_s
+        command = mission.tick(now_s, offboard=True, armed=armed, drone=drone, landed=landed)
+        ticks.append(_Tick(now_s, mission.phase, command, drone, mission.offset_frozen))
+        drone = _ideal_next(mission, command, drone)
+        flown = flown or drone.height_m > 0.0
+        now_s += _PERIOD_S
+
+    return ticks
+
+
+def _ideal_next(mission: Mission, command: PoseCommand | TwistCommand | None, drone: Drone) -> Drone:
+    """The ideal drone one tick on: on the follower's reference while it flies the route, else on the
+    pose, or moved by the twist and stopped at the floor."""
+    if isinstance(command, TwistCommand):
+        return Drone(drone.east + command.east_mps * _PERIOD_S, drone.north + command.north_mps * _PERIOD_S,
+                     max(drone.height_m + command.up_mps * _PERIOD_S, 0.0), drone.yaw_rad)
+
+    if isinstance(command, PoseCommand) and mission.phase is Phase.FLY:
+        return _airborne(mission)
+
+    if isinstance(command, PoseCommand):
+        return Drone(command.east, command.north, command.height_m, drone.yaw_rad)
+
+    return drone
+
+
+def _phases(ticks: list[_Tick]) -> list[Phase]:
+    """The phases the ticks passed through, in order, each once."""
+    return [tick.phase for index, tick in enumerate(ticks) if index == 0 or tick.phase is not ticks[index - 1].phase]
+
+
+def test_the_return_rests_on_the_pad_climbs_slides_and_lands_on_the_launch_mark() -> None:
+    mission = _returning_mission()
+    ticks = _fly_ideally(mission)
+    assert _phases(ticks) == [Phase.CLIMB, Phase.FLY, Phase.DESCEND, Phase.RETURN_REST, Phase.RETURN_CLIMB,
+                              Phase.RETURN_FLY, Phase.RETURN_DESCEND, Phase.DONE]
+    assert mission.landed_on_pad
+    assert math.dist((ticks[-1].drone.east, ticks[-1].drone.north), (0.0, 0.0)) < 0.05
+
+    # The rest presses down for its whole length while PX4 reports landed
+    rest = [tick for tick in ticks if tick.phase is Phase.RETURN_REST]
+    assert rest[-1].now_s - rest[0].now_s == pytest.approx(_RETURN.rest_s, abs=2 * _PERIOD_S)
+    assert all(isinstance(tick.command, TwistCommand) and tick.command.up_mps < 0.0 for tick in rest)
+
+
+def test_without_the_return_a_landed_pad_descent_waits_for_the_disarm() -> None:
+    ticks = _fly_ideally(_mission())
+    assert _phases(ticks)[-2:] == [Phase.DESCEND, Phase.DONE]
+
+
+def test_a_rest_longer_than_three_seconds_is_refused() -> None:
+    # COM_DISARM_LAND is 5 s and the motors need about 1 s to lift the drone off the pad
+    with pytest.raises(ValueError, match="rest"):
+        Mission(_ROUTE, np.empty((0, 4)), _HEIGHT_M, (0.0, 0.0), top_speed_mps=1.0,
+                return_plan=ReturnPlan(height_m=2.3, rest_s=3.5, speed_mps=0.5))
+
+
+def test_the_return_climbs_straight_over_the_pad_before_it_slides() -> None:
+    ticks = _fly_ideally(_returning_mission())
+    climb = [tick.command for tick in ticks if tick.phase is Phase.RETURN_CLIMB]
+    assert climb and all(command[:3] == (*_ROUTE[-1], _RETURN.height_m) for command in climb)
+
+    slide = [tick for tick in ticks if tick.phase is Phase.RETURN_FLY]
+    assert slide[0].drone.height_m >= _RETURN.height_m - RETURN_CLIMBED_M
+    easts = [tick.command.east for tick in slide]
+    assert all(tick.command.height_m == _RETURN.height_m for tick in slide)
+    assert all(later <= earlier for earlier, later in zip(easts, easts[1:], strict=False))
+
+
+def test_the_returns_descent_aims_at_the_launch_mark() -> None:
+    mission = _returning_mission()
+    _fly_ideally(mission, stop_at=Phase.RETURN_DESCEND)
+    twist = mission.tick(100.0, offboard=True, armed=True, drone=Drone(0.4, -0.2, 1.0, 0.0))
+    assert isinstance(twist, TwistCommand) and twist.east_mps < 0.0 < twist.north_mps and twist.up_mps < 0.0
+
+
+def test_a_disarm_during_the_rest_ends_the_run_landed_on_the_pad() -> None:
+    # A drone still at the organisers' COM_DISARM_LAND of 1-2 s disarms before the rest ends
+    mission = _returning_mission()
+    ticks = _fly_ideally(mission, disarm_after_s=1.0)
+    assert _phases(ticks)[-2:] == [Phase.RETURN_REST, Phase.DONE]
+    assert mission.landed_on_pad and "rest" in mission.events[-1]
+
+
+def test_px4s_offset_is_frozen_from_the_pad_descent_on() -> None:
+    ticks = _fly_ideally(_returning_mission())
+    for tick in ticks:
+        assert tick.frozen == (tick.phase not in (Phase.CLIMB, Phase.FLY)), tick.phase
+
+
+def test_lost_odometry_on_the_return_holds_then_descends_straight_down() -> None:
+    mission = _returning_mission()
+    ticks = _fly_ideally(mission, stop_at=Phase.RETURN_FLY)
+    now_s = ticks[-1].now_s
+    commands = []
+    for step in range(1, int((RETURN_STALE_LAND_S + 0.5) / _PERIOD_S)):
+        commands.append(mission.tick(now_s + step * _PERIOD_S, offboard=True, armed=True, drone=None))
+
+    held = commands[:int((RETURN_STALE_LAND_S - 0.1) / _PERIOD_S)]
+    assert all(isinstance(command, PoseCommand) and command[:3] == held[0][:3] for command in held)
+    assert mission.phase is Phase.RETURN_DESCEND
+    assert commands[-1] == TwistCommand(0.0, 0.0, commands[-1].up_mps, 0.0) and commands[-1].up_mps < 0.0
+
+    # Odometry back mid-descent: it still goes straight down rather than steering blind across walls
+    twist = mission.tick(now_s + 10.0, offboard=True, armed=True, drone=Drone(1.0, 0.0, 1.0, 0.0))
+    assert (twist.east_mps, twist.north_mps) == (0.0, 0.0)
+
+
+def test_the_pilot_taking_over_on_the_return_aborts_it() -> None:
+    mission = _returning_mission()
+    ticks = _fly_ideally(mission, stop_at=Phase.RETURN_FLY)
+    assert mission.tick(ticks[-1].now_s + _PERIOD_S, offboard=False, armed=True, drone=ticks[-1].drone) is None
+    assert mission.phase is Phase.ABORTED

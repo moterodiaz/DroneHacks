@@ -33,9 +33,14 @@ landing with the pilot pending an organiser-supported procedure; the organisers 
 | wait | pose over the drone at the map's flight height, heading not commanded | `/skybeta/state` reports Offboard; the drone must be within 0.5 m of the map's launch mark, or the run is refused |
 | climb | the same pose, held over the start | odometry within 0.1 m of the flight height |
 | fly | the led pose sliding along the rounded route, heading on the look-ahead point | the setpoint reaches the route's end and the drone is within 0.15 m of it, or 2 s later |
-| descend | twist: 0.5 m/s down, steered back over the pad at 1/s, capped 0.3 m/s | PX4 disarms (`armed` false) |
+| descend | twist: 0.5 m/s down, steered back over the pad at 1/s, capped 0.3 m/s | PX4 disarms (`armed` false); with `return_home`, PX4 reports `landed` |
+| return_rest | twist 0.15 m/s down, pressing on the pad | `return_rest_s` later; a disarm here ends the run, landed on the pad |
+| return_climb | pose straight over the pad at `return_height_m` | odometry within 0.15 m of it, or settled above 90 % of it |
+| return_fly | pose sliding straight to over the launch mark at `return_speed_mps`, heading held | over the mark, as the route's end |
+| return_descend | the descent's twist, aimed at the launch mark | PX4 disarms |
 
 The pilot taking the drone back (Offboard ends) stops it at once; it sends nothing until a disarm.
+PX4's offset from the odometry stays frozen from the pad descent on.
 
 - **Planner** (`planner.py`): A* on a 5 cm grid, lethal within 0.32 m of a wall (prop reach
   0.28 m + 0.04 m), Nav2-style inflation cost beyond, boulders widened by the rangefinder's
@@ -132,6 +137,30 @@ tell where the mark is, so a misplaced drone flies the whole route shifted by th
 | `yaw_comp_push_gain` | 1.25 | the push per unit of hover accelerometer reading, fitted on the corners of two flights |
 | `setpoint_rate_hz` | 10 | the interface's own rate, the kit default |
 | `record` | true | record the run (below); false keeps the follower up for another attempt after a disarm |
+| `return_home` | false | true flies the return to the launch mark after the pad landing (below); not yet flown on the drone |
+| `return_height_m` | 2.3 | the return's height above the floor, over the 1.727 m walls; must stay under 3.0 m above the odom origin |
+| `return_rest_s` | 2.0 | the rest on the pad after PX4 reports landed; over 3.0 is refused |
+| `return_speed_mps` | 0.5 | the return's straight slide to over the launch mark |
+
+### The return (rule 7.10)
+
+After landing on the pad the drone may take off by itself, fly over the barrier into the start
+area and land and disarm within 2 ft (0.61 m) of the launch mark, all within 3 min, for a bonus; a
+miss loses only the bonus. Rule 7.7 lets it fly above the walls (1.727 m). With `return_home:=true`
+the descent onto the pad goes on until `/skybeta/state` reports `landed`, then presses down for
+`return_rest_s` (2 s) so the landing is plain on the video, climbs straight up over the pad to
+`return_height_m` (2.3 m), slides straight to over the launch mark at `return_speed_mps`
+(0.5 m/s) with the heading held, and lands there as on the pad. **COM_DISARM_LAND must be 5 s**
+(raised on skybeta-11 with the organisers' permission): at 2 s PX4 disarms during the rest and the
+run ends on the pad, which still counts. PX4's offset from the odometry is frozen from the pad
+descent on, so the rangefinder's floor error on the pad and its steps over the wall tops never
+reach a setpoint. A lost odometry on the return holds 3 s, then goes straight down. A run that
+landed on the pad climbs the speed ladder even if the return fails.
+
+```bash
+ros2 launch dronehacks_course_follower competitor.launch.py return_home:=true
+ros2 run dronehacks_course_follower dry_run --return-home      # reports the landing's distance from the mark
+```
 
 ### Heading mode: does yawing drift the drone?
 

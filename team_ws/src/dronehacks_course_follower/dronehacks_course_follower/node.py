@@ -28,7 +28,8 @@ from .follower import TURN_RATE_DPS, Drone, HeadingMode
 from .frames import (OFFSET_LIMIT_M, CourseToOdom, NotAtRest, Px4Offset, RestOnMark, quaternion_yaw,
                      yaw_quaternion)
 from .ladder import parse_steps, read_step, record_run
-from .mission import Mission, Phase, PoseCommand, TwistCommand
+from .mission import (DEFAULT_RETURN_HEIGHT_M, DEFAULT_RETURN_REST_S, DEFAULT_RETURN_SPEED_MPS, Mission, Phase,
+                      PoseCommand, ReturnPlan, TwistCommand)
 from .planner import load_course_map, plan_flight
 from .yaw_comp import (DEFAULT_GAIN_PER_S2, DEFAULT_MAX_M, DEFAULT_PUSH_GAIN, DEFAULT_TAU_S, MEASURE_S,
                        HorizontalSpeed, Vector, YawCompensator)
@@ -52,6 +53,9 @@ ODOM_FRAME = "odom"
 # With `record` on, the node exits this long after the flight's disarm, so the recording the launch
 # closes on its exit keeps the touchdown and PX4 settling
 RECORDING_TAIL_S = 5.0
+
+# The flight interface's ceiling above the odom origin, its max_altitude_m as this launch starts it
+KIT_CEILING_M = 3.0
 
 # With yaw_comp on, the climb hovers over the start for the push estimate at most this long: a hover
 # never steady enough for it flies the route uncompensated rather than hovering on the mark
@@ -106,9 +110,12 @@ class CourseFollower(Node):
         # heading at Offboard held throughout
         heading_mode = HeadingMode(self._parameter("heading_mode", HeadingMode.AHEAD.value))
         turn_rate_dps = self._parameter("turn_rate_dps", TURN_RATE_DPS)
+        return_plan = self._return_plan(origin_height_m)
         self.mission = Mission(planned.route, planned.walls, float(course_map["height_m"]), launch, speed_mps,
                                lead=self._parameter("pose_lead", False), land=self._parameter("land", True),
-                               heading_mode=heading_mode, turn_rate_rad_s=math.radians(turn_rate_dps))
+                               heading_mode=heading_mode, turn_rate_rad_s=math.radians(turn_rate_dps),
+                               return_plan=return_plan)
+        self.landed = False
 
         # The feed-forward against the airframe's push, off until flown; it reads PX4's accelerometer
         yaw_comp = self._parameter("yaw_comp", False)
@@ -166,6 +173,8 @@ class CourseFollower(Node):
                                + (f"; yaw_comp on: tau {comp_settings[0]:.1f} s, gain {comp_settings[1]:.2f}, "
                                   f"cap {comp_settings[2]:.2f} m, push gain {comp_settings[3]:.2f}"
                                   if self.yaw_comp else "; yaw_comp off")
+                               + (f"; return home at {return_plan.height_m:.2f} m after {return_plan.rest_s:.1f} s "
+                                  f"on the pad, {return_plan.speed_mps:.2f} m/s" if return_plan else "; no return")
                                + f"; top speed {speed_mps:.2f} m/s"
                                + ("" if self.ladder_step is None else
                                   f" (ladder step {self.ladder_step + 1} of {len(self.ladder_steps)})"))
@@ -175,6 +184,22 @@ class CourseFollower(Node):
         self.declare_parameter(name, default)
         value = self.get_parameter(name).value
         return float(value) if isinstance(default, float) else value
+
+    def _return_plan(self, origin_height_m: float) -> ReturnPlan | None:
+        """The return to the launch mark after the pad landing, with `return_home`; raises if its
+        height would reach the interface's ceiling above the odom origin."""
+        return_home = self._parameter("return_home", False)
+        plan = ReturnPlan(height_m=self._parameter("return_height_m", DEFAULT_RETURN_HEIGHT_M),
+                          rest_s=self._parameter("return_rest_s", DEFAULT_RETURN_REST_S),
+                          speed_mps=self._parameter("return_speed_mps", DEFAULT_RETURN_SPEED_MPS))
+        if not return_home:
+            return None
+
+        if plan.height_m - origin_height_m >= KIT_CEILING_M:
+            raise RuntimeError(f"return_height_m {plan.height_m} is {plan.height_m - origin_height_m:.2f} m above "
+                               f"the odom origin, at or over the interface's {KIT_CEILING_M} m ceiling")
+
+        return plan
 
     def _subscribe_accelerometer(self) -> None:
         """Subscribes PX4's accelerometer, best effort as the kit's /fmu/out topics are; without
@@ -235,6 +260,7 @@ class CourseFollower(Node):
 
         self.offboard = bool(state.get("offboard_active", False))
         self.armed = armed
+        self.landed = bool(state.get("landed", False))
         local = state.get("local_enu")
         self.px4_enu = tuple(float(value) for value in local) if isinstance(local, list) and len(local) == 3 else None
 
@@ -268,15 +294,15 @@ class CourseFollower(Node):
                         f"    course_to_odom_y: {self.transform.odom_origin[1]!r}\n", encoding="utf-8")
 
     def _offset_problem(self, elapsed_s: float) -> str | None:
-        """Measures PX4's offset before Offboard and follows it after; before Offboard, why nothing may
-        be streamed yet, or None. A change of answer is logged once."""
+        """Measures PX4's offset before Offboard and follows it after, frozen from the pad descent on;
+        before Offboard, why nothing may be streamed yet, or None. A change of answer is logged once."""
         problem = None
         if self.odom_enu is not None and self.px4_enu is None:
             problem = "no PX4 local position in /skybeta/state yet"
         elif self.odom_enu is not None and self.mission.phase is Phase.WAIT:
             self.px4_offset.measure(self.px4_enu, self.odom_enu)
             problem = self.px4_offset.too_far(OFFSET_LIMIT_M)
-        elif self.odom_enu is not None:
+        elif self.odom_enu is not None and not self.mission.offset_frozen:
             self.px4_offset.follow(self.px4_enu, self.odom_enu, elapsed_s)
 
         if self.mission.phase is Phase.WAIT and problem != self.offset_problem:
@@ -298,7 +324,7 @@ class CourseFollower(Node):
         if self._offset_problem(elapsed_s):
             drone = None
         hold_climb = self._compensate(now_s)
-        command = self.mission.tick(now_s, self.offboard, self.armed, drone, hold_climb=hold_climb)
+        command = self.mission.tick(now_s, self.offboard, self.armed, drone, hold_climb=hold_climb, landed=self.landed)
         for event in self.mission.events[self.seen_events:]:
             self.get_logger().info(event)
         self.seen_events = len(self.mission.events)
@@ -324,7 +350,7 @@ class CourseFollower(Node):
         was_ready = self.yaw_comp.ready
         airborne = self.mission.hovering or (was_ready and self.mission.phase is Phase.FLY)
         offset = self.yaw_comp.step(now_s, self.odom_yaw_rad, self.odom_speed.speed_mps, airborne)
-        flying = self.mission.phase in (Phase.CLIMB, Phase.FLY)
+        flying = self.mission.phase in (Phase.CLIMB, Phase.FLY, Phase.RETURN_CLIMB, Phase.RETURN_FLY)
         self.yaw_comp_offset = offset if flying else Vector(0.0, 0.0)
         self._report_yaw_comp(was_ready)
 
@@ -355,7 +381,7 @@ class CourseFollower(Node):
         if self.ladder_step is None:
             return
 
-        landed = self.mission.phase is Phase.DONE
+        landed = self.mission.landed_on_pad
         try:
             next_step = record_run(self.ladder_path, self.ladder_step, self.ladder_steps, landed)
         except OSError as failure:

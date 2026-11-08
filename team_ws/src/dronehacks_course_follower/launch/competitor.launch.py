@@ -52,6 +52,11 @@ FOLLOWER_ARGUMENTS = [
     ("heading_mode", "ahead", str, "ahead = face the point 0.8 m ahead on the route; fixed = hold the heading at "
                                    "Offboard from the climb to the landing, never yawing"),
     ("turn_rate_dps", "45.0", float, "cap on the commanded heading's turn rate, deg/s"),
+    ("return_home", "false", bool, "after the pad landing, take off again and land on the launch mark (rule 7.10); "
+                                   "needs COM_DISARM_LAND 5 s"),
+    ("return_height_m", "2.3", float, "the return's height above the course floor, over the 1.727 m walls"),
+    ("return_rest_s", "2.0", float, "the rest on the pad after PX4 reports landed, at most 3.0 s"),
+    ("return_speed_mps", "0.5", float, "the return's straight slide to over the launch mark, m/s"),
     ("yaw_comp", "false", bool, "offset the pose against the airframe's push that PX4 relearns after each yaw; "
                                 "measured from PX4's accelerometer in the hover over the start"),
     ("yaw_comp_tau_s", "4.5", float, "PX4's velocity integrator lag, MPC_XY_VEL_P_ACC / MPC_XY_VEL_I_ACC, s"),
