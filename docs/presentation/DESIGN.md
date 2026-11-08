@@ -6,16 +6,17 @@ These are the standing rules for Team 08's judging deck. `build_deck.js` follows
 
 - Audience: two judging panels on 8 Nov, run as a technical interview. The talk is 5–7 min and the questions take 5–6 min.
 - Points: 25 for the presentation (autonomy design, technical execution, originality, evidence of testing) and 15 for generality. An AI review of the repository flags hard-coding to the judges.
-- Structure: a research talk. A title slide, then 8 slides:
-  0. Title: team, drone, flown package and its SITL result, route figure from `route_fig.py`.
-  1. Problem: task, scoring, constraints.
-  2. System: data flow and control loops.
-  3. Method: planning (map in, route out) and the followers.
-  4. Method: safety guards and verification tools.
-  5. Experiments: the iterative flight-test timeline.
-  6. Results: flown and SITL results.
-  7. Generality: planner vs hand route, declared course-specific items, new-course procedure, credits.
-  8. Limitations and future work, with the speed ladder.
+- Structure: a research talk told as a story. A title slide, then 9 slides:
+  0. Title: from a CAD file to a flown course; route figure from `route_fig.py`.
+  1. Goal: task, scoring, constraints.
+  2. Anchor: the CAD is the only course input; the launch mark ties it to the floor; generality test.
+  3. Shape: the drone as a shape cut through free space: 2D circle (course follower), 2D exact footprint (pathfly), 3D height.
+  4. System: data flow, control loops, flight states, fail-closed guards.
+  5. Story: the flight-test timeline.
+  6. Issues: each failure, its root cause and the change.
+  7. Results: flown and SITL results.
+  8. Final decision: what flies and why, against the alternatives; declared course-specific items.
+  9. Limitations and future directions, with the speed ladder.
 - Slides are recall cues, not the script. Each block has 3–5 bullets of at most about 8 words. Each slide has one visual (diagram, figure, table or bars). All detail goes in the speaker notes.
 - Content: every slide carries technical facts from `technical-corpus/TECHNICAL_CORPUS.md`. Nothing goes on a slide that has no fact in it: no slogans, no taglines and no closing slide. Rehearsal questions and the do-not-claim list go in the speaker notes.
 
