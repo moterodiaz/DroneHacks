@@ -1,0 +1,4 @@
+# run outputs saved from the GUI / CLI
+runs/
+__pycache__/
+*.pyc

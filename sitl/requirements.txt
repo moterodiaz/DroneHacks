@@ -1,0 +1,3 @@
+# The simulator itself: Python 3.10+ (tkinter is part of the standard installer).
+numpy>=1.24
+pyyaml>=6.0

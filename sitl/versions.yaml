@@ -1,0 +1,300 @@
+# Autonomy versions the SITL can fly.
+#
+# Each entry is what would sit in ~/team_ws/src on drone 1 and run in the stack's `competitor`
+# window: `ros2 launch $COMPETITOR_PKG $COMPETITOR_LAUNCH`, with NO arguments
+# (container_scripts/run_competitor.sh).  Anything a real install sets up by editing the installed
+# config (the measured course->odom transform, the rest height...) is written into the installed
+# copy the same way, under `install_config`.  `$name` values are filled by the simulator from the
+# scenario: the true values plus the scenario's measurement error.
+#
+#   source.git  any ref of this repository (branches of all worktrees are visible); the ref is
+#               archived at its commit, so a run is reproducible and nothing is checked out
+#   source.dir  a directory (e.g. a worktree with uncommitted edits), relative to the repo's parent
+#   packages    package directories inside the source (each with package.xml + setup.py)
+#
+# Follower choices with `hook` are SIMULATOR-ONLY injections (dronesim/autonomy/hooks.py): the
+# drone would run the version's shipped follower.  Choices with `params` are real parameters of
+# the version, written into its installed config.
+#
+# Tunables: the GUI's / CLI's "track speed" and "landing descent" set the node parameter named here
+# (versions without one ignore them). An option choice may also set `launch_suffix` (inserted before
+# .launch.py, e.g. _over_rocks) and `requires` ({other option: choice}).
+#
+# Substitutions: $rest_height_m  $v_max  $traj_yaw $traj_x $traj_y (contracts/frames.md
+# p_odom = o + R p_course, yaw CCW from east)  $odom_yaw_deg (bearing of odom +x, clockwise from
+# course north)  $odom_origin_x $odom_origin_y (tracker reading of the launch mark).
+
+versions:
+
+  traj:
+    label: "dronehacks_traj: trajectory Follower, no lidar (PR #26 + dropout coast, local)"
+    description: >-
+      Mission state machine + dronehacks_planner's minimum-time trajectory and Follower, raw cuVSLAM.
+      Local branch navigation/vo-traj-follower: PR #26's head plus the dropout coast (c557199).
+    source: {git: navigation/vo-traj-follower}
+    packages: [planner, nav_traj]
+    launch: {package: dronehacks_traj, file: traj_nav_competitor.launch.py}
+    install_config:
+      - file: config/traj_nav.example.yaml
+        node: mission
+        values:
+          rest_height_m: $rest_height_m
+          course_to_odom_yaw: $traj_yaw
+          course_to_odom_x: $traj_x
+          course_to_odom_y: $traj_y
+          v_max_mps: $v_max
+    options:
+      route:
+        label: CP4 route
+        default: auto
+        choices:
+          auto: {label: "fastest verified (planner's choice)", params: {mission: {prefer: [""]}}}
+          window: {label: window, params: {mission: {prefer: ["window"]}}}
+          gate_b: {label: Gate B, params: {mission: {prefer: ["gate_b"]}}}
+      land:
+        label: At the pad
+        default: hold
+        choices:
+          hold: {label: "hold over the pad (shipped default, land: false)", params: {mission: {land: false}}}
+          land: {label: "land and disarm (land: true)", params: {mission: {land: true}}}
+      dropout:
+        label: Tracking dropout
+        default: coast
+        choices:
+          coast: {label: "fly on by dead reckoning, re-anchor after (shipped)"}
+          hold: {label: "hold still (the old behaviour: coast_max_s 0)", params: {mission: {coast_max_s: 0.0}}}
+      rocks:
+        label: Rocks
+        default: avoid
+        choices:
+          avoid: {label: "plan around the boulders (shipped)"}
+          fly_over: {label: "fly over the boulders (avoid_boulders: false)", params: {mission: {avoid_boulders: false}}}
+    tunables:
+      track_speed_mps: {node: mission, param: track_speed_mps}
+      descent_mps: {node: mission, param: descent_mps}
+    followers:
+      default: plain
+      choices:
+        plain: {label: "Follower, reference poses (shipped default, lead off)"}
+        formula_lead: {label: "Follower + contract lead formula (sim injection)",
+                       hook: traj_follower_config, args: {lead: true, lead_mode: formula}}
+        path_lead: {label: "Follower + path lead (sim injection)",
+                    hook: traj_follower_config, args: {lead: true, lead_mode: path}}
+        waypoints: {label: "kit-style waypoints, 0.3 m arrival (sim injection)",
+                    hook: traj_waypoint_follower, args: {arrival_radius_m: 0.3}}
+
+  lidar_allowed:
+    label: "dronehacks_lidar: cuVSLAM + MS200K lidar fusion, lidar ALLOWED (PR #27 + dropout coast, local)"
+    description: >-
+      vo_guard -> pose_fusion (lidar drift correction) -> carrot follower -> flight_interface;
+      the lidar is read from /dev/ms200 by the team's own driver.
+    source: {git: localization/lidar-nav}
+    packages: [depthcam]
+    devices: [ms200]
+    launch: {package: dronehacks_lidar, file: lidar_nav_allowed.launch.py}
+    install_config:
+      - file: config/pose_fusion.example.yaml
+        values_by_node:
+          lidar_localizer: {odom_yaw_deg: $odom_yaw_deg, rest_height_m: $rest_height_m}
+          pose_fusion: {odom_yaw_deg: $odom_yaw_deg, odom_origin_x: $odom_origin_x, odom_origin_y: $odom_origin_y}
+          follower: {odom_yaw_deg: $odom_yaw_deg, odom_origin_x: $odom_origin_x, odom_origin_y: $odom_origin_y,
+                     rest_height_m: $rest_height_m}
+    options:
+      route:
+        label: CP4 route
+        default: window
+        choices:
+          window: {label: window, launch: lidar_nav_allowed.launch.py}
+          gate_b: {label: Gate B, launch: lidar_nav_allowed_gate_b.launch.py}
+      land:
+        label: At the pad
+        default: hold
+        choices:
+          hold: {label: "hold over the pad (shipped default)", params: {follower: {land: false}}}
+          land: {label: "land (land: true)", params: {follower: {land: true}}}
+      dropout:
+        label: Tracking dropout
+        default: coast
+        choices:
+          coast: {label: "fly on by dead reckoning (shipped)"}
+          hold: {label: "hold still (the old behaviour: coast_max_s 0)", params: {follower: {coast_max_s: 0.0}}}
+      rocks:
+        label: Rocks
+        default: avoid
+        choices:
+          avoid: {label: "plan around the boulders (shipped routes)"}
+          fly_over: {label: "fly over the boulders (window route planned with --over-rocks)",
+                     launch_suffix: _over_rocks, requires: {route: window}}
+    tunables:
+      track_speed_mps: {node: follower, param: track_speed_mps}
+      descent_mps: {node: follower, param: descent_mps}
+    followers:
+      default: carrot
+      choices:
+        carrot: {label: "carrot pursuit, lookahead 0.5 m (shipped)"}
+        carrot_1m: {label: "carrot pursuit, lookahead 1.0 m (parameter)", params: {follower: {lookahead_max_m: 1.0}}}
+
+  lidar_forbidden:
+    label: "dronehacks_lidar: lidar FORBIDDEN (PR #27 + dropout coast, local; cuVSLAM only)"
+    description: "The same stack with lidar_policy forbidden: no lidar node, no drift correction."
+    source: {git: localization/lidar-nav}
+    packages: [depthcam]
+    launch: {package: dronehacks_lidar, file: lidar_nav_forbidden.launch.py}
+    install_config:
+      - file: config/pose_fusion.example.yaml
+        values_by_node:
+          lidar_localizer: {odom_yaw_deg: $odom_yaw_deg, rest_height_m: $rest_height_m}
+          pose_fusion: {odom_yaw_deg: $odom_yaw_deg, odom_origin_x: $odom_origin_x, odom_origin_y: $odom_origin_y}
+          follower: {odom_yaw_deg: $odom_yaw_deg, odom_origin_x: $odom_origin_x, odom_origin_y: $odom_origin_y,
+                     rest_height_m: $rest_height_m}
+    options:
+      route:
+        label: CP4 route
+        default: window
+        choices:
+          window: {label: window, launch: lidar_nav_forbidden.launch.py}
+          gate_b: {label: Gate B, launch: lidar_nav_forbidden_gate_b.launch.py}
+      land:
+        label: At the pad
+        default: hold
+        choices:
+          hold: {label: "hold over the pad (shipped default)", params: {follower: {land: false}}}
+          land: {label: "land (land: true)", params: {follower: {land: true}}}
+      dropout:
+        label: Tracking dropout
+        default: coast
+        choices:
+          coast: {label: "fly on by dead reckoning (shipped)"}
+          hold: {label: "hold still (the old behaviour: coast_max_s 0)", params: {follower: {coast_max_s: 0.0}}}
+      rocks:
+        label: Rocks
+        default: avoid
+        choices:
+          avoid: {label: "plan around the boulders (shipped routes)"}
+          fly_over: {label: "fly over the boulders (window route planned with --over-rocks)",
+                     launch_suffix: _over_rocks, requires: {route: window}}
+    tunables:
+      track_speed_mps: {node: follower, param: track_speed_mps}
+      descent_mps: {node: follower, param: descent_mps}
+    followers:
+      default: carrot
+      choices:
+        carrot: {label: "carrot pursuit, lookahead 0.5 m (shipped)"}
+        carrot_1m: {label: "carrot pursuit, lookahead 1.0 m (parameter)", params: {follower: {lookahead_max_m: 1.0}}}
+
+  return_flight:
+    label: "dronehacks_lidar + optional return flight + dropout coast (localization/return-flight, local)"
+    description: "Lidar build with the rule 7.10 return leg; return_flight is off unless chosen here."
+    source: {git: localization/return-flight}
+    packages: [depthcam]
+    devices: [ms200]
+    launch: {package: dronehacks_lidar, file: lidar_nav_allowed.launch.py}
+    install_config:
+      - file: config/pose_fusion.example.yaml
+        values_by_node:
+          lidar_localizer: {odom_yaw_deg: $odom_yaw_deg, rest_height_m: $rest_height_m}
+          pose_fusion: {odom_yaw_deg: $odom_yaw_deg, odom_origin_x: $odom_origin_x, odom_origin_y: $odom_origin_y}
+          follower: {odom_yaw_deg: $odom_yaw_deg, odom_origin_x: $odom_origin_x, odom_origin_y: $odom_origin_y,
+                     rest_height_m: $rest_height_m}
+    options:
+      route:
+        label: CP4 route
+        default: window
+        choices:
+          window: {label: window, launch: lidar_nav_allowed.launch.py}
+          gate_b: {label: Gate B, launch: lidar_nav_allowed_gate_b.launch.py}
+      return:
+        label: Return flight
+        default: "off"
+        choices:
+          "off": {label: "off (shipped default)", params: {follower: {return_flight: false}}}
+          "on": {label: "on: land, disarm, return (needs land: true)", params: {follower: {return_flight: true, land: true}}}
+      dropout:
+        label: Tracking dropout
+        default: coast
+        choices:
+          coast: {label: "fly on by dead reckoning (shipped)"}
+          hold: {label: "hold still (the old behaviour: coast_max_s 0)", params: {follower: {coast_max_s: 0.0}}}
+    tunables:
+      track_speed_mps: {node: follower, param: track_speed_mps}
+      descent_mps: {node: follower, param: descent_mps}
+    followers:
+      default: carrot
+      choices:
+        carrot: {label: "carrot pursuit, lookahead 0.5 m (shipped)"}
+        carrot_1m: {label: "carrot pursuit, lookahead 1.0 m (parameter)", params: {follower: {lookahead_max_m: 1.0}}}
+
+  vo_nolidar:
+    label: "dronehacks_vo: vo_guard + carrot follower, no lidar (core/vo-nav-no-lidar, local)"
+    description: "The lidar build minus the lidar; the follower publishes straight to the kit."
+    source: {git: core/vo-nav-no-lidar}
+    packages: [depthcam]
+    launch: {package: dronehacks_vo, file: vo_nav.launch.py}
+    install_config:
+      - file: config/vo_nav.example.yaml
+        values_by_node:
+          follower: {rest_height_m: $rest_height_m}
+    options:
+      route:
+        label: CP4 route
+        default: window
+        choices:
+          window: {label: window, launch: vo_nav.launch.py}
+          gate_b: {label: Gate B, launch: vo_nav_gate_b.launch.py}
+      dropout:
+        label: Tracking dropout
+        default: coast
+        choices:
+          coast: {label: "fly on by dead reckoning (shipped)"}
+          hold: {label: "hold still (the old behaviour: coast_max_s 0)", params: {follower: {coast_max_s: 0.0}}}
+      rocks:
+        label: Rocks
+        default: avoid
+        choices:
+          avoid: {label: "plan around the boulders (shipped routes)"}
+          fly_over: {label: "fly over the boulders (window route planned with --over-rocks)",
+                     launch_suffix: _over_rocks, requires: {route: window}}
+    tunables:
+      track_speed_mps: {node: follower, param: track_speed_mps}
+      descent_mps: {node: follower, param: descent_mps}
+    followers:
+      default: carrot
+      choices:
+        carrot: {label: "carrot pursuit, lookahead 0.5 m (shipped)"}
+        carrot_1m: {label: "carrot pursuit, lookahead 1.0 m (parameter)", params: {follower: {lookahead_max_m: 1.0}}}
+
+  manual_full:
+    label: "Hard-coded full course (core/manual-waypoint-nav, Mihir)"
+    description: >-
+      Sequential position waypoints WP0-WP16 in a launch-mark-origin frame; assumes odom +x = course
+      east (cuVSLAM's +x is the nose at startup, so check the start heading).
+    source: {git: origin/core/manual-waypoint-nav}
+    packages: [team_ws/src/dronehacks_manual_maze_tunnel_chicane_gateb_landing]
+    launch: {package: dronehacks_manual_maze_tunnel_chicane_gateb_landing, file: competitor.launch.py}
+    followers:
+      default: sequential
+      choices:
+        sequential: {label: "sequential waypoints, 0.25 m arrival (shipped)"}
+
+  manual_square:
+    label: "dronehacks_nav: square mission (core/manual-waypoint-nav)"
+    source: {git: origin/core/manual-waypoint-nav}
+    packages: [team_ws/src/dronehacks_nav]
+    launch: {package: dronehacks_nav, file: competitor.launch.py}
+    followers:
+      default: sequential
+      choices:
+        sequential: {label: "square corners, 0.3 m arrival (shipped)"}
+
+  kit_square:
+    label: "Kit example: competitor_example square_mission (organizers)"
+    description: >-
+      What a fresh drone runs. Hover 1.5 m for 5 s, then a 5 m square; in this course that hits the
+      first-corridor walls, which is the point of trying it in simulation first.
+    source: {kit: true}
+    packages: []
+    launch: {package: competitor_example, file: competitor.launch.py}
+    followers:
+      default: sequential
+      choices:
+        sequential: {label: "square corners, 0.3 m arrival (shipped)"}
