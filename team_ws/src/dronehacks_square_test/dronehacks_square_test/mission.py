@@ -62,11 +62,11 @@ class Config:
     height_m: float = 0.73          # the real follower's setpoint z (cruise_z_m 0.80 - rest_height_m 0.07)
     speed_mps: float = 0.3
     lead_m: float = 0.3
-    arrive_m: float = 0.10          # horizontal: the real follower's land_tolerance_m
+    arrive_m: float = 0.20          # hold counts within this; 0.10 left 7-15 s holds in flight 20261108-013018
     arrive_z_m: float = 0.15        # vertical: PX4 holds height by rangefinder, a few cm off cuVSLAM's z
     hold_s: float = 3.0
     ground_s: float = 2.0           # after PX4 says landed (~1 s after touchdown); COM_DISARM_LAND is 5 s
-    step_timeout_s: float = 20.0
+    step_timeout_s: float = 30.0    # a corner took 15.4 s in flight 20261108-013018
     descent_mps: float = 0.5        # PX4 counts ground contact only while the setpoint descends at 1.1 x
                                     # LNDMC_Z_VEL_MAX = 0.275 m/s; at 0.3 skybeta-11 showed none 1.3 s
                                     # after touchdown (2026-11-07). 0.5, as the course follower lands
@@ -75,7 +75,7 @@ class Config:
     pose_timeout_s: float = 0.5
     stale_land_s: float = 3.0
     yaw_rate_dps: float = 20.0      # slow turn: 90 deg in 4.5 s
-    yaw_tol_deg: float = 5.0
+    yaw_tol_deg: float = 10.0
     max_offset_m: float = 0.3       # PX4 vs camera position on the ground; more than this: refuse to fly
     offset_tau_s: float = 1.0       # smoothing of the PX4-vs-camera offset in flight
     circle_d_m: float = 1.0

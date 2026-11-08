@@ -18,8 +18,8 @@ or changes mode). About 57 s.
 | 9 | Land the same way; PX4 disarms | | |
 
 Forward/left are the body axes at power-on. Moves never yaw; a hold's 3 s start once the drone
-is within 10 cm horizontally, 15 cm vertically and 5 deg. Pilot to Altitude: stops for good. Pose
-stale: holds still, then straight down after 3 s. A step over 20 s: lands where it is. Status on
+is within 20 cm horizontally, 15 cm vertically and 10 deg. Pilot to Altitude: stops for good. Pose
+stale: holds still, then straight down after 3 s. A step over 30 s: lands where it is. Status on
 `/square_test/status`.
 
 ## Heading mode (does yawing cause the corner drift?)
