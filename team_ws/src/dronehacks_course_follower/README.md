@@ -271,6 +271,12 @@ Offboard to the final disarm, against the 3-minute limit:
 
 A real hold also waits for the drift to settle, a few seconds after each turn, so a real run is
 longer; the return at the bottom step is off by default (the ladder adds it only at its top).
+Flown once in Michael Bar On's PX4 v1.16.1 SITL (2026-11-07, the older v3 map, 17.1 m of legs,
+`route_mode:=stop`, `COM_DISARM_LAND` 5 s), scored from PX4's ground truth: no wall touch, nearest
+wall 38 cm (at take-off; 39.8 cm along the route), no hold timed out, 3 cm from the pad's centre,
+136 s from arming to the pad and 151 s to the disarm, 1.33 times the ideal dry run. At that ratio
+the v3 course plus the return (31 s in SITL) would pass 3 minutes; the packaged map's shorter
+course (80 s ideal) would not.
 
 ```bash
 ros2 launch dronehacks_course_follower competitor.launch.py route_mode:=stop
