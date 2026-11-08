@@ -70,7 +70,17 @@ launch mark (it needs a re-arm the interface cannot give).
 
 ## The map
 
-`maps/course_map.json` is written by `sim/generate.py` in Michael Bar On's DroneDepthCamTesting
+**`maps/course_map.json` is the course as changed on 2026-11-07 evening** [measured by tape, by the
+team]: the organisers replaced the maze's three dividers (M1-M3) with one diagonal wall and
+moved the north net 30 cm in along its whole width. The diagonal runs from the barrier's north
+face, 1.25 m east of where the barrier meets the west net, to 1.40 m short of the original north
+net at the old M2 divider's east-west position: (-1.798, 0.508) to (-0.813, 1.648), drawn
+0.10 m thick (assumed). Everything else is the published v3 map below, unchanged. The route goes
+from the launch mark along the diagonal's north-west side, around its top end, to the tunnel.
+The boulders are still avoided; whether to plan over them (smoother, faster, but under the
+rangefinder) is being checked.
+
+The published v3 map it was edited from is written by `sim/generate.py` in Michael Bar On's DroneDepthCamTesting
 repo (`write_course_map`, published variant, commit `52c8c27`), from the organisers' published
 course OBJ (`dronehacks-course-v3-obj.zip`, SHA-256
 `52498970486fdb72ff6460d9b6297fdc128eabc089c7a25a7df6cf445990167c`), cut at 0.8 m. It was used
