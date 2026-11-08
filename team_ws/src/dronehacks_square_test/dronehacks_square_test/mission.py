@@ -13,7 +13,7 @@ The sequence (``plan``), every hold 3 s once within ``arrive_m`` of the target:
       again before landing. Moves never yaw; a hold's 3 s start once position and heading arrive
     land, exactly as the real follower does: velocity straight down at 0.3 m/s, pulling back over
       the start, then pressing down gently once PX4 reports landed
-    wait on the ground ``ground_s``, still pressing down (motors at idle, not off: see below)
+    climb again as soon as PX4 reports landed (``ground_s`` 0; motors at idle, not off: see below)
     take off again to height_m, hold
     a circle of diameter ``circle_d_m`` inside the box (centre r forward, r left): forward r to the
       middle of the box's right side, round counter-clockwise from there (forward first) back to
@@ -22,7 +22,9 @@ The sequence (``plan``), every hold 3 s once within ``arrive_m`` of the target:
 
 Motors cannot actually stop between the two landings: stopping them is a disarm, a disarm ends
 Offboard, and only the pilot can arm again. PX4 also disarms on its own once it has been landed
-for COM_DISARM_LAND (2 s in the organisers' parameters), so ``ground_s`` must stay under that.
+for COM_DISARM_LAND (2 s in the organisers' parameters), and the motors took over 0.8 s to lift it
+off in flight 20261108-013018 (climb 1.1 s after landed, disarmed at 1.9 s), so ``ground_s`` is 0:
+it sits about 1 s (PX4's land detection) plus the spool-up, roughly 2 s on the ground.
 
 States: WAIT (stream the current position so the kit can enter Offboard on arm-then-Position),
 FLY (working through the plan), DONE (disarmed), STOPPED (Offboard ended early: the pilot has it;
@@ -45,7 +47,7 @@ class Config:
     lead_m: float = 0.3
     arrive_m: float = 0.10          # the real follower's land_tolerance_m
     hold_s: float = 3.0
-    ground_s: float = 1.0           # after PX4 says landed; must stay under COM_DISARM_LAND (2 s)
+    ground_s: float = 0.0           # after PX4 says landed; lift-off took > 0.8 s, COM_DISARM_LAND is 2 s
     step_timeout_s: float = 20.0
     descent_mps: float = 0.3        # the real follower's descent_mps
     land_xy_gain: float = 1.0       # the real follower's land_xy_gain
@@ -135,11 +137,12 @@ class Mission:
                 return Command('pose', *self._px4(pose))
             self.start, self.target, self.start_yaw, self.heading = pose, pose, yaw, 0.0
             self.state, self.i, self.since, self.last_t = FLY, 0, t, t
-        elif armed is False and self.steps[self.i][0] in ('land', 'ground', 'disarm'):
-            # checked first: PX4 disarming after touchdown also ends Offboard
+        elif armed is False:
+            # checked first: PX4 disarming also ends Offboard, and the kit can still report it active
+            kind = self.steps[self.i][0]
             self.state = DONE
-            self.reason = 'disarmed on the ground' if self.steps[self.i][0] == 'disarm' else \
-                'PX4 disarmed after the first landing (ground wait longer than COM_DISARM_LAND?)'
+            self.reason = 'disarmed on the ground' if kind == 'disarm' else \
+                'PX4 disarmed during step {} ({}): landed longer than COM_DISARM_LAND?'.format(self.i + 1, kind)
             return NONE
         elif not offboard:
             self.state, self.reason = STOPPED, 'Offboard ended: the pilot has it'

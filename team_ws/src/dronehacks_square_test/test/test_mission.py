@@ -177,3 +177,18 @@ def test_offset_that_changes_after_takeoff_is_followed():
     x0, y0, _ = START
     for dx, dy in [(0, 0), (0.5, 0), (0.5, 0.5), (0, 0.5)]:
         assert held(track, (x0 + dx, y0 + dy, 0.73), tol=0.05) >= 2.9, (dx, dy)
+
+
+def test_climbs_again_as_soon_as_px4_reports_landed():
+    m = Mission(Config())
+    track, cmds = fly(m)
+    first_down = next(p[0] for p, prev in zip(track[1:], track) if p[3] <= 1e-6 and prev[3] > 1e-6)
+    climb = next(t for t, c in cmds if t > first_down and c.kind == 'pose')
+    assert climb - first_down <= 0.2, climb - first_down     # a few 50 ms ticks, not seconds
+
+
+def test_disarm_mid_flight_ends_the_run_at_once():
+    m = Mission(Config())
+    fly(m, max_t=10.0)
+    assert m.step(10.05, (0, 0, 0.7), 10.05, True, False, False).kind == 'none'
+    assert m.state == DONE and 'disarmed during step' in m.reason
