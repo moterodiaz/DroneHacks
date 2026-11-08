@@ -10,7 +10,9 @@ Sources:
   drone 1's dump. ``MPC_XY_VEL_MAX`` = 1.0, ``MPC_TILTMAX_AIR`` = 25. The team flies
   drone 11 since 2026-11-07, whose FC has ``MPC_XY_VEL_MAX`` = 12 and
   ``MPC_TILTMAX_AIR`` = 45 (``contracts/px4-baselines/skybeta-11-2026-11-07.params``),
-  so on drone 11 these caps come from this code, not from PX4.
+  so on drone 11 the speed cap comes from this code, not from PX4. The tilt
+  value is a planning and simulation assumption only — the flight code sends
+  position targets and does not enforce it, and PX4 itself would allow 45°.
 * ``baseline``: ``.../px4/params/00_baseline.params``. ``MPC_XY_VEL_MAX`` = 12,
   ``MPC_ACC_HOR`` = 3, ``MPC_JERK_AUTO`` = 4, ``MPC_XY_P`` = 0.95,
   ``MPC_XY_VEL_P_ACC`` = 1.8. The ``MPC_ACC_*`` and ``MPC_JERK_*`` values shape
