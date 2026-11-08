@@ -7,7 +7,7 @@ from dronehacks_square_test.mission import DONE, STOPPED, Config, Mission, _wrap
 
 DT = 0.05
 START = (2.0, -1.0, 0.0)
-COM_DISARM_LAND = 2.0
+COM_DISARM_LAND = 5.0            # skybeta-11, raised from 2 s with the organisers' permission
 START_YAW = 0.4                  # rad: not zero, so the test catches a missing offset
 
 
@@ -83,9 +83,9 @@ def test_full_sequence():
     for dx, dy in [(0, 0), (s, 0), (s, s), (0, s)]:          # x forward, y left
         assert held(track, (x0 + dx, y0 + dy, h)) >= 2.9, (dx, dy)
     touchdowns = sum(1 for a, b in zip(track, track[1:]) if a[3] > 1e-6 and b[3] <= 1e-6)
-    assert touchdowns == 1                                   # the rest hovers, it never lands
-    assert held(track, (x0, y0, 0.08), tol=0.04) >= 2.9      # the rest: low over the start
-    first_down = next(i for i, p in enumerate(track) if i > _up(track) and p[3] < 0.12)
+    assert touchdowns == 2
+    first_down = next(i for i, p in enumerate(track) if i and p[3] <= 1e-6 and track[i - 1][3] > 1e-6)
+    assert all(p[4] for p in track[:first_down + 40])        # still armed through the 2 s ground rest
     assert max(p[3] for p in track[first_down:]) > 0.7       # climbed back to height
     _, x, y, z, armed, yaw = track[-1]
     assert not armed and z == 0.0 and math.hypot(x - x0, y - y0) < 0.05
@@ -98,13 +98,11 @@ def test_full_sequence():
         assert min(math.dist(p[1:4], (x0 + dx, y0 + dy, h)) for p in second) < 0.05, (dx, dy)
 
 
-def test_touching_down_during_the_rest_climbs_at_once():
-    m = Mission(Config(rest_height_m=-0.05))                # aims below the floor: it touches down
-    track, cmds = fly(m)
-    assert m.state == DONE and m.reason == 'disarmed on the ground', m.reason
-    touch = next(p[0] for p, prev in zip(track[1:], track) if p[3] <= 1e-6 and prev[3] > 1e-6)
-    climb = next(t for t, c in cmds if t > touch and c.kind == 'pose')
-    assert climb - touch <= 0.2                              # long before COM_DISARM_LAND's 2 s
+def test_ground_rest_longer_than_auto_disarm_ends_after_first_landing():
+    m = Mission(Config(ground_s=COM_DISARM_LAND + 0.5))
+    track, _ = fly(m)
+    assert m.state == DONE and 'COM_DISARM_LAND' in m.reason
+    assert max(p[3] for p in track[-30:]) < 0.05
 
 
 def test_pilot_takeover_stops_for_good():
@@ -250,7 +248,7 @@ def test_both_flies_a_lap_fixed_then_a_lap_turn_then_the_rest():
     assert all(abs(_wrap(cmds[i][1].yaw - START_YAW)) < 1e-9 for i in fixed if cmds[i][1].kind == 'pose')
     assert max(abs(_wrap(p[5] - START_YAW)) for p in second) > math.radians(85)
     touchdowns = sum(1 for a, b in zip(track, track[1:]) if a[3] > 1e-6 and b[3] <= 1e-6)
-    assert touchdowns == 1                                        # then the rest and the circle as before
+    assert touchdowns == 2                                        # then the touch-and-go and circle as before
     assert abs(_wrap(track[-1][5] - START_YAW)) < math.radians(5)
 
 

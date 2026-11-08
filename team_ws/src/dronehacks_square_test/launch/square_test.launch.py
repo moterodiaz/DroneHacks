@@ -17,7 +17,7 @@ INTERFACE = [  # the kit example's own defaults
     ('setpoint_rate_hz', '10.0'), ('allow_mode_request', 'false'), ('auto_offboard_on_arm', 'true'),
     ('odometry_topic', '/visual_slam/tracking/odometry'),
 ]
-MISSION = [('side_m', '1.0'), ('height_m', '0.73'), ('speed_mps', '0.3'), ('hold_s', '2.0'),
+MISSION = [('side_m', '1.0'), ('height_m', '0.73'), ('speed_mps', '0.3'), ('hold_s', '2.0'), ('ground_s', '2.0'),
            ('yaw_rate_dps', '20.0'), ('heading_mode', 'turn'), ('yaw_comp', 'false'), ('yaw_comp_tau_s', '4.5'),
            ('yaw_comp_gain', '1.71'), ('yaw_comp_max_m', '0.20'), ('yaw_comp_push_gain', '1.25'), ('record', 'true')]
 

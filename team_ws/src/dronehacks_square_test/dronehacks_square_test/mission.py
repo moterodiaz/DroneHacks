@@ -1,4 +1,4 @@
-"""Cage test: climb, a box with turns, a low-hover rest, a circle inside the box, land and disarm.
+"""Cage test: climb, a box with turns, a rest on the ground, a circle inside the box, land and disarm.
 
 Pure logic, no ROS, so it can be unit-tested. ``square_test_node`` feeds it the cuVSLAM pose and
 ``/skybeta/state`` and publishes what it returns. Frame: ENU ``odom`` (cuVSLAM's), whose origin
@@ -18,8 +18,8 @@ The sequence (``plan``), every hold 3 s once within ``arrive_m`` of the target:
       ``yaw_comp`` (``yaw_comp.py``): 'true' offsets every pose setpoint against the airframe's push
       that PX4 relearns after each yaw, measured in the first hold (which waits for it); 'both'
       flies the turning box twice, a "lap comp off" then a "lap comp on", compensated from there on
-    rest: down (velocity, at most ``descent_mps``) to ``rest_height_m`` above the start by camera,
-      pulling back over the start, hover there ``rest_s``; if PX4 reports landed meanwhile, climb at once
+    land as the course follower does (velocity down at ``descent_mps``, pulling back over the start),
+      then rest on the ground ``ground_s`` after PX4 reports landed, pressing down gently, motors idling
     take off again to height_m, hold
     a circle of diameter ``circle_d_m`` inside the box (centre r forward, r left): forward r to the
       middle of the box's right side, round counter-clockwise from there (forward first) back to
@@ -27,9 +27,11 @@ The sequence (``plan``), every hold 3 s once within ``arrive_m`` of the target:
     land as the course follower does: velocity straight down at ``descent_mps`` (0.5 m/s), pulling
       back over the start, then pressing down until PX4 disarms (COM_DISARM_LAND)
 
-The rest hovers instead of landing: PX4 disarms 2 s after it reports landed (COM_DISARM_LAND, the
-organisers' and frozen), a disarm ends Offboard and only the pilot can arm again, and in flight
-20261108-013018 the motors had not lifted it 0.8 s into a climb started 1.1 s after landed.
+The motors cannot stop during the rest: that is a disarm, a disarm ends Offboard, and only the
+pilot can arm again. PX4 disarms on its own COM_DISARM_LAND after it reports landed: 5 s on
+skybeta-11, raised from the organisers' 2 s with their permission (2026-11-07). In flight
+20261108-013018 lift-off took over 0.8 s, so ``ground_s`` 2.0 leaves about 3 s for it. On a drone
+still at 2 s, the run ends on the ground after the first landing.
 
 States: WAIT (stream the current position so the kit can enter Offboard on arm-then-Position),
 FLY (working through the plan), DONE (disarmed), STOPPED (Offboard ended early: the pilot has it;
@@ -63,10 +65,7 @@ class Config:
     arrive_m: float = 0.10          # horizontal: the real follower's land_tolerance_m
     arrive_z_m: float = 0.15        # vertical: PX4 holds height by rangefinder, a few cm off cuVSLAM's z
     hold_s: float = 3.0
-    rest_s: float = 3.0             # the low hover between the box and the circle
-    rest_height_m: float = 0.08     # above the start by camera; never landed, so COM_DISARM_LAND never starts
-    rest_band_m: float = 0.03       # the rest's seconds count from within this of rest_height_m
-    rest_gain: float = 1.0          # m/s per m of height error
+    ground_s: float = 2.0           # after PX4 says landed (~1 s after touchdown); COM_DISARM_LAND is 5 s
     step_timeout_s: float = 20.0
     descent_mps: float = 0.5        # PX4 counts ground contact only while the setpoint descends at 1.1 x
                                     # LNDMC_Z_VEL_MAX = 0.275 m/s; at 0.3 skybeta-11 showed none 1.3 s
@@ -125,7 +124,7 @@ def plan(c):
         turned = steps[-1][3]
     # after a lap turn it faces its take-off heading again a full turn on, unwrapped
     end = steps[-1][3]
-    steps += [('rest', None, c.rest_s, None, None),
+    steps += [('land', None, 0, None, None), ('ground', None, c.ground_s, None, None),
               ('move', (0, 0, h), 0, None, None), ('hold', (0, 0, h), c.hold_s, end, None),
               ('move', (r, 0, h), 0, None, None), ('circle', (r, 0, h), 0, None, None),
               ('move', (0, 0, h), 0, None, None), ('hold', (0, 0, h), c.hold_s, end, None),
@@ -259,18 +258,13 @@ class Mission:
             elif t - self.dwell_since >= secs and not self.measuring(t):
                 self._next(t)
             return self._pose()
-        if kind == 'rest':
-            # velocity, not pose: the kit floors pose setpoints at 0.3 m
-            zt = self.start[2] + c.rest_height_m
-            if abs(zt - pose[2]) <= c.rest_band_m and self.dwell_since is None:
+        if kind == 'ground':
+            if self.dwell_since is None:
                 self.dwell_since = t
-            if landed or (self.dwell_since is not None and t - self.dwell_since >= secs):
-                self.target = (self.start[0], self.start[1], pose[2])   # touched down: climb now
+            if t - self.dwell_since >= secs:
+                self.target = (self.start[0], self.start[1], pose[2])
                 self._next(t)
-                return Command('twist')
-            return Command('twist', _clip(c.land_xy_gain * (self.start[0] - pose[0]), c.land_xy_max_mps),
-                           _clip(c.land_xy_gain * (self.start[1] - pose[1]), c.land_xy_max_mps),
-                           _clip(c.rest_gain * (zt - pose[2]), c.descent_mps))
+            return Command('twist', 0.0, 0.0, -0.3 * c.descent_mps)
         # land / disarm: the real follower's descent
         if landed:
             if kind == 'land':
