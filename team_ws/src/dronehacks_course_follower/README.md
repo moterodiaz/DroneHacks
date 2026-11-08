@@ -16,7 +16,7 @@ mode.
 
 | Package, branch | Flies | Lands | Has run |
 |---|---|---|---|
-| this one, `navigation/course-follower` | the whole course, planned from the map at start | itself, by twist | PX4 SITL with cuVSLAM in the loop, from the ground to disarm (as `fly_waypoints.py`); colcon build and tests under Humble |
+| this one, `navigation/course-follower` | the whole course, planned from the map at start | itself, by twist | this package, launched as the stack launches it, in PX4 SITL with cuVSLAM in the loop through the organisers' 0.3.3 interface, from the ground to disarm (Known risks) |
 | `dronehacks_autonomy`, `navigation/team-ws-autonomy` | the whole course; the same design (A*, inflation, arcs, speed profile) | itself | a stand-in PX4 and stand-in ROS |
 | `dronehacks_traj`, `navigation/vo-traj-follower` | the whole course with `planner/`'s Follower | holds over the pad for the pilot by default | a stand-in PX4 with drone 1's parameters |
 | `dronehacks_manual_maze_tunnel_chicane_gateb_landing`, `main` | fixed waypoints as step poses, through Gate B | the pilot (decision #25) | — |
@@ -107,7 +107,7 @@ tell where the mark is, so a misplaced drone flies the whole route shifted by th
 | `odom_origin_height_m` | 0.0 | the odom origin's height above the floor; 0 flies odom z = map height, as the manual navigator's `hover_altitude_m` does |
 | `speed_mps` | 1.0 | `MPC_XY_VEL_MAX` is 1.0 on the kit |
 | `rate_hz` | 50 | follower publish rate |
-| `pose_lead` | true | false sends the plain sliding pose: slower, no lead |
+| `pose_lead` | false | true leads the pose by velocity and acceleration: faster, but only safe with the interface at 50 Hz (Known risks) |
 | `allow_window` | true | false always takes Gate B |
 | `land` | true | false holds over the pad for the pilot |
 | `tunnel_lead_m` | 0.0 | > 0 flies the tunnel as one straight leg from that far outside its mouths; it touched more in SITL, so it is off |
@@ -144,17 +144,28 @@ ros2 run dronehacks_course_follower dry_run --no-window --steps 40
 
 ## Known risks
 
-- **Led poses through a 10 Hz interface.** The interface resends the latest pose at
-  `setpoint_rate_hz`. In SITL, led poses with the interface at 50 Hz flew 27.2-32.3 s with
-  3.4-5.7 cm rms; at 10 Hz, four of six flew 27.4-32.9 s but one lost yaw control at the first
-  corner (each led pose held 100 ms). The competitor guide says to keep `flight_interface` as
-  `competitor.launch.py` has it, so the default stays 10 Hz. If the first corners look unsteady,
-  fly `pose_lead:=false` (plain poses took 46-53 s in SITL) or ask the organisers about 50 Hz.
+- **Led poses through a 10 Hz interface, so plain poses by default.** The interface resends the
+  latest pose at `setpoint_rate_hz`, 10 Hz by default, so each led pose is held 100 ms. This
+  package itself, flown in Michael Bar On's PX4 SITL through the organisers' unmodified 0.3.3
+  interface at 10 Hz from the ground to disarm with no launch arguments (2026-11-07, 4 flights
+  each): led poses touched a wall at the first maze corner in 2 of 4 (nearest 19-21 cm against the
+  28 cm prop reach) with route times 37-41 s; plain poses never touched on the route (nearest
+  33-41 cm), route times about 58 s, half the yaw error. With the interface at 50 Hz, led poses
+  flew 27-32 s cleanly in earlier SITL runs: ask the organisers whether 50 Hz is allowed.
+- **A dark tunnel without odometry stops the setpoint.** Odometry older than 0.5 s pauses the
+  pace, so the setpoint holds; in SITL with the tunnel blinded and no tracker output, PX4 then lost
+  its position and landed in the tunnel. This bites only if the kit's cuVSLAM stops publishing in
+  the dark; it kept publishing on a blank view in the organisers' lab.
+- **The climb gate.** PX4 holds the height by its own estimate, which in SITL sat 0.1-0.17 m off the
+  tracker's z, so the climb also ends once the tracker's height has held still for 1.5 s above half
+  the flight height; before, one SITL flight hovered on the mark for minutes.
 - **PX4 gains.** The lead and speed profile assume PX4 v1.16 defaults; check them on the drone.
 - **The twist landing is not organiser-confirmed.** The interface does not floor twists (it
   floors poses at 0.3 m). PX4 detects ground contact only while the setpoint descends at
   1.1 x `LNDMC_Z_VEL_MAX` (0.275 m/s at 0.25), then disarms after `COM_DISARM_LAND`.
 - **Heights.** Odom z is height above where cuVSLAM started; set `odom_origin_height_m` once measured.
+  At its default 0 the flight height is 0.8 m above the odom origin: in SITL the body flew about
+  1.0 m above the floor. The window's top bar is at 1.22 m.
 - **Placement on the mark.** Read from the rest, the transform is only as good as where the drone
   sits and where its nose points: 5 cm off the mark is 5 cm off every wall, and 2° off the heading
   is 7 cm at 2 m. Tape the mark's outline and a heading line on the floor.

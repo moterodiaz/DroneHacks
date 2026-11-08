@@ -46,7 +46,8 @@ FOLLOWER_ARGUMENTS = [
     ("odometry_topic", "/visual_slam/tracking/odometry", str, "drone pose source, odom frame"),
     ("rate_hz", "50.0", float, "follower setpoint rate"),
     ("speed_mps", "1.0", float, "top speed along the route, m/s"),
-    ("pose_lead", "true", bool, "lead the pose by the setpoint's velocity and acceleration"),
+    ("pose_lead", "false", bool, "lead the pose by the setpoint's velocity and acceleration; only with "
+                                 "the interface at 50 Hz: at its default 10 Hz led poses cut the first maze corner"),
     ("allow_window", "true", bool, "fly the window when the map says it is passable"),
     ("land", "true", bool, "descend onto the pad by twist until PX4 disarms; false = hold over it"),
     ("tunnel_lead_m", "0.0", float, "fly the tunnel straight from this far outside its mouths; 0 = off"),

@@ -67,7 +67,7 @@ class CourseFollower(Node):
         launch = (float(course_map["launch"][0]), float(course_map["launch"][1]))
         origin_height_m = self._parameter("odom_origin_height_m", 0.0)
         self.mission = Mission(planned.route, planned.walls, float(course_map["height_m"]), launch,
-                               self._parameter("speed_mps", 1.0), lead=self._parameter("pose_lead", True),
+                               self._parameter("speed_mps", 1.0), lead=self._parameter("pose_lead", False),
                                land=self._parameter("land", True))
 
         # One flight per launch while recording: the run ends a little after its disarm, and the

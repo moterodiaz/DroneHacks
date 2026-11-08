@@ -19,6 +19,14 @@ from .follower import Drone, Follower
 # The climb is done within this much of the flight height
 CLIMBED_M = 0.1
 
+# Or once it has stopped rising: PX4 holds the height by its own estimate (the rangefinder's), which
+# can sit well off the tracker's z, so a climb can settle short of the tracker's flight height. It
+# counts once the tracker's height has held within CLIMB_STEADY_M for CLIMB_SETTLED_S, above
+# CLIMB_MIN_FRACTION of the flight height so a drone still spooling up on the floor does not
+CLIMB_STEADY_M = 0.03
+CLIMB_SETTLED_S = 1.5
+CLIMB_MIN_FRACTION = 0.5
+
 # The route is only flown from within this distance of the map's launch mark: from anywhere else
 # its first leg could cross a wall
 START_RADIUS_M = 0.5
@@ -87,6 +95,9 @@ class Mission:
         self.previous_s: float | None = None
         self.events: list[str] = []
         self.flown = False
+        self.offboard_at_s = math.nan
+        self.steady_height_m = math.nan
+        self.steady_since_s = math.nan
 
     def tick(self, now_s: float, offboard: bool, armed: bool, drone: Drone | None) -> PoseCommand | TwistCommand | None:
         """The command to send now, or None to send nothing; `drone` is None while its estimate is stale."""
@@ -96,7 +107,7 @@ class Mission:
         # PX4's own disarm ends the descent; the pilot taking the drone back ends anything else,
         # and a fresh attempt starts only after a disarm
         if self.phase is Phase.DESCEND and not armed:
-            self._enter(Phase.DONE, f"disarmed on the pad at {now_s:.1f} s")
+            self._enter(Phase.DONE, f"disarmed on the pad {now_s - self.offboard_at_s:.1f} s after Offboard")
         if self.phase in (Phase.CLIMB, Phase.FLY, Phase.DESCEND) and not offboard:
             self._enter(Phase.ABORTED, "Offboard ended mid-run: the pilot has the drone")
         if self.phase is Phase.ABORTED and not armed:
@@ -104,9 +115,9 @@ class Mission:
 
         match self.phase:
             case Phase.WAIT:
-                return self._wait(offboard, drone)
+                return self._wait(now_s, offboard, drone)
             case Phase.CLIMB:
-                return self._climb(drone)
+                return self._climb(now_s, drone)
             case Phase.FLY:
                 return self._fly(now_s, elapsed_s, drone)
             case Phase.DESCEND:
@@ -119,7 +130,7 @@ class Mission:
         can close. Arming on the ground, or a route refused away from the mark, is no flight."""
         return self.flown and not armed
 
-    def _wait(self, offboard: bool, drone: Drone | None) -> PoseCommand | None:
+    def _wait(self, now_s: float, offboard: bool, drone: Drone | None) -> PoseCommand | None:
         """A pose over the drone at the flight height, the stream the interface needs before it
         requests Offboard; on Offboard, the climb, if the drone stands on the launch mark."""
         if drone is None:
@@ -133,19 +144,29 @@ class Mission:
 
             self.start = (drone.east, drone.north)
             self.flown = True
+            self.offboard_at_s = now_s
             self._enter(Phase.CLIMB, f"Offboard: climbing to {self.height_m:.2f} m")
 
         return PoseCommand(drone.east, drone.north, self.height_m, math.nan)
 
-    def _climb(self, drone: Drone | None) -> PoseCommand:
-        """The pose over the start at the flight height; once there, the route begins."""
+    def _climb(self, now_s: float, drone: Drone | None) -> PoseCommand:
+        """The pose over the start at the flight height; once there, or settled short of it, the
+        route begins."""
         east, north = self.start
-        if drone is not None and abs(drone.height_m - self.height_m) < CLIMBED_M:
+        if drone is not None and (abs(drone.height_m - self.height_m) < CLIMBED_M or self._settled(now_s, drone)):
             self.follower = Follower(self.start, self.route, self.walls, drone.yaw_rad, self.top_speed_mps,
                                      lead=self.lead)
             self._enter(Phase.FLY, f"at height: flying {float(self.follower.lengths[-1]):.1f} m of route")
 
         return PoseCommand(east, north, self.height_m, math.nan)
+
+    def _settled(self, now_s: float, drone: Drone) -> bool:
+        """Whether the climb has stopped rising, high enough to be off the floor."""
+        if not abs(drone.height_m - self.steady_height_m) <= CLIMB_STEADY_M:
+            self.steady_height_m, self.steady_since_s = drone.height_m, now_s
+
+        return (drone.height_m >= CLIMB_MIN_FRACTION * self.height_m
+                and now_s - self.steady_since_s >= CLIMB_SETTLED_S)
 
     def _fly(self, now_s: float, elapsed_s: float, drone: Drone | None) -> PoseCommand | TwistCommand:
         """The follower's led pose; at the route's end, the descent once the drone is over it."""

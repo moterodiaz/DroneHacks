@@ -56,6 +56,34 @@ def test_offboard_climbs_then_flies_once_at_height() -> None:
     assert mission.phase is Phase.FLY
 
 
+def _climb_holding_at(height_m: float, seconds: float) -> Mission:
+    """A mission past Offboard whose drone then holds still at `height_m` for `seconds`."""
+    mission = _mission()
+    mission.tick(0.0, offboard=True, armed=True, drone=_on_the_ground())
+    for step in range(1, int(seconds / _PERIOD_S)):
+        mission.tick(step * _PERIOD_S, offboard=True, armed=True, drone=Drone(0.0, 0.0, height_m, 0.0))
+
+    return mission
+
+
+def test_a_climb_that_settles_short_of_the_flight_height_still_starts_the_route() -> None:
+    # In SITL PX4 held 0.80 m by its own height estimate while the tracker read 0.63-0.66 m, and
+    # the drone hovered on the mark for minutes waiting to be within 0.1 m
+    assert _climb_holding_at(0.65, 2.0).phase is Phase.FLY
+
+
+def test_a_drone_still_on_the_ground_or_still_rising_is_not_settled() -> None:
+    assert _climb_holding_at(0.0, 5.0).phase is Phase.CLIMB
+
+    mission = _mission()
+    mission.tick(0.0, offboard=True, armed=True, drone=_on_the_ground())
+    now_s, height_m = _PERIOD_S, 0.4
+    while height_m < _HEIGHT_M - 0.15:
+        mission.tick(now_s, offboard=True, armed=True, drone=Drone(0.0, 0.0, height_m, 0.0))
+        now_s, height_m = now_s + _PERIOD_S, height_m + 0.3 * _PERIOD_S
+        assert mission.phase is Phase.CLIMB
+
+
 def test_offboard_away_from_the_launch_mark_refuses_the_route() -> None:
     mission = _mission()
     assert mission.tick(0.0, offboard=True, armed=True, drone=_on_the_ground(east=1.0)) is None
