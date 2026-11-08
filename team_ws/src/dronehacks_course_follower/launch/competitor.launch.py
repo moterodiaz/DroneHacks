@@ -42,7 +42,8 @@ FOLLOWER_ARGUMENTS = [
     ("course_to_odom_yaw", "nan", float, "measured course-to-odom yaw, radians"),
     ("course_to_odom_x", "nan", float, "measured odom x of the course map's launch mark"),
     ("course_to_odom_y", "nan", float, "measured odom y of the course map's launch mark"),
-    ("odom_origin_height_m", "0.0", float, "height of the odom origin above the floor, metres"),
+    ("odom_origin_height_m", "0.10", float, "height of the odom origin above the floor, metres; skybeta-11's "
+     "Pixhawk sits about 4 in up at rest"),
     ("odometry_topic", "/visual_slam/tracking/odometry", str, "drone pose source, odom frame"),
     ("rate_hz", "50.0", float, "follower setpoint rate"),
     ("speed_mps", "nan", float, "top speed along the route, m/s; NaN flies the speed ladder's current step"),

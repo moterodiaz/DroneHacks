@@ -101,6 +101,10 @@ net at the old M2 divider's east-west position: (-1.798, 0.508) to (-0.813, 1.64
 on 2026-11-08, wider than this map's, so the map errs narrow there. The team's SolidWorks export
 (`navigation/new-course-layout`, `course_v3_layout.yaml`) draws the wall longer, to (-0.693, 1.811),
 which would leave under 0.6 m against the north wall: the taped gap rules it out, so it is not in the map.
+**The window and the flight height are tape-measured (2026-11-08):** the opening runs 36 in to
+61 in above the floor (0.914-1.549 m), not the published 12-48 in, so the map's `height_m` is its
+middle, 1.23 m above the floor, flown with `odom_origin_height_m` 0.10 (the Pixhawk's rest
+height). The tunnel is open 0.03-1.85 m, about 1.39 m wide at that height; the walls are 1.73 m.
 Everything else is the published v3 map below, unchanged. The route goes
 from the launch mark along the diagonal's north-west side, around its top end, to the tunnel.
 The two east rocks are placed from the team's photos and description on 2026-11-08 (estimated,
@@ -143,7 +147,7 @@ tell where the mark is, so a misplaced drone flies the whole route shifted by th
 |---|---|---|
 | `course_map` | packaged | a surveyed map |
 | `course_to_odom_yaw`, `_x`, `_y` | NaN | a measured transform, all three or none; none reads it from the rest on the mark at arming |
-| `odom_origin_height_m` | 0.0 | the odom origin's height above the floor; 0 flies odom z = map height, as the manual navigator's `hover_altitude_m` does |
+| `odom_origin_height_m` | 0.10 | the odom origin's height above the floor: skybeta-11's Pixhawk sits about 4 in (0.10 m) up at rest, measured by the team on 2026-11-08; 0 flies odom z = map height |
 | `speed_mps` | NaN | a fixed top speed; NaN flies the speed ladder's current step (below) |
 | `speed_ladder` | stop:0.3,0.5,0.7,0.85,1.0,1.0+return | rising steps: stop-and-go, smooth top speeds (1.0 is the kit's `MPC_XY_VEL_MAX`), the return on top (below) |
 | `route_mode` | empty | `stop` or `smooth` forces the mode; empty takes the ladder's step |
@@ -362,7 +366,7 @@ ros2 run dronehacks_course_follower dry_run --heading-mode fixed
   1.1 x `LNDMC_Z_VEL_MAX` (0.275 m/s at 0.25), then disarms after `COM_DISARM_LAND`.
 - **Heights.** Odom z is height above where cuVSLAM started; set `odom_origin_height_m` once measured.
   At its default 0 the flight height is 0.8 m above the odom origin: in SITL the body flew about
-  1.0 m above the floor. The window's top bar is at 1.22 m.
+  1.0 m above the floor. The measured window spans 0.914-1.549 m.
 - **Placement on the mark.** Read from the rest, the transform is only as good as where the drone
   sits and where its nose points: 5 cm off the mark is 5 cm off every wall, and 2° off the heading
   is 7 cm at 2 m. Tape the mark's outline and a heading line on the floor.
