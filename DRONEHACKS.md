@@ -71,6 +71,8 @@ Follow the floor-marked maze route, pass through the dark tunnel, then enter the
 
 Checkpoints count **in order, only once the whole drone has passed**. A skipped checkpoint limits scoring to the last checkpoint before it. Centre crossing or merely approaching the line is insufficient. (rule 7.6)
 
+> **Layout change, 2026-11-07 (recorded by the team, @jsun4231; not part of the webpage snapshot above).** The course changed: the three maze dividers were removed and two walls added, and **checkpoint 1 was removed**. Checkpoints 2–5 are otherwise unchanged and keep their numbers and points, so the below-wall checkpoints now sum to **31 points**. The updated model is the repository's `dronehacks-course-v3.step`; `contracts/course.md` ("Layout revision 2026-11-07", "Checkpoints") holds the geometry and the checkpoint lines.
+
 ### Start, clock, contacts and termination
 
 - Place the drone on the launch mark. The team arms it in the referee's presence and starts it on the referee's signal. (rule 7.4)

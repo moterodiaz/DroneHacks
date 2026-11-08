@@ -1,20 +1,27 @@
-"""Minimal reader for STEP (ISO-10303-21) assemblies as Onshape exports them, numpy only.
+"""Minimal reader for STEP (ISO-10303-21) assemblies as Onshape and SolidWorks export them, numpy only.
 
 What it gives you
 -----------------
 :func:`read_solids` returns one :class:`Solid` per ``MANIFOLD_SOLID_BREP`` with
 
-* its name (the Onshape part name) and colour (``STYLED_ITEM`` -> ``COLOUR_RGB``);
+* its name and colour (``STYLED_ITEM`` -> ``COLOUR_RGB``).  The name is the part's PRODUCT name
+  without a CAD file extension (SolidWorks writes ``'Barrier 1.step'``) or a SolidWorks
+  virtual-component suffix (``'Part67^course'``); a part holding several solids appends
+  `` / <solid name>``.  Without a product the solid's own name is used (Onshape's part name);
 * every face as sampled boundary loops in world coordinates, the plane normal for planar faces,
   and the loops sorted largest first so ``loops[0]`` is the outer boundary and the rest are holes;
 * the conic edges (circles and ellipses) with their centre, axes and semi-axes, which is how
-  tubes and round rocks are recognised later;
+  tubes and round rocks are recognised later.  Exporters that write circles and ellipses as
+  B-splines (SolidWorks) get a conic fitted to every closed planar loop made of B-spline edges,
+  kept only when the loop lies within :data:`CONIC_FIT_TOL_M` of the fitted conic;
 * the assembly placement already applied (``ITEM_DEFINED_TRANSFORMATION`` chains), and the file's
   length unit converted to metres.
 
-Edges on lines are exact; circle and ellipse arcs are sampled every 2*pi/64 rad.  Edges on any
-other curve type (B-splines) fall back to their end points, which is enough for the axis-aligned
-courses this is meant for; :attr:`Solid.unsupported_curves` counts them so a caller can warn.
+Edges on lines are exact; circle and ellipse arcs are sampled every 2*pi/64 rad; B-spline curves
+(``B_SPLINE_CURVE_WITH_KNOTS``, rational or not) are evaluated at :data:`BSPLINE_SAMPLES_PER_SPAN`
+points per knot span.  Edges on any other curve type fall back to their end points, which is
+enough for the axis-aligned courses this is meant for; :attr:`Solid.unsupported_curves` counts
+them so a caller can warn.
 
 What it is not
 --------------
@@ -35,6 +42,10 @@ from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 import numpy as np
 
 ARC_STEP_RAD = 2.0 * math.pi / 64.0
+BSPLINE_SAMPLES_PER_SPAN = 4
+#: A closed planar B-spline loop counts as a circle/ellipse only if every sample is this close to it.
+CONIC_FIT_TOL_M = 1e-3
+_CAD_EXTENSION = re.compile(r"\.(step|stp|sldprt|sldasm)$", re.IGNORECASE)
 
 
 # ------------------------------------------------------------------------------------- parsing
@@ -294,6 +305,166 @@ def length_unit_to_metres(step: StepFile) -> float:
     return 1.0
 
 
+def _bspline_parts(curve: Entity) -> Optional[Tuple[int, List[Any], List[int], List[float], Optional[List[float]]]]:
+    """``(degree, control point refs, knot multiplicities, knots, weights)`` of a B-spline curve
+    entity, simple (``B_SPLINE_CURVE_WITH_KNOTS``) or complex (rational), else ``None``."""
+    if curve.type == "B_SPLINE_CURVE_WITH_KNOTS":
+        # name, degree, control points, form, closed, self-intersect, multiplicities, knots, spec
+        return int(curve.args[1]), list(curve.args[2]), list(curve.args[6]), list(curve.args[7]), None
+    if curve.type == "COMPLEX" and "B_SPLINE_CURVE" in curve.parts and "B_SPLINE_CURVE_WITH_KNOTS" in curve.parts:
+        bs, wk = curve.parts["B_SPLINE_CURVE"], curve.parts["B_SPLINE_CURVE_WITH_KNOTS"]
+        weights = curve.parts.get("RATIONAL_B_SPLINE_CURVE", [None])[0]
+        return int(bs[0]), list(bs[1]), list(wk[0]), list(wk[1]), (list(weights) if weights else None)
+    return None
+
+
+def _de_boor(degree: int, ctrl: np.ndarray, knots: np.ndarray, t: float) -> np.ndarray:
+    """One point of a B-spline (homogeneous control points for a rational curve)."""
+    n = len(ctrl) - 1
+    k = int(np.searchsorted(knots, t, side="right")) - 1
+    k = min(max(k, degree), n)
+    d = [ctrl[j + k - degree].copy() for j in range(degree + 1)]
+    for r in range(1, degree + 1):
+        for j in range(degree, r - 1, -1):
+            i = j + k - degree
+            den = knots[i + degree - r + 1] - knots[i]
+            alpha = 0.0 if den == 0.0 else (t - knots[i]) / den
+            d[j] = (1.0 - alpha) * d[j - 1] + alpha * d[j]
+    return d[degree]
+
+
+def _sample_bspline(step: StepFile, parts, p0: np.ndarray, p1: np.ndarray, same_sense: bool) -> np.ndarray:
+    degree, refs, mults, knots, weights = parts
+    ctrl = np.array([_vec(step, r) for r in refs], dtype=float)
+    if weights is not None:
+        w = np.array(weights, dtype=float)[:, None]
+        ctrl = np.hstack([ctrl * w, w])
+    flat = np.repeat(np.array(knots, dtype=float), np.array(mults, dtype=int))
+    lo, hi = flat[degree], flat[len(flat) - degree - 1]
+    spans = max(1, len(set(float(k) for k in knots)) - 1)
+    ts = np.linspace(lo, hi, spans * BSPLINE_SAMPLES_PER_SPAN * degree + 1)
+    pts = np.array([_de_boor(degree, ctrl, flat, float(t)) for t in ts])
+    if weights is not None:
+        pts = pts[:, :3] / pts[:, 3:]
+    # the edge runs from p0 to p1; the curve's own parameter may run the other way
+    if not same_sense:
+        pts = pts[::-1]
+    pts[0], pts[-1] = p0, p1
+    return pts
+
+
+def _fit_conic(loop: np.ndarray, normal: np.ndarray) -> Optional[Conic]:
+    """The circle or ellipse through a closed planar loop, or ``None`` if the loop is not one."""
+    if len(loop) < 8:
+        return None
+    n = normal / np.linalg.norm(normal)
+    ref = np.array([1.0, 0.0, 0.0]) if abs(n[0]) < 0.9 else np.array([0.0, 1.0, 0.0])
+    u = ref - np.dot(ref, n) * n
+    u /= np.linalg.norm(u)
+    v = np.cross(n, u)
+    origin = loop.mean(axis=0)
+    if np.abs((loop - origin) @ n).max() > CONIC_FIT_TOL_M:
+        return None
+    x, y = (loop - origin) @ u, (loop - origin) @ v
+    scale = max(float(np.abs(x).max()), float(np.abs(y).max()), 1e-9)
+    xs, ys = x / scale, y / scale
+    design = np.stack([xs * xs, xs * ys, ys * ys, xs, ys, np.ones_like(xs)], axis=1)
+    coef = np.linalg.svd(design)[2][-1]
+    A, B, C, D, E, F = coef
+    den = 4.0 * A * C - B * B
+    if den <= 1e-12:
+        return None  # not an ellipse
+    cx = (B * E - 2.0 * C * D) / den
+    cy = (B * D - 2.0 * A * E) / den
+    q = np.array([[A, B / 2.0], [B / 2.0, C]])
+    f0 = A * cx * cx + B * cx * cy + C * cy * cy + D * cx + E * cy + F
+    evals, evecs = np.linalg.eigh(q)
+    if f0 == 0.0 or np.any(-f0 / evals <= 0.0):
+        return None
+    semi = np.sqrt(-f0 / evals) * scale
+    order = np.argsort(-semi)
+    a, b = float(semi[order[0]]), float(semi[order[1]])
+    ex, ey = evecs[:, order[0]], evecs[:, order[1]]
+    centre = origin + (cx * scale) * u + (cy * scale) * v
+    x_dir = ex[0] * u + ex[1] * v
+    y_dir = np.cross(n, x_dir)
+    # residual: radial distance of every sample from the fitted conic (exact for a circle)
+    lx, ly = (loop - centre) @ x_dir, (loop - centre) @ y_dir
+    theta = np.arctan2(ly / b, lx / a)
+    on = np.stack([a * np.cos(theta), b * np.sin(theta)], axis=1)
+    if np.hypot(lx - on[:, 0], ly - on[:, 1]).max() > CONIC_FIT_TOL_M:
+        return None
+    kind = "circle" if abs(a - b) <= CONIC_FIT_TOL_M else "ellipse"
+    return Conic(kind, centre, n.copy(), x_dir, y_dir, a, b, True)
+
+
+def _edge_curve(step: StepFile, edge: Entity) -> Entity:
+    """The 3-D curve of an ``EDGE_CURVE`` (unwrapping ``SURFACE_CURVE`` / ``SEAM_CURVE``)."""
+    curve = step[edge.args[3]]
+    while curve.type in ("SURFACE_CURVE", "SEAM_CURVE", "INTERSECTION_CURVE"):
+        curve = step[curve.args[1]]
+    return curve
+
+
+def _clean_product_name(name: str) -> str:
+    name = _CAD_EXTENSION.sub("", name.strip())
+    if "^" in name:  # SolidWorks virtual component: '<part>^<assembly>'
+        name = name.split("^", 1)[0]
+    return _CAD_EXTENSION.sub("", name.strip())
+
+
+def _solid_names(step: StepFile, rep_of_item: Dict[int, int], linked: Dict[int, List[int]]) -> Dict[int, str]:
+    """Display name of every B-rep solid: its part's product name (see the module docstring)."""
+    product_of_rep: Dict[int, str] = {}
+    for sdr in step.of_type("SHAPE_DEFINITION_REPRESENTATION"):
+        if sdr.type == "COMPLEX":
+            continue
+        pds = step[sdr.args[0]]
+        if pds.type != "PRODUCT_DEFINITION_SHAPE" or not isinstance(pds.args[2], Ref):
+            continue
+        pd = step[pds.args[2]]
+        if not pd.type.startswith("PRODUCT_DEFINITION") or pd.type.startswith("PRODUCT_DEFINITION_SHAPE"):
+            continue  # a NEXT_ASSEMBLY_USAGE_OCCURRENCE's shape: placement, not a part
+        formation = step[pd.args[2]]
+        product = step[formation.args[2]]
+        if product.type != "PRODUCT":
+            continue
+        raw = str(product.args[1] or product.args[0])
+        product_of_rep[int(sdr.args[1])] = raw
+
+    def product_for(rep: int) -> Optional[str]:
+        group, queue = {rep}, deque([rep])
+        while queue:
+            r = queue.popleft()
+            if r in product_of_rep:
+                return product_of_rep[r]
+            for other in linked.get(r, []):
+                if other not in group:
+                    group.add(other)
+                    queue.append(other)
+        return None
+
+    by_product: Dict[str, List[int]] = defaultdict(list)
+    names: Dict[int, str] = {}
+    for solid in sorted(rep_of_item):
+        brep_name = str(step[solid].args[0] or "").strip()
+        product = product_for(rep_of_item[solid])
+        if product is None:
+            names[solid] = brep_name
+        else:
+            by_product[product].append(solid)
+    for product, solids in by_product.items():
+        base = _clean_product_name(product)
+        if len(solids) == 1:
+            names[solids[0]] = base
+            continue
+        own = [str(step[s].args[0] or "").strip() for s in solids]
+        unique = len(set(own)) == len(own) and all(own)
+        for i, (s, n) in enumerate(zip(solids, own)):
+            names[s] = "{} / {}".format(base, n if unique else i + 1)
+    return names
+
+
 class _BrepSampler:
     def __init__(self, step: StepFile) -> None:
         self.step = step
@@ -315,9 +486,12 @@ class _BrepSampler:
             return self.edge_cache[ref]
         e = self.step[ref]
         p0, p1 = self.vertex(e.args[1]), self.vertex(e.args[2])
-        curve = self.step[e.args[3]]
+        curve = _edge_curve(self.step, e)
         same_sense = not (isinstance(e.args[4], Enum) and e.args[4].value == "F")
-        if curve.type in ("CIRCLE", "ELLIPSE"):
+        spline = _bspline_parts(curve)
+        if spline is not None:
+            pts = _sample_bspline(self.step, spline, p0, p1, same_sense)
+        elif curve.type in ("CIRCLE", "ELLIPSE"):
             c = self.conic(curve, closed=int(e.args[1]) == int(e.args[2]))
 
             def angle(p: np.ndarray) -> float:
@@ -392,8 +566,8 @@ def _colour(step: StepFile, start: Iterable[Any], depth: int = 0) -> Optional[Tu
     return None
 
 
-def _solid_transforms(step: StepFile) -> Dict[int, np.ndarray]:
-    """World transform of every B-rep solid, following the assembly's representation links."""
+def _rep_of_item(step: StepFile) -> Dict[int, int]:
+    """The shape representation that holds each B-rep solid."""
     rep_of_item: Dict[int, int] = {}
     for kind in ("ADVANCED_BREP_SHAPE_REPRESENTATION", "MANIFOLD_SURFACE_SHAPE_REPRESENTATION",
                  "SHAPE_REPRESENTATION"):
@@ -403,11 +577,23 @@ def _solid_transforms(step: StepFile) -> Dict[int, np.ndarray]:
             for item in e.args[1]:
                 if isinstance(item, Ref) and step[item].type == "MANIFOLD_SOLID_BREP":
                     rep_of_item[int(item)] = e.id
+    return rep_of_item
+
+
+def _rep_links(step: StepFile) -> Dict[int, List[int]]:
+    """Representations joined without a placement (``SHAPE_REPRESENTATION_RELATIONSHIP``)."""
     linked: Dict[int, List[int]] = defaultdict(list)
     for e in step.of_type("SHAPE_REPRESENTATION_RELATIONSHIP"):
         if e.type != "COMPLEX":
             linked[int(e.args[2])].append(int(e.args[3]))
             linked[int(e.args[3])].append(int(e.args[2]))
+    return linked
+
+
+def _solid_transforms(step: StepFile) -> Dict[int, np.ndarray]:
+    """World transform of every B-rep solid, following the assembly's representation links."""
+    rep_of_item = _rep_of_item(step)
+    linked = _rep_links(step)
     parent_of: Dict[int, Tuple[int, np.ndarray]] = {}
     for e in step.of_type("REPRESENTATION_RELATIONSHIP_WITH_TRANSFORMATION"):
         rr = e.parts.get("REPRESENTATION_RELATIONSHIP")
@@ -440,6 +626,7 @@ def read_solids(path: Path) -> Tuple[List[Solid], Dict[str, Any]]:
     step = StepFile.load(path)
     scale = length_unit_to_metres(step)
     transforms = _solid_transforms(step)
+    names = _solid_names(step, _rep_of_item(step), _rep_links(step))
     colours: Dict[int, Tuple[float, float, float]] = {}
     for e in step.of_type("STYLED_ITEM"):
         c = _colour(step, e.args[1])
@@ -475,23 +662,31 @@ def read_solids(path: Path) -> Tuple[List[Solid], Dict[str, Any]]:
                 loops.append(to_world(pts))
                 loop_entity = step[bound.args[1]]
                 if loop_entity.type == "EDGE_LOOP":
+                    loop_curves = []
                     for oe_ref in loop_entity.args[1]:
                         edge = step[step[oe_ref].args[3]]
                         vertex_refs.update((int(edge.args[1]), int(edge.args[2])))
-                        curve = step[edge.args[3]]
+                        curve = _edge_curve(step, edge)
+                        loop_curves.append(curve)
                         if curve.type in ("CIRCLE", "ELLIPSE") and curve.id not in conics:
                             c = sampler.conic(curve, closed=int(edge.args[1]) == int(edge.args[2]))
                             c.centre = to_world(c.centre)
                             c.axis, c.x_dir, c.y_dir = c.axis @ rot.T, c.x_dir @ rot.T, c.y_dir @ rot.T
                             c.a, c.b = c.a * scale, c.b * scale
                             conics[curve.id] = c
+                    # a circle or ellipse written as B-splines (SolidWorks): fit the closed loop
+                    if (normal is not None and loop_curves
+                            and all(_bspline_parts(c) is not None for c in loop_curves)):
+                        fitted = _fit_conic(loops[-1], normal)
+                        if fitted is not None:
+                            conics[-int(bound_ref)] = fitted
                 else:
                     vertex_refs.add(int(loop_entity.args[1]))
             loops.sort(key=lambda lp: -_loop_area(lp, normal))
             faces.append(Face(surface.type, normal, loops))
         vertices = np.array([to_world(sampler.vertex(v)) for v in sorted(vertex_refs)]) if vertex_refs \
             else np.zeros((0, 3))
-        solids.append(Solid(str(brep.args[0]), colours.get(brep.id), faces, vertices,
+        solids.append(Solid(names.get(brep.id, str(brep.args[0])), colours.get(brep.id), faces, vertices,
                             list(conics.values()), sampler.unsupported))
 
     products = [str(e.args[0]) for e in step.of_type("PRODUCT")]
