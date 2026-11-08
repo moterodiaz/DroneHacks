@@ -52,8 +52,14 @@ Do not publish to `/fmu/in/*` directly. All setpoints go through
 pilot arms on the ground in Altitude and switches to Position, subject
 to the kit's readiness checks. Pilot takeover prevents automatic re-entry
 until disarm/rearm. The default altitude floor is 0.3 m; pose/twist input
-is not a supported land/disarm/rearm API. Landing and autonomous return
-after disarm remain blocked pending an organizer-supported procedure.
+is not a supported land/disarm/rearm API. Autonomous return after disarm
+remains blocked pending an organizer-supported procedure. Landing on the
+pad by a downward twist (0.5 m/s, above the land detector's
+1.1 × `LNDMC_Z_VEL_MAX` = 0.275 m/s at 0.25; twists are not altitude-floored)
+until PX4's own `COM_DISARM_LAND` disarm is the course follower's default,
+requested by Michael Bar On on 2026-11-07 because a pilot landing ends the
+run and forfeits the landing checkpoint. It is not organizer-confirmed;
+`land:=false` holds over the pad instead.
 Do not bypass the clamp, publish raw PX4 commands, or patch the interface.
 Source: `drone-snapshot/home/dronehacks/skybeta/README.md` §Flight sequence
 and the supplied `flight_interface.py`.

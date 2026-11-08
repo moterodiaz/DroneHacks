@@ -2,6 +2,28 @@
 
 Newest entries first. One entry per contract-affecting change, linking the PR.
 
+## 2026-11-07 — course follower implemented; twist landing (branch `navigation/course-follower`, no PR yet)
+
+Requested by Michael Bar On for tonight's scored runs. `contracts/ros-graph.md`:
+the planned Follower now exists as `team_ws/src/dronehacks_course_follower`
+(map-planned route, led pose setpoints at its own 50 Hz input rate into the
+unmodified 10 Hz interface, look-ahead heading). Flight stays blocked until the
+section's props-off cadence/timeout check, which the package README's bench
+check includes. `contracts/px4.md`: landing on the pad by a 0.5 m/s downward
+twist until PX4's own auto-disarm is the follower's default (`land:=false`
+holds over the pad); autonomous return stays blocked.
+
+Why: in the organisers' lab simulator (2026-11-07) their example mission's
+step setpoints overshot legs by 38-60 cm and turned in place facing a wall
+until cuVSLAM failed, and a pilot landing ends a scored run and forfeits the
+landing checkpoint. Alternatives: the manual navigator's 0.12 m-radius pose
+steps with the pilot landing (kept on main, unchanged). Evidence: the
+follower author's SITL against the organisers' unmodified bridge and
+interface; PX4's land detector needs a setpoint descending at
+1.1 × `LNDMC_Z_VEL_MAX`. Neither is organizer-confirmed or kit-validated.
+No PX4 parameter, allowlist, frame or course-map contract changes.
+Affected owners to notify: @moterodiaz (navigation, contracts).
+
 ## 2026-11-07 — autonomous repository decisions and guarded merges
 
 [PR #31](https://github.com/moterodiaz/DroneHacks/pull/31):
