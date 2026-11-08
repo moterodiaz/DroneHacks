@@ -5,8 +5,8 @@ import math
 
 import pytest
 
-from dronehacks_course_follower.frames import (REST_WINDOW_S, CourseToOdom, NotAtRest, RestOnMark, frames_disagree,
-                                               quaternion_yaw, yaw_quaternion)
+from dronehacks_course_follower.frames import (OFFSET_LIMIT_M, REST_WINDOW_S, CourseToOdom, NotAtRest, Px4Offset,
+                                               RestOnMark, quaternion_yaw, yaw_quaternion)
 
 # An arbitrary measured transform: odom turned a third of a right angle from the course, its
 # launch reading off zero, its origin a little above the floor
@@ -98,13 +98,26 @@ def test_too_little_odometry_is_not_a_rest_and_old_samples_are_forgotten() -> No
     assert _rest(carried + still).transform().point_to_odom(*_MARK) == pytest.approx((0.0, 0.0))
 
 
-def test_px4_and_odometry_that_started_apart_are_named_and_agreeing_ones_pass() -> None:
-    # PX4 NED reads the tracker's ENU with x and y swapped and z negated when both start together
-    odom = (-0.04, -0.01, 0.01)
-    assert frames_disagree(odom, (-0.01, -0.04, -0.03), limit_m=0.15) is None
+def test_px4_offset_is_measured_and_refused_beyond_the_limit() -> None:
+    # Skybeta-11's /skybeta/state at rest, 2026-11-07: local_enu and odom_enu as the kit reported them
+    odom = (-0.042, -0.010, 0.012)
+    offset = Px4Offset()
+    offset.measure((-0.040, -0.011, -0.727), odom)
+    assert offset.enu == pytest.approx((0.002, -0.001, -0.739))
+    assert "0.74 m" in offset.too_far(OFFSET_LIMIT_M)
 
-    # Skybeta-11's last cage flight: PX4's height origin 0.73 m above the floor, the tracker's on it
-    assert "height" in frames_disagree(odom, (-0.01, -0.04, 0.72), limit_m=0.15)
+    # After a power cycle on the spot, the floor's rangefinder error alone is accepted
+    offset.measure((-0.040, -0.011, -0.140), odom)
+    assert offset.too_far(OFFSET_LIMIT_M) is None
 
-    # The tracker started 3.3 m from where PX4's position puts the drone
-    assert "position" in frames_disagree((-3.30, 0.64, 0.0), (0.0, 0.0, 0.0), limit_m=0.15)
+
+def test_px4_offset_is_followed_smoothly_in_flight() -> None:
+    # In the air the rangefinder reads true, so the offset settles to its airborne value over about a second
+    offset = Px4Offset()
+    offset.measure((0.0, 0.0, -0.15), (0.0, 0.0, 0.0))
+    offset.follow((0.0, 0.0, 0.70), (0.0, 0.0, 0.70), elapsed_s=0.05)
+    assert -0.15 < offset.enu[2] < -0.13
+
+    for _ in range(100):
+        offset.follow((0.0, 0.0, 0.70), (0.0, 0.0, 0.70), elapsed_s=0.05)
+    assert offset.enu[2] == pytest.approx(0.0, abs=0.01)

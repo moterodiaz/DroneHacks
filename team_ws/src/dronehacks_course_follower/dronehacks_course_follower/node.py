@@ -18,24 +18,19 @@ from pathlib import Path
 import rclpy
 from geometry_msgs.msg import PoseStamped, TwistStamped
 from nav_msgs.msg import Odometry
-from px4_msgs.msg import VehicleLocalPosition
 from rclpy.node import Node
-from rclpy.qos import qos_profile_sensor_data
 from std_msgs.msg import String
 
 from .dry_run import packaged_map
 from .follower import Drone
-from .frames import CourseToOdom, NotAtRest, RestOnMark, frames_disagree, quaternion_yaw, yaw_quaternion
+from .frames import (OFFSET_LIMIT_M, CourseToOdom, NotAtRest, Px4Offset, RestOnMark, quaternion_yaw,
+                     yaw_quaternion)
 from .ladder import parse_steps, read_step, record_run
 from .mission import Mission, Phase, PoseCommand, TwistCommand
 from .planner import load_course_map, plan_flight
 
 # An odometry message older than this counts as no estimate: the setpoint waits for it
 ODOMETRY_STALE_S = 0.5
-
-# Before Offboard, PX4's local position and the odometry must agree this closely, or nothing is
-# streamed and the kit never takes over: the interface hands PX4 odom setpoints unchanged
-FRAMES_LIMIT_M = 0.15
 
 # The speed ladder's top speeds, m/s: a recorded run that lands on the pad moves the next up a step.
 # It stops at PX4's MPC_XY_VEL_MAX on the kit, 1.0 m/s
@@ -117,12 +112,13 @@ class CourseFollower(Node):
         self.offboard, self.armed = False, False
         self.seen_events = 0
 
-        # PX4's local position (read only) and the raw odometry, compared before Offboard
+        # PX4's local position as the kit reports it and the raw odometry: their offset rides on
+        # every pose setpoint, measured at rest and followed in flight
         self.odom_enu: tuple[float, float, float] | None = None
-        self.px4_ned: tuple[float, float, float] | None = None
-        self.frames_problem: str | None = None
-        self.create_subscription(VehicleLocalPosition, "/fmu/out/vehicle_local_position", self.on_px4_position,
-                                 qos_profile_sensor_data)
+        self.px4_enu: tuple[float, float, float] | None = None
+        self.px4_offset = Px4Offset()
+        self.offset_problem: str | None = None
+        self.previous_tick_s = time.monotonic()
         self.pose_publisher = self.create_publisher(PoseStamped, "/skybeta/setpoint/pose", 10)
         self.twist_publisher = self.create_publisher(TwistStamped, "/skybeta/setpoint/twist", 10)
         self.create_subscription(Odometry, self._parameter("odometry_topic", "/visual_slam/tracking/odometry"),
@@ -184,6 +180,8 @@ class CourseFollower(Node):
 
         self.offboard = bool(state.get("offboard_active", False))
         self.armed = armed
+        local = state.get("local_enu")
+        self.px4_enu = tuple(float(value) for value in local) if isinstance(local, list) and len(local) == 3 else None
 
     def _place_from_rest(self) -> None:
         """Freezes the transform read from the rest on the mark; if the drone was not resting, sends
@@ -214,34 +212,35 @@ class CourseFollower(Node):
                         f"    course_to_odom_x: {self.transform.odom_origin[0]!r}\n"
                         f"    course_to_odom_y: {self.transform.odom_origin[1]!r}\n", encoding="utf-8")
 
-    def on_px4_position(self, message: VehicleLocalPosition) -> None:
-        """Keeps PX4's local position (NED) while PX4 holds it valid."""
-        if message.xy_valid and message.z_valid:
-            self.px4_ned = (message.x, message.y, message.z)
-
-    def _frames_problem(self) -> str | None:
-        """Why the odometry cannot be handed to PX4 yet, or None; logged once per change."""
+    def _offset_problem(self, elapsed_s: float) -> str | None:
+        """Measures PX4's offset before Offboard and follows it after; before Offboard, why nothing may
+        be streamed yet, or None. A change of answer is logged once."""
         problem = None
-        if self.odom_enu is not None:
-            problem = ("no valid PX4 local position yet" if self.px4_ned is None else
-                       frames_disagree(self.odom_enu, self.px4_ned, FRAMES_LIMIT_M))
+        if self.odom_enu is not None and self.px4_enu is None:
+            problem = "no PX4 local position in /skybeta/state yet"
+        elif self.odom_enu is not None and self.mission.phase is Phase.WAIT:
+            self.px4_offset.measure(self.px4_enu, self.odom_enu)
+            problem = self.px4_offset.too_far(OFFSET_LIMIT_M)
+        elif self.odom_enu is not None:
+            self.px4_offset.follow(self.px4_enu, self.odom_enu, elapsed_s)
 
-        if problem != self.frames_problem:
+        if self.mission.phase is Phase.WAIT and problem != self.offset_problem:
             if problem:
                 self.get_logger().error(f"{problem}: not streaming, so no Offboard. Power-cycle the drone (FC and "
                                         "Jetson) sitting on the launch mark")
             else:
-                self.get_logger().info("PX4 and cuVSLAM agree: streaming")
-            self.frames_problem = problem
+                self.get_logger().info(f"PX4 offset from cuVSLAM {math.hypot(*self.px4_offset.enu):.2f} m: streaming")
+            self.offset_problem = problem
 
-        return problem
+        return problem if self.mission.phase is Phase.WAIT else None
 
     def on_tick(self) -> None:
         """One mission step: its command published, its phase changes logged. Before Offboard, nothing
-        is streamed while PX4's frame and the tracker's disagree."""
+        is streamed while PX4's frame sits too far from the tracker's."""
         now_s = time.monotonic()
+        elapsed_s, self.previous_tick_s = now_s - self.previous_tick_s, now_s
         drone = self.drone if now_s - self.drone_at_s < ODOMETRY_STALE_S else None
-        if self.mission.phase is Phase.WAIT and self._frames_problem():
+        if self._offset_problem(elapsed_s):
             drone = None
         command = self.mission.tick(now_s, self.offboard, self.armed, drone)
         for event in self.mission.events[self.seen_events:]:
@@ -279,14 +278,16 @@ class CourseFollower(Node):
         return self.over_at_s is not None and time.monotonic() - self.over_at_s >= RECORDING_TAIL_S
 
     def _pose(self, command: PoseCommand) -> PoseStamped:
-        """A course-frame pose command as the odom-frame message the interface reads."""
+        """A course-frame pose command as the message the interface reads: odom-frame, carrying PX4's
+        offset, since the interface hands it to PX4 unanchored and PX4 flies it in its own frame."""
         message = PoseStamped()
         message.header.stamp = self.get_clock().now().to_msg()
         message.header.frame_id = ODOM_FRAME
         x, y = self.transform.point_to_odom(command.east, command.north)
+        offset_x, offset_y, offset_z = self.px4_offset.enu
         orientation = yaw_quaternion(self.transform.yaw_to_odom(command.yaw_rad))
-        message.pose.position.x, message.pose.position.y = x, y
-        message.pose.position.z = self.transform.height_to_odom(command.height_m)
+        message.pose.position.x, message.pose.position.y = x + offset_x, y + offset_y
+        message.pose.position.z = self.transform.height_to_odom(command.height_m) + offset_z
         (message.pose.orientation.x, message.pose.orientation.y, message.pose.orientation.z,
          message.pose.orientation.w) = orientation
         return message

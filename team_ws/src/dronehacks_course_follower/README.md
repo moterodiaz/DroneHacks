@@ -123,10 +123,12 @@ vision but its height from the rangefinder (`EKF2_EV_CTRL` 9, `EKF2_HGT_REF` 2),
 where the flight controller powered up; odom's is where the stack started. On skybeta-11
 (2026-11-07, `flights/20261108-003042-light-square` on `core/flight-iteration`) PX4 read -0.72 m
 on the floor against odom's 0.01 m and the square test flew to 1.33 m for 0.74 m. **Power-cycle the
-drone, FC and Jetson, sitting on the launch mark.** Before Offboard the follower compares PX4's
-`/fmu/out/vehicle_local_position` (read only) with the odometry and, while they differ by over
-0.15 m, streams nothing, so the kit never takes over: the log says `PX4 height and cuVSLAM disagree
-by 0.73 m: not streaming, so no Offboard. Power-cycle ...`, then `PX4 and cuVSLAM agree: streaming`.
+drone, FC and Jetson, sitting on the launch mark.** What remains is handled as the square test on
+this branch does: every pose setpoint carries PX4's offset from the odometry (PX4's position from
+`/skybeta/state` `local_enu`), measured at rest and followed, smoothed over 1 s, in flight, since the
+rangefinder reads wrong on the floor and true in the air. Over 0.3 m at rest it streams nothing, so
+the kit never takes over: the log says `PX4 and cuVSLAM disagree by 0.73 m: not streaming, so no
+Offboard. Power-cycle ...`, then `PX4 offset from cuVSLAM 0.16 m: streaming`.
 
 ### The speed ladder: each clean run flies the next one faster
 

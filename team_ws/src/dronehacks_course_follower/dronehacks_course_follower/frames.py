@@ -27,6 +27,14 @@ REST_SPREAD_RAD = math.radians(1.0)
 REST_MIN_SAMPLES = 10
 
 
+# PX4's offset from the odometry at rest beyond which a flight is refused: more than the
+# rangefinder's error on the floor, so the drone was powered up somewhere else
+OFFSET_LIMIT_M = 0.3
+
+# How fast the offset follows PX4's frame in flight, as the rangefinder comes into range
+OFFSET_TAU_S = 1.0
+
+
 class NotAtRest(RuntimeError):
     """The odometry does not show the drone resting still on the launch mark."""
 
@@ -123,25 +131,35 @@ class RestOnMark:
                             origin_height_m=self.origin_height_m)
 
 
-def frames_disagree(odom_enu: tuple[float, float, float], px4_ned: tuple[float, float, float],
-                    limit_m: float) -> str | None:
-    """Why PX4's local position and the tracker's odometry disagree by more than `limit_m`, or None.
+class Px4Offset:
+    """PX4's local position minus the odometry, both ENU, which every pose setpoint carries.
 
-    The kit's interface hands PX4 an odom ENU setpoint as NED (x and y swapped, z negated), which is
-    only right while both frames share an origin. PX4 takes x, y and yaw from vision but its height
-    from the rangefinder, with its origin where the flight controller powered up; odom's origin is
-    where the stack started. A drone powered up off its take-off spot flies every setpoint shifted."""
-    north_m, east_m, down_m = px4_ned
-    x_m, y_m, z_m = odom_enu
-    horizontal_m = math.hypot(east_m - x_m, north_m - y_m)
-    if horizontal_m > limit_m:
-        return f"PX4 position and cuVSLAM disagree by {horizontal_m:.2f} m"
+    The kit's interface hands PX4 an odom setpoint unanchored, so PX4 flies it in its own frame.
+    PX4 takes x, y and yaw from vision but its height from the rangefinder, with its origin where
+    the flight controller powered up, and the rangefinder reads wrong below its range on the floor
+    and true in the air. So the offset is measured at rest, refused when too large to be the floor's
+    error, and followed, smoothed, through the flight. Both inputs measure the same drone, so
+    following it moves no setpoint toward the drone: it is not a control loop."""
 
-    vertical_m = abs(-down_m - z_m)
-    if vertical_m > limit_m:
-        return f"PX4 height and cuVSLAM disagree by {vertical_m:.2f} m"
+    def __init__(self) -> None:
+        """Starts with no offset."""
+        self.enu = (0.0, 0.0, 0.0)
 
-    return None
+    def measure(self, px4_enu: tuple[float, float, float], odom_enu: tuple[float, float, float]) -> None:
+        """Takes the offset as it is now: at rest, before Offboard."""
+        self.enu = tuple(px4 - odom for px4, odom in zip(px4_enu, odom_enu, strict=True))
+
+    def follow(self, px4_enu: tuple[float, float, float], odom_enu: tuple[float, float, float],
+               elapsed_s: float) -> None:
+        """Moves the offset toward its value now, at `OFFSET_TAU_S`."""
+        gain = min(1.0, elapsed_s / OFFSET_TAU_S)
+        self.enu = tuple(offset + gain * (px4 - odom - offset)
+                         for offset, px4, odom in zip(self.enu, px4_enu, odom_enu, strict=True))
+
+    def too_far(self, limit_m: float) -> str | None:
+        """Why the offset is too large to fly on, or None."""
+        size_m = math.hypot(*self.enu)
+        return f"PX4 and cuVSLAM disagree by {size_m:.2f} m" if size_m > limit_m else None
 
 
 def wrap_angle(angle_rad: float) -> float:
