@@ -12,12 +12,13 @@ START_YAW = 0.4                  # rad: not zero, so the test catches a missing 
 
 
 def fly(mission, drop_pose=None, takeover_at=None, max_t=150.0, heading=True, off=None, height_bias=0.0,
-        reasons=None):
+        reasons=None, accel=None, offsets=None):
     """Moves toward a pose setpoint at <= 0.6 m/s (z floored 0.3 m, as the kit does), follows
     twists, sits on the ground at z 0. Disarms after COM_DISARM_LAND landed, which ends Offboard.
     `height_bias` is how far below a commanded height the drone settles in the tracker's z: PX4
     holds height by its rangefinder, which reads a few centimetres apart from cuVSLAM. `reasons`,
-    a list, collects the mission's status reason at every tick, one per command."""
+    a list, collects the mission's status reason at every tick, one per command; `accel`, an FRD
+    (x, y) reading, feeds the push compensator each tick; `offsets` collects its applied offset."""
     x, y, z = START
     yaw = START_YAW
     armed = True
@@ -34,6 +35,8 @@ def fly(mission, drop_pose=None, takeover_at=None, max_t=150.0, heading=True, of
                 armed = offboard = False
         else:
             landed_since = None
+        if accel is not None and mission.comp is not None:
+            mission.comp.add_accel(*accel)
         stale = drop_pose and drop_pose[0] <= t < drop_pose[1]
         px4 = None if off is None else (x + off[0], y + off[1], z + off[2])
         cmd = mission.step(t, None if stale else (x, y, z), None if stale else t, offboard, landed, armed,
@@ -41,6 +44,8 @@ def fly(mission, drop_pose=None, takeover_at=None, max_t=150.0, heading=True, of
         cmds.append((t, cmd))
         if reasons is not None:
             reasons.append(mission.reason)
+        if offsets is not None:
+            offsets.append(mission.comp_offset)
         if not offboard:
             pass                              # PX4 ignores setpoints outside Offboard
         elif cmd.kind == 'pose':
@@ -252,6 +257,49 @@ def test_both_flies_a_lap_fixed_then_a_lap_turn_then_the_rest():
 def test_an_unknown_heading_mode_is_refused():
     with pytest.raises(ValueError):
         Mission(Config(heading_mode='ahead'))
+
+
+PUSH_FRD = (0.12, -0.07)        # m/s^2 forward and left of the nose, as the accelerometer reads it (FRD)
+
+
+def test_yaw_comp_both_flies_the_turning_box_without_then_with_the_compensation():
+    m = Mission(Config(yaw_comp='both'))
+    reasons, offsets = [], []
+    track, _ = fly(m, reasons=reasons, accel=PUSH_FRD, offsets=offsets)
+    assert m.state == DONE and m.reason == 'disarmed on the ground', m.reason
+    off = [i for i, r in enumerate(reasons) if r.endswith(', lap comp off')]
+    on = [i for i, r in enumerate(reasons) if r.endswith(', lap comp on')]
+    assert off and on and max(off) < min(on)                     # one lap each, uncompensated first
+    assert m.comp.ready
+    assert all(offsets[i] == (0.0, 0.0) for i in off)
+    # the push turns with the nose at each corner of the second lap, so the offset is applied there
+    assert max(math.hypot(*offsets[i]) for i in on) > 0.05
+    x0, y0, _ = START
+    for dx, dy in [(0.5, 0), (0.5, 0.5), (0, 0.5)]:
+        assert held(track[min(on):max(on) + 1], (x0 + dx, y0 + dy, 0.73)) >= 2.9, (dx, dy)
+
+
+def test_yaw_comp_without_an_accelerometer_never_offsets_and_still_flies():
+    m = Mission(Config(yaw_comp='true'))
+    offsets = []
+    fly(m, offsets=offsets)
+    assert m.state == DONE and m.reason == 'disarmed on the ground', m.reason
+    assert not m.comp.ready and all(o == (0.0, 0.0) for o in offsets)
+
+
+def test_yaw_comp_offset_rides_on_the_pose_setpoint():
+    m = Mission(Config(yaw_comp='true'))
+    fly(m, accel=PUSH_FRD, max_t=40.0)
+    m.comp_offset = (0.05, -0.02)
+    cmd = m._pose()
+    assert (cmd.x, cmd.y) == pytest.approx((m.target[0] + 0.05, m.target[1] - 0.02))
+
+
+def test_unknown_or_conflicting_yaw_comp_is_refused():
+    with pytest.raises(ValueError):
+        Mission(Config(yaw_comp='on'))
+    with pytest.raises(ValueError):
+        Mission(Config(yaw_comp='both', heading_mode='fixed'))
 
 
 def test_disarm_mid_flight_ends_the_run_at_once():

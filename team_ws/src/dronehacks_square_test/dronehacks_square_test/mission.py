@@ -14,7 +14,10 @@ The sequence (``plan``), every hold 3 s once within ``arrive_m`` of the target:
       ``heading_mode``: 'turn' flies that box (a "lap turn"); 'fixed' flies it never yawing, the
       take-off heading held through the box and the circle (a "lap fixed"); 'both' flies a lap
       fixed, then a lap turn from over the start, then the rest: an A/B of whether yawing drifts
-      the drone at the corners, on one battery and one bias. The status names the lap
+      the drone at the corners, on one battery and one bias. The status names the lap.
+      ``yaw_comp`` (``yaw_comp.py``): 'true' offsets every pose setpoint against the airframe's push
+      that PX4 relearns after each yaw, measured in the first hold (which waits for it); 'both'
+      flies the turning box twice, a "lap comp off" then a "lap comp on", compensated from there on
     rest: down (velocity, at most ``descent_mps``) to ``rest_height_m`` above the start by camera,
       pulling back over the start, hover there ``rest_s``; if PX4 reports landed meanwhile, climb at once
     take off again to height_m, hold
@@ -38,10 +41,17 @@ the drone is and ends.
 import math
 from dataclasses import dataclass
 
+from .yaw_comp import (DEFAULT_GAIN_PER_S2, DEFAULT_MAX_M, DEFAULT_PUSH_GAIN, DEFAULT_TAU_S, HorizontalSpeed,
+                       YawCompensator)
+
 WAIT, FLY, DONE, STOPPED = 'WAIT', 'FLY', 'DONE', 'STOPPED'
 
-# The box laps each heading mode flies, in order: 'turn' yaws +90 deg at each corner, 'fixed' never yaws
-HEADING_MODES = {'turn': ('turn',), 'fixed': ('fixed',), 'both': ('fixed', 'turn')}
+# The box laps each heading mode flies, in order, as (name, turns): a turning lap yaws +90 deg at each corner
+HEADING_MODES = {'turn': (('turn', True),), 'fixed': (('fixed', False),), 'both': (('fixed', False), ('turn', True))}
+
+# yaw_comp 'true' compensates throughout; 'both' flies these two turning laps, compensated from the second
+YAW_COMP_MODES = ('false', 'true', 'both')
+COMP_LAPS = (('comp off', True), ('comp on', True))
 
 
 @dataclass
@@ -71,6 +81,11 @@ class Config:
     offset_tau_s: float = 1.0       # smoothing of the PX4-vs-camera offset in flight
     circle_d_m: float = 1.0
     heading_mode: str = 'turn'      # 'turn', 'fixed' or 'both': see HEADING_MODES
+    yaw_comp: str = 'false'         # 'false', 'true' or 'both': see YAW_COMP_MODES; off until flown
+    yaw_comp_tau_s: float = DEFAULT_TAU_S           # PX4's velocity integrator lag, as modelled
+    yaw_comp_gain: float = DEFAULT_GAIN_PER_S2      # PX4's pose-to-acceleration gain, 1/s²
+    yaw_comp_max_m: float = DEFAULT_MAX_M           # cap on the compensation offset
+    yaw_comp_push_gain: float = DEFAULT_PUSH_GAIN   # push per unit of hover accelerometer reading
 
 
 @dataclass
@@ -90,14 +105,24 @@ def plan(c):
     counter-clockwise from the take-off heading, unwrapped, box lap name or None)."""
     if c.heading_mode not in HEADING_MODES:
         raise ValueError('heading_mode must be one of {}, not {!r}'.format(sorted(HEADING_MODES), c.heading_mode))
+    if c.yaw_comp not in YAW_COMP_MODES:
+        raise ValueError('yaw_comp must be one of {}, not {!r}'.format(YAW_COMP_MODES, c.yaw_comp))
+    laps = HEADING_MODES[c.heading_mode]
+    if c.yaw_comp == 'both':
+        if c.heading_mode != 'turn':
+            raise ValueError('yaw_comp both flies two turning laps: heading_mode must be turn, not {!r}'.format(
+                c.heading_mode))
+        laps = COMP_LAPS
     s, h, r = c.side_m, c.height_m, c.circle_d_m / 2.0
     box = [(0, 0, h), (s, 0, h), (s, s, h), (0, s, h), (0, 0, h)]
     steps = []
-    for lap in HEADING_MODES[c.heading_mode]:
-        # a second lap starts over the start, where the first one ended
+    turned = 0.0
+    for lap, turns in laps:
+        # a second lap starts over the start, where the first one ended, a full turn on if it turned
         first = 1 if steps else 0
         for k, p in enumerate(box[first:], first):
-            steps += [('move', p, 0, None, lap), ('hold', p, c.hold_s, 90.0 * k if lap == 'turn' else 0.0, lap)]
+            steps += [('move', p, 0, None, lap), ('hold', p, c.hold_s, turned + 90.0 * k if turns else turned, lap)]
+        turned = steps[-1][3]
     # after a lap turn it faces its take-off heading again a full turn on, unwrapped
     end = steps[-1][3]
     steps += [('rest', None, c.rest_s, None, None),
@@ -125,6 +150,12 @@ class Mission:
         self.last_t = None
         self.offset = (0.0, 0.0, 0.0)  # PX4 local minus camera, smoothed
         self.arc = 0.0               # radians of the circle covered
+        # the push compensator, None with yaw_comp false; the node feeds it PX4's accelerometer
+        self.comp = None if cfg.yaw_comp == 'false' else YawCompensator(
+            cfg.yaw_comp_tau_s, cfg.yaw_comp_gain, cfg.yaw_comp_max_m, cfg.yaw_comp_push_gain)
+        self.comp_on = cfg.yaw_comp == 'true'
+        self.comp_offset = (0.0, 0.0)  # odom ENU, added to every pose setpoint before PX4's offset
+        self.speed = HorizontalSpeed()
 
     @property
     def step_name(self):
@@ -187,6 +218,9 @@ class Mission:
         self.reason = 'step {}/{}: {}'.format(self.i + 1, len(self.steps), kind)
         if lap is not None:
             self.reason += ', lap ' + lap
+        if lap == 'comp on':
+            self.comp_on = True
+        self._compensate(t, kind, pose, yaw)
         if kind not in ('land', 'disarm') and t - self.since > c.step_timeout_s:
             self._abort('step {} ({}) took over {:.0f} s: landing here'.format(self.i + 1, kind, c.step_timeout_s))
             self.start = pose
@@ -222,7 +256,7 @@ class Mission:
                 self.dwell_since = None
             elif self.dwell_since is None:
                 self.dwell_since = t
-            elif t - self.dwell_since >= secs:
+            elif t - self.dwell_since >= secs and not self.measuring(t):
                 self._next(t)
             return self._pose()
         if kind == 'rest':
@@ -246,12 +280,29 @@ class Mission:
         vy = _clip(c.land_xy_gain * (self.start[1] - pose[1]), c.land_xy_max_mps)
         return Command('twist', vx, vy, -c.descent_mps)
 
+    def measuring(self, t):
+        """Whether a hold must wait on: the compensator has accelerometer data but no push estimate yet."""
+        return self.comp is not None and not self.comp.ready and self.comp.imu_fresh(t)
+
     # ------------------------------------------------------------------
+    def _compensate(self, t, kind, pose, yaw):
+        # the push is learned dwelling in a hold (the first one, before any yaw, waits for it) and
+        # refined in steady flight after; the offset is applied once the compensation is on
+        if self.comp is None or yaw is None:
+            return
+        speed = self.speed.update(t, pose[0], pose[1])
+        dwelling = kind == 'hold' and self.dwell_since is not None
+        airborne = dwelling or (self.comp.ready and kind in ('move', 'hold', 'circle'))
+        offset = self.comp.step(t, yaw, speed, airborne)
+        self.comp_offset = tuple(offset) if self.comp_on else (0.0, 0.0)
+
     def _yaw_cmd(self):
         return _wrap(self.start_yaw + math.radians(self.heading))
 
     def _pose(self):
-        return Command('pose', *self._px4(self.target), yaw=None if self.start_yaw is None else self._yaw_cmd())
+        x, y, z = self.target
+        return Command('pose', *self._px4((x + self.comp_offset[0], y + self.comp_offset[1], z)),
+                       yaw=None if self.start_yaw is None else self._yaw_cmd())
 
     def _px4(self, p):
         return tuple(a + o for a, o in zip(p, self.offset))

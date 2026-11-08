@@ -4,6 +4,8 @@ For COMPETITOR_LAUNCH=square_test.launch.py with COMPETITOR_PKG=dronehacks_squar
 Tune from the command line, e.g. ``ros2 launch dronehacks_square_test square_test.launch.py side_m:=0.5``.
 ``record:=false`` turns off the node's recording (it records from arming; see square_test_node).
 ``heading_mode:=fixed`` never yaws; ``heading_mode:=both`` flies the box fixed, then turning (see mission).
+``yaw_comp:=true`` compensates the push PX4 relearns after each yaw; ``yaw_comp:=both`` flies the turning box
+without, then with it.
 """
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
@@ -16,7 +18,8 @@ INTERFACE = [  # the kit example's own defaults
     ('odometry_topic', '/visual_slam/tracking/odometry'),
 ]
 MISSION = [('side_m', '1.0'), ('height_m', '0.73'), ('speed_mps', '0.3'), ('hold_s', '2.0'),
-           ('yaw_rate_dps', '20.0'), ('heading_mode', 'turn'), ('record', 'true')]
+           ('yaw_rate_dps', '20.0'), ('heading_mode', 'turn'), ('yaw_comp', 'false'), ('yaw_comp_tau_s', '4.5'),
+           ('yaw_comp_gain', '1.71'), ('yaw_comp_max_m', '0.20'), ('yaw_comp_push_gain', '1.25'), ('record', 'true')]
 
 
 def generate_launch_description():

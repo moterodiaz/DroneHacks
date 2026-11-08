@@ -42,6 +42,32 @@ drone's copy before restarting the stack:
 `sed -i "s/('heading_mode', 'turn')/('heading_mode', 'both')/" ~/team_ws/src/dronehacks_square_test/launch/square_test.launch.py`.
 The status names the lap (`FLY: step 4/26: hold, lap fixed`), so the bag shows which is which.
 
+## Push compensation (cancel the drift and still turn)
+
+The drift is a push fixed to the airframe (about 0.10 m/s² forward-left of the nose in
+`20261108-013018`, 0.25 in `20261108-003042`) that PX4's velocity integrator cancels in world
+axes, so after a yaw its correction points the old way until it relearns it. `yaw_comp`
+(`yaw_comp.py`, the same module as the course follower's) measures the push from PX4's
+accelerometer (`/fmu/out/sensor_combined`, FRD: forward = ax, left = -ay, times
+`yaw_comp_push_gain`) over 2.5 s of the first hold (it waits for it; under 0.2 m/s and 5°/s), models
+the integrator as a lag of R(heading) d over `yaw_comp_tau_s`, and adds -(R d - L) / `yaw_comp_gain`,
+capped at `yaw_comp_max_m`, to every pose setpoint before PX4's offset. Off by default, not yet flown.
+
+| Argument | Default | |
+|---|---|---|
+| `yaw_comp` | false | `true` compensates throughout; `both` flies the turning box twice, a "lap comp off" then a "lap comp on", compensated from there on (needs `heading_mode` turn) |
+| `yaw_comp_tau_s` | 4.5 | PX4's integrator lag, `MPC_XY_VEL_P_ACC` / `MPC_XY_VEL_I_ACC` at stock values |
+| `yaw_comp_gain` | 1.71 | PX4's pose-to-acceleration gain, `MPC_XY_P` x `MPC_XY_VEL_P_ACC` at stock values |
+| `yaw_comp_max_m` | 0.20 | cap on the offset |
+| `yaw_comp_push_gain` | 1.25 | the push per unit of hover accelerometer reading, fitted on two flights' corners |
+
+```bash
+ros2 launch dronehacks_square_test square_test.launch.py yaw_comp:=both
+```
+
+The log names the push once and the offset each second; `/square_test/yaw_comp` carries both
+(JSON) for the bag. Without `px4_msgs` or accelerometer data it never offsets and no hold waits.
+
 ## Power up on the spot (why the first flights never moved sideways)
 
 The kit's interface hands PX4 our odom setpoint unchanged (ENU to NED), so PX4's local frame and

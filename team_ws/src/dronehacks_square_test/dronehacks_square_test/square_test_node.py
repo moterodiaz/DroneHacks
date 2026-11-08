@@ -2,7 +2,8 @@
 
 Same contract as the kit's ``competitor_example``: subscribes /visual_slam/tracking/odometry and
 /skybeta/state, publishes /skybeta/setpoint/pose and /skybeta/setpoint/twist. Never touches
-/fmu/*, never arms or changes mode. Status (state + reason) on /square_test/status.
+/fmu/in/*, never arms or changes mode. Status (state + reason) on /square_test/status. With
+``yaw_comp`` on it also reads /fmu/out/sensor_combined and publishes /square_test/yaw_comp (JSON).
 
 Recording (``record``, default true): at the first arming it starts a rosbag2 recording with
 dronehacks_telemetry's ``light`` profile (every topic but images, point clouds and visualisation)
@@ -20,6 +21,7 @@ import time
 
 import rclpy
 from rclpy.node import Node
+from rclpy.qos import qos_profile_sensor_data
 from geometry_msgs.msg import PoseStamped, TwistStamped
 from nav_msgs.msg import Odometry
 from rcl_interfaces.msg import ParameterDescriptor
@@ -37,11 +39,17 @@ class SquareTest(Node):
         defaults = Config()
         cfg = {}
         for name, value in vars(defaults).items():
-            # dynamic_typing: a launch override like side_m:=1 arrives as an int; heading_mode is a string
+            # dynamic_typing: a launch override like side_m:=1 arrives as an int; heading_mode and
+            # yaw_comp are strings, and yaw_comp:=false arrives as a bool, so strings are lower-cased
             kind = str if isinstance(value, str) else float
             self.declare_parameter(name, kind(value), ParameterDescriptor(dynamic_typing=True))
-            cfg[name] = kind(self.get_parameter(name).value)
+            got = self.get_parameter(name).value
+            cfg[name] = str(got).lower() if kind is str else float(got)
         self.mission = Mission(Config(**cfg))
+        self.comp_pub = self.create_publisher(String, '/square_test/yaw_comp', 10)
+        self.comp_reported = False
+        if self.mission.comp is not None:
+            self.subscribe_accelerometer()
         self.declare_parameter('record', True, ParameterDescriptor(dynamic_typing=True))
         self.record = str(self.get_parameter('record').value).lower() in ('true', '1')
         self.recorder = None
@@ -64,9 +72,41 @@ class SquareTest(Node):
         self.create_timer(0.05, self.tick)  # 20 Hz
         c = self.mission.cfg
         self.get_logger().info(
-            'square_test ready: up {:.2f} m, {:.2f} m box, heading_mode {} (turns at {:.0f} deg/s), {:.0f} s holds, '
-            'land, touch-and-go, land and disarm. Arm, then switch to Position.'.format(
-                c.height_m, c.side_m, c.heading_mode, c.yaw_rate_dps, c.hold_s))
+            'square_test ready: up {:.2f} m, {:.2f} m box, heading_mode {} (turns at {:.0f} deg/s), yaw_comp {}, '
+            '{:.0f} s holds. Arm, then switch to Position.'.format(
+                c.height_m, c.side_m, c.heading_mode, c.yaw_rate_dps, c.yaw_comp, c.hold_s))
+
+    def subscribe_accelerometer(self):
+        # PX4's accelerometer for the push compensator, best effort as the kit's /fmu/out topics are;
+        # without px4_msgs the compensator is turned off rather than the node failing
+        try:
+            from px4_msgs.msg import SensorCombined
+        except ImportError as missing:
+            self.get_logger().warn('yaw_comp turned off: px4_msgs cannot be imported ({})'.format(missing))
+            self.mission.comp = None
+            return
+        self.create_subscription(SensorCombined, '/fmu/out/sensor_combined', self.accel_cb, qos_profile_sensor_data)
+
+    def accel_cb(self, msg):
+        if self.mission.comp is not None:
+            self.mission.comp.add_accel(float(msg.accelerometer_m_s2[0]), float(msg.accelerometer_m_s2[1]))
+
+    def report_comp(self):
+        # the push once it is estimated, the offset each second, and both on a topic for the bag
+        comp = self.mission.comp
+        if comp is None:
+            return
+        push = comp.push_body
+        if push is not None and not self.comp_reported:
+            self.comp_reported = True
+            self.get_logger().info('yaw_comp: push {:+.3f} forward {:+.3f} left m/s^2 (body)'.format(*push))
+        if push is not None:
+            self.get_logger().info('yaw_comp offset {:.3f} m ({})'.format(
+                math.hypot(*self.mission.comp_offset), 'on' if self.mission.comp_on else 'off'),
+                throttle_duration_sec=1.0)
+        self.comp_pub.publish(String(data=json.dumps({
+            'push_body_m_s2': None if push is None else list(push), 'offset_odom_m': list(self.mission.comp_offset),
+            'on': self.mission.comp_on, 'learned_odom_m_s2': list(comp.learned)})))
 
     def start_recording(self):
         started = time.gmtime()
@@ -143,6 +183,7 @@ class SquareTest(Node):
             m.twist.linear.x, m.twist.linear.y, m.twist.linear.z = cmd.x, cmd.y, cmd.z
             m.twist.angular.z = 0.0
             self.twist_pub.publish(m)
+        self.report_comp()
         if self.record and self.armed and self.recorder is None:
             self.start_recording()
         status = '{}: {}'.format(self.mission.state, self.mission.reason)
