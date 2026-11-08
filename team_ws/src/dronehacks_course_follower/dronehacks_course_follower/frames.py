@@ -13,7 +13,22 @@ above the floor; odom's z is above the odom origin, which sits `origin_height_m`
 from __future__ import annotations
 
 import math
+from collections import deque
 from dataclasses import dataclass
+
+# How long the drone must rest on the launch mark before arming for its odometry to place the course
+REST_WINDOW_S = 2.0
+
+# Spread in that window beyond which the drone was moving, not resting: a hand placing it, a slide
+REST_SPREAD_M = 0.02
+REST_SPREAD_RAD = math.radians(1.0)
+
+# Fewer odometry samples than this in the window means the tracker is not running at its rate
+REST_MIN_SAMPLES = 10
+
+
+class NotAtRest(RuntimeError):
+    """The odometry does not show the drone resting still on the launch mark."""
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -66,6 +81,46 @@ class CourseToOdom:
     def height_to_course(self, z_m: float) -> float:
         """Odom z as a height above the course floor."""
         return z_m + self.origin_height_m
+
+
+class RestOnMark:
+    """The course-to-odom transform read from the odometry of a drone resting on the launch mark,
+    facing the launch heading: the mark is where it sits, the heading where its nose points. It is
+    re-read at every tracking start, since the odom origin is wherever the tracker started."""
+
+    def __init__(self, launch: tuple[float, float], launch_heading_rad: float, origin_height_m: float) -> None:
+        """Keeps the mark, its heading (counter-clockwise from east) and the odom origin's height."""
+        self.launch = launch
+        self.launch_heading_rad = launch_heading_rad
+        self.origin_height_m = origin_height_m
+        self.samples: deque[tuple[float, float, float, float]] = deque()
+
+    def add(self, time_s: float, x: float, y: float, yaw_rad: float) -> None:
+        """Adds one odometry reading, forgetting those older than the rest window."""
+        self.samples.append((time_s, x, y, yaw_rad))
+        while self.samples and time_s - self.samples[0][0] > REST_WINDOW_S:
+            self.samples.popleft()
+
+    def transform(self) -> CourseToOdom:
+        """The transform from the window's mean pose; raises `NotAtRest` if it is short or moving."""
+        if len(self.samples) < REST_MIN_SAMPLES:
+            raise NotAtRest(f"only {len(self.samples)} odometry samples in {REST_WINDOW_S:.0f} s "
+                            f"(need {REST_MIN_SAMPLES}): is the tracker running?")
+
+        _, xs, ys, yaws = zip(*self.samples, strict=True)
+        spread_m = max(max(xs) - min(xs), max(ys) - min(ys))
+        if spread_m > REST_SPREAD_M:
+            raise NotAtRest(f"the drone moved {spread_m * 100:.1f} cm in the last {REST_WINDOW_S:.0f} s")
+
+        # The circular mean, so headings either side of the wrap average correctly
+        yaw_rad = math.atan2(sum(math.sin(yaw) for yaw in yaws), sum(math.cos(yaw) for yaw in yaws))
+        turn_rad = max(abs(wrap_angle(yaw - yaw_rad)) for yaw in yaws)
+        if turn_rad > REST_SPREAD_RAD:
+            raise NotAtRest(f"the drone turned {math.degrees(turn_rad):.1f} deg in the last {REST_WINDOW_S:.0f} s")
+
+        return CourseToOdom(yaw_rad=wrap_angle(yaw_rad - self.launch_heading_rad),
+                            odom_origin=(sum(xs) / len(xs), sum(ys) / len(ys)), course_origin=self.launch,
+                            origin_height_m=self.origin_height_m)
 
 
 def wrap_angle(angle_rad: float) -> float:

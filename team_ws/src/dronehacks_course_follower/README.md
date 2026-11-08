@@ -57,7 +57,12 @@ The pilot taking the drone back (Offboard ends) stops it at once; it sends nothi
 - **Frames** (`frames.py`): the mission works in the course frame; the node applies
   contracts/frames.md's measured transform `p_odom = o_odom + R(yaw)(p_course - o_course)`, with
   `o_course` the map's launch mark and the team's existing `course_to_odom_yaw/x/y` parameters.
-  It refuses to start without them.
+  The stack starts team code with no launch arguments, so without them the node reads the
+  transform itself, as the team's `measure_frame` does: the mean odometry of the drone resting on
+  the launch mark facing the launch heading over the last 2 s, frozen at arming. A drone that moved
+  over 2 cm or turned over 1° in that window is refused: nothing is sent until a disarm, so the
+  interface never enters Offboard. A cuVSLAM restart moves the odom origin, so the transform is
+  re-read at every stack start and never stored.
 
 Left out on purpose (rejected in SITL, or not needed for a first flight): racing line, heading
 plans, turn slow-down, cross-track push, window servo, live re-planning, and the return to the
@@ -85,17 +90,20 @@ surveyed course goes in a new file passed as `course_map:=`; nothing in the code
 
 ```bash
 colcon build --packages-select dronehacks_course_follower && source install/setup.bash
-ros2 launch dronehacks_course_follower competitor.launch.py \
-    course_to_odom_yaw:=<measured> course_to_odom_x:=<measured> course_to_odom_y:=<measured>
+ros2 launch dronehacks_course_follower competitor.launch.py     # as the stack starts it
 ```
 
 Set `COMPETITOR_PKG=dronehacks_course_follower` and `COMPETITOR_LAUNCH=competitor.launch.py` in
-`/etc/skybeta/drone.env` for the stack to start it. Restart the stack with the drone still on the
-launch mark: cuVSLAM's odom origin is wherever it started.
+`/etc/skybeta/drone.env` for the stack to start it; it runs `ros2 launch` with no arguments
+(`run_competitor.sh`), so every default below is what flies. Restart the stack with the drone on the
+launch mark, then before arming set it **exactly on the mark, facing the launch heading, and leave it
+still for 2 s**: the log says "course placed from the rest on the mark" at arming. The follower cannot
+tell where the mark is, so a misplaced drone flies the whole route shifted by the same error.
 
 | Argument | Default | |
 |---|---|---|
 | `course_map` | packaged | a surveyed map |
+| `course_to_odom_yaw`, `_x`, `_y` | NaN | a measured transform, all three or none; none reads it from the rest on the mark at arming |
 | `odom_origin_height_m` | 0.0 | the odom origin's height above the floor; 0 flies odom z = map height, as the manual navigator's `hover_altitude_m` does |
 | `speed_mps` | 1.0 | `MPC_XY_VEL_MAX` is 1.0 on the kit |
 | `rate_hz` | 50 | follower publish rate |
@@ -110,7 +118,8 @@ launch mark: cuVSLAM's odom origin is wherever it started.
 
 With `record:=true` the launch does what the square test's does: it writes
 `/root/team_ws/flights/<UTC time>-light-follower/` (the host's `~/team_ws/flights`) with
-`meta/manifest.txt` and the transform as `meta/params/course_follower.yaml`, then records a light
+`meta/manifest.txt`, the follower writes the transform it flew as `meta/params/course_follower.yaml`
+(where the flight report reads it), and the launch records a light
 rosbag2 bag (`-s mcap -a`, excluding images, depth, point clouds and the tracker's visualisation,
 as `dronehacks_telemetry`'s light profile does) from launch, so the pre-arm start-up and the
 Offboard handover are in it. Once a climb has started and PX4 has disarmed, the follower logs
@@ -146,6 +155,9 @@ ros2 run dronehacks_course_follower dry_run --no-window --steps 40
   floors poses at 0.3 m). PX4 detects ground contact only while the setpoint descends at
   1.1 x `LNDMC_Z_VEL_MAX` (0.275 m/s at 0.25), then disarms after `COM_DISARM_LAND`.
 - **Heights.** Odom z is height above where cuVSLAM started; set `odom_origin_height_m` once measured.
+- **Placement on the mark.** Read from the rest, the transform is only as good as where the drone
+  sits and where its nose points: 5 cm off the mark is 5 cm off every wall, and 2° off the heading
+  is 7 cm at 2 m. Tape the mark's outline and a heading line on the floor.
 
 ## Bench check, props off
 
@@ -157,11 +169,13 @@ disarm that follows a climb (step 7).
 2. Read, do not write, PX4's `MPC_XY_P` (0.95), `MPC_XY_VEL_P_ACC` (1.8), `MC_YAW_P` (2.8),
    `MPC_ACC_HOR` (3), `MPC_JERK_AUTO` (4), `MPC_XY_VEL_MAX` (1), `LNDMC_Z_VEL_MAX` (0.25),
    `COM_DISARM_LAND` (2). A different value means the lead or landing needs re-deriving.
-3. Launch without the transform: the follower must refuse to start. Launch with it: the log
-   names the map, the waypoint count, window flown or closed, and the flight height.
-4. `ros2 topic hz /skybeta/setpoint/pose`: about 50 Hz. `ros2 topic echo --once
-   /skybeta/setpoint/pose`: x, y on the drone's odometry, z the flight height, orientation all zero.
-   Carry the drone 0.5 m: the pose follows it.
+3. Launch with no arguments: the log names the map, the waypoint count, window flown or closed,
+   the flight height, and "placed from the rest on the launch mark at arming".
+4. With the drone still on the mark, `ros2 topic hz /skybeta/setpoint/pose`: about 50 Hz.
+   `ros2 topic echo --once /skybeta/setpoint/pose`: x, y on the drone's odometry, z the flight
+   height, orientation all zero. Pick the drone up: the stream stops while it moves and resumes
+   2 s after it is set down still. Arm while carrying it: "the course cannot be placed", no
+   Offboard. Disarm, set it on the mark facing the launch heading, wait 2 s, arm: "course placed".
 5. Pilot arms in Altitude and switches to Position: `/skybeta/state` shows `offboard_active` true
    and the log says "climbing". Lift the drone by hand to the flight height: "at height: flying".
 6. Carry it slowly along the first corridor, turning it to face where the pose's orientation
@@ -170,7 +184,8 @@ disarm that follows a climb (step 7).
    the next corridor before the corner. Hold the drone still: the pose stops about 1 m ahead.
    A wrong direction means the transform is wrong: stop.
 7. Flip the mode switch: the log says "Offboard ended" and the pose stops. Disarm: "waiting".
-8. Arm again away from the launch mark and switch to Position: "refusing the route".
+8. Arm again 1 m from where it was placed and switch to Position: "refusing the route" (the
+   transform stays placed after a disarm while the stack runs).
 9. First props-on flight with `land:=true`: a low hover over a mat, then the descent. Go if PX4
    disarms within 6 s of touchdown with no bounce, three times out of three.
 

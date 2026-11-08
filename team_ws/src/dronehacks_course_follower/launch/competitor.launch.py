@@ -1,11 +1,14 @@
 """The kit's flight interface, started as the team's manual navigator starts it, the course follower,
 and a recording of the run.
 
+    ros2 launch dronehacks_course_follower competitor.launch.py     # as the stack starts it
     ros2 launch dronehacks_course_follower competitor.launch.py \
         course_to_odom_yaw:=<measured> course_to_odom_x:=<measured> course_to_odom_y:=<measured>
     ros2 launch dronehacks_course_follower competitor.launch.py competitor:=false   # interface only
 
-The follower refuses to start until the course-to-odom transform is passed (contracts/frames.md).
+The stack starts team code with no arguments, so without the course-to-odom transform
+(contracts/frames.md) the follower reads it from the drone resting on the launch mark facing the
+launch heading, frozen at arming.
 With `record:=true`, the default, a light rosbag2 recording runs from launch into
 `/root/team_ws/flights/<UTC time>-light-follower/` (the host's `~/team_ws/flights`), in the folder
 layout `python3 -m dronehacks_telemetry.analyze <folder>` reads. The follower exits a few seconds
@@ -58,13 +61,11 @@ FLIGHTS_DIR = "/root/team_ws/flights"
 # depth, point clouds and the tracker's visualisation, so a few MB per flight
 LIGHT_EXCLUDE = "image|compressed|/depth|points|cloud|/visual_slam/vis/|_path$"
 
-# The run's manifest, and the follower's transform where the analyzer looks for a parameter dump
+# The run's folders and manifest; the follower writes the transform it flew into meta/params
 _PREPARE_SCRIPT = (
     'mkdir -p "$1/meta/params" "$1/px4" '
     '&& printf "%s\\n" "run_id: $(basename "$1")" "profile: light" "started_utc: $2" '
-    '"recorded_by: dronehacks_course_follower launch" "exclude_regex: $3" > "$1/meta/manifest.txt" '
-    '&& printf "%s\\n" "/course_follower:" "  ros__parameters:" "    course_to_odom_yaw: $4" '
-    '"    course_to_odom_x: $5" "    course_to_odom_y: $6" > "$1/meta/params/course_follower.yaml"')
+    '"recorded_by: dronehacks_course_follower launch" "exclude_regex: $3" > "$1/meta/manifest.txt"')
 
 
 def generate_launch_description() -> LaunchDescription:
@@ -81,27 +82,25 @@ def generate_launch_description() -> LaunchDescription:
         output="screen", emulate_tty=True,
         parameters=[{name: LaunchConfiguration(name) for name, _, _ in INTERFACE_ARGUMENTS}])
 
+    started = time.gmtime()
+    run = f"{FLIGHTS_DIR}/{time.strftime('%Y%m%d-%H%M%S', started)}-light-follower"
     follower = Node(
         package="dronehacks_course_follower", executable="follower", name="course_follower",
         output="screen", emulate_tty=True, condition=IfCondition(LaunchConfiguration("competitor")),
         parameters=[{name: ParameterValue(LaunchConfiguration(name), value_type=value_type)
-                     for name, _, value_type, _ in FOLLOWER_ARGUMENTS}])
+                     for name, _, value_type, _ in FOLLOWER_ARGUMENTS}, {"run_dir": run}])
 
-    return LaunchDescription([*declared, flight_interface, follower, *_recording(follower)])
+    return LaunchDescription([*declared, flight_interface, follower, *_recording(follower, run, started)])
 
 
-def _recording(follower: Node) -> list[Action]:
+def _recording(follower: Node, run: str, started: time.struct_time) -> list[Action]:
     """The run's folder and manifest, then the bag, closed by SIGINT when the follower exits.
     Only with the follower running: without it nothing would ever close the bag."""
-    started = time.gmtime()
-    run = f"{FLIGHTS_DIR}/{time.strftime('%Y%m%d-%H%M%S', started)}-light-follower"
     recording = IfCondition(PythonExpression(["'", LaunchConfiguration("record"), "'.lower() == 'true' and '",
                                               LaunchConfiguration("competitor"), "'.lower() == 'true'"]))
 
     prepare = ExecuteProcess(condition=recording, cmd=[
-        "bash", "-c", _PREPARE_SCRIPT, "_", run, time.strftime("%Y-%m-%dT%H:%M:%SZ", started), LIGHT_EXCLUDE,
-        LaunchConfiguration("course_to_odom_yaw"), LaunchConfiguration("course_to_odom_x"),
-        LaunchConfiguration("course_to_odom_y")])
+        "bash", "-c", _PREPARE_SCRIPT, "_", run, time.strftime("%Y-%m-%dT%H:%M:%SZ", started), LIGHT_EXCLUDE])
     recorder = ExecuteProcess(condition=recording, output="log", cmd=[
         "ros2", "bag", "record", "-s", "mcap", "-o", f"{run}/bag", "-a", "-x", LIGHT_EXCLUDE])
 
