@@ -1,0 +1,32 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>dronehacks_pathfly</name>
+  <version>0.1.0</version>
+  <description>
+    Flies the path from github.com/jsun4231/path-planning through the skybeta
+    flight interface: lift off to 0.2 m, follow the path while climbing to
+    1.25 m, touch down at its end, climb to 2 m, fly straight back over the
+    take-off point (66.6 deg clockwise of the nose; heading held throughout
+    by default, optional turn first), touch down there. Velocity (twist)
+    setpoints only.
+  </description>
+  <maintainer email="jsun4231@users.noreply.github.com">jsun4231</maintainer>
+  <license>Apache-2.0</license>
+
+  <exec_depend>rclpy</exec_depend>
+  <exec_depend>geometry_msgs</exec_depend>
+  <exec_depend>nav_msgs</exec_depend>
+  <exec_depend>std_msgs</exec_depend>
+  <exec_depend>ament_index_python</exec_depend>
+  <exec_depend>skybeta_flight_interface</exec_depend>
+  <exec_depend>px4_msgs</exec_depend>
+  <exec_depend>python3-yaml</exec_depend>
+  <exec_depend>launch</exec_depend>
+  <exec_depend>launch_ros</exec_depend>
+
+  <test_depend>python3-pytest</test_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>

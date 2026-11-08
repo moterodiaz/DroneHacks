@@ -1,0 +1,4 @@
+# Stage 3: the whole path, touchdown at the GOAL, then stop. No hop back.
+dronehacks_pathfly:
+  ros__parameters:
+    stop_after_landing_1: true
