@@ -27,11 +27,12 @@
 versions:
 
   traj:
-    label: "dronehacks_traj: trajectory Follower, no lidar (PR #26 + dropout coast, local)"
+    label: "dronehacks_traj: trajectory Follower, no lidar (2026-11-07 layout, navigation/new-course-layout)"
     description: >-
       Mission state machine + dronehacks_planner's minimum-time trajectory and Follower, raw cuVSLAM.
-      Local branch navigation/vo-traj-follower: PR #26's head plus the dropout coast (c557199).
-    source: {git: navigation/vo-traj-follower}
+      Branch navigation/new-course-layout: the 2026-11-07 course map, routed through CP2 Gate A
+      (gate goal cp2_gate_a), with the dropout coast and track speed.
+    source: {git: navigation/new-course-layout}
     packages: [planner, nav_traj]
     launch: {package: dronehacks_traj, file: traj_nav_competitor.launch.py}
     install_config:

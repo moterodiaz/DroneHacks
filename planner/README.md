@@ -255,10 +255,11 @@ describe what the drone does; they configure nothing on it.
 
 ## A map from the STEP model
 
-Without a survey, the map comes from the organisers' STEP model
-(`dronehacks-course-v3.step`, PR #4). The lidar stream's extractor turns the
-STEP into a pair of JSON files: `course-map/1` (walls, openings, tube, rocks,
-nets, markings) and `course-rules/1` (checkpoints, start, finish).
+Without a survey, the map comes from the course STEP model
+(`dronehacks-course-v3.step`; since 2026-11-07 the team's SolidWorks export of
+the changed layout). The course extractor (`depthcam/course/`) turns the
+STEP into a pair of JSON files: `course-map/1` (walls, blocks, openings, tube,
+rocks, nets, markings) and `course-rules/1` (checkpoints, start, finish).
 `convert.py` turns that pair into this planner's map:
 
 ```sh
@@ -273,10 +274,15 @@ python -m dronehacks_planner.convert course_v3_map.json course_v3_rules.json --l
 * `--route-gate gate_b ends ...` follows `contracts/course.md`: "Gate B, 1.13 m
   gap, C2b to A1". The rules file instead puts Gate B between C2b and
   Barrier 2. The contract wins (AGENTS.md §3.1).
+* A checkpoint whose gate is a plain line (`segment`, `between`, `ends`) and
+  not a choice of routes becomes a `gate` goal named after it (CP2 Gate A is
+  `cp2_gate_a`), flown towards the goal after it. A checkpoint counts only
+  when the whole drone crosses its line, so the route has to go through it.
 
-On it, the planner gives 17.46 m through the window (17.49 m on the
-provisional map) and 18.75 m via Gate B (18.78 m). The default route is
-Gate B; the window needs `PlannerConfig(allow_windows=True)` or
+On the 2026-11-07 layout the planner gives 14.35 m through the window and
+15.63 m via Gate B, both through `cp2_gate_a` first (on the 2026-10-27 layout:
+17.46 m and 18.75 m, with no maze checkpoint in the route). The default route
+is Gate B; the window needs `PlannerConfig(allow_windows=True)` or
 `--allow-windows`. The generated map and its inputs live with the flight
 package: `nav_traj/maps/`.
 
@@ -294,7 +300,7 @@ entry before they are normative (AGENTS.md §3.1).
 | `goals[].params.axis`, **directed** | Direction of travel. A checkpoint counts one way only ("out of the south end") |
 | `goals[].params.bidirectional` | Opt out of the above |
 | `params` for `oval` (`length`, `width`) and `rect`/`gate` (`width`, `depth`, `bottom`, `top`) | The schema leaves `params` empty except for the pad |
-| `shape: gate` | A plain gap between wall ends (Gate B), crossable off-axis |
+| `shape: gate` | A plain gap between wall ends (Gate B), crossable off-axis; also a checkpoint line the route must cross (CP2 Gate A) |
 | `goals[].group` | Alternatives (window or Gate B); exactly one is flown |
 
 ## Generality (rule 9.5)
@@ -323,7 +329,9 @@ enforces this against the fixture. The tests plan, smooth and profile:
 5. **Joint geometry-and-time optimisation (§7)** was deliberately not built.
    The speed cap and the clearance budget, not thrust, set the time here, and
    it would need CasADi in a team Docker image.
-6. **Maze checkpoint lines** in the map, with whole-drone crossing checks.
+6. ~~Maze checkpoint lines in the map~~: done 2026-11-07. Checkpoint lines are
+   `gate` goals the route flies through (`convert.py`), and
+   `sim.openings_crossed` checks the whole drone crossed each one.
 7. **The optional return** over the barrier: a 3D plan.
 8. **Calibration** of the limits above from a recorded flight.
 
