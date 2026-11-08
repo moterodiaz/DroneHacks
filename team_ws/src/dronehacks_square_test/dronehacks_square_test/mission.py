@@ -52,6 +52,7 @@ class Config:
     yaw_rate_dps: float = 20.0      # slow turn: 90 deg in 4.5 s
     yaw_tol_deg: float = 5.0
     max_offset_m: float = 0.3       # PX4 vs camera position on the ground; more than this: refuse to fly
+    offset_tau_s: float = 1.0       # smoothing of the PX4-vs-camera offset in flight
 
 
 @dataclass
@@ -95,7 +96,7 @@ class Mission:
         self.dwell_since = None
         self.stale_since = None
         self.last_t = None
-        self.offset = (0.0, 0.0, 0.0)  # PX4 local minus camera, frozen at Offboard
+        self.offset = (0.0, 0.0, 0.0)  # PX4 local minus camera, smoothed
 
     @property
     def step_name(self):
@@ -109,7 +110,7 @@ class Mission:
         The kit passes pose setpoints to PX4 unanchored (``anchor_setpoints`` false), so PX4 flies
         them in its own frame. Its height can sit off the camera's (0.73 m in one flight, 0.15 m
         after a clean power cycle), so every setpoint carries the PX4-minus-camera offset taken at
-        Offboard, and all checks stay in the camera frame."""
+        Offboard, then followed (smoothed) through the flight, and all checks stay in the camera frame."""
         c = self.cfg
         fresh = pose is not None and pose_t is not None and t - pose_t <= c.pose_timeout_s
         if self.state in (DONE, STOPPED):
@@ -147,6 +148,11 @@ class Mission:
             self.reason = 'pose stale: holding still'
             return Command('twist')
         self.stale_since = None
+        if px4 is not None:
+            # follow PX4's frame as it changes (its rangefinder height is wrong on the ground, right in
+            # the air); 1 s smoothing; both inputs measure the same drone, so this is not a control loop
+            a = min(1.0, dt / c.offset_tau_s)
+            self.offset = tuple(o + a * (p - q - o) for o, p, q in zip(self.offset, px4, pose))
 
         kind, offset, secs, heading = self.steps[self.i]
         self.reason = 'step {}/{}: {}'.format(self.i + 1, len(self.steps), kind)
