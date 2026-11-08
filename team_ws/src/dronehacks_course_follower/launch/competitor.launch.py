@@ -52,6 +52,12 @@ FOLLOWER_ARGUMENTS = [
     ("heading_mode", "ahead", str, "ahead = face the point 0.8 m ahead on the route; fixed = hold the heading at "
                                    "Offboard from the climb to the landing, never yawing"),
     ("turn_rate_dps", "45.0", float, "cap on the commanded heading's turn rate, deg/s"),
+    ("yaw_comp", "false", bool, "offset the pose against the airframe's push that PX4 relearns after each yaw; "
+                                "measured from PX4's accelerometer in the hover over the start"),
+    ("yaw_comp_tau_s", "4.5", float, "PX4's velocity integrator lag, MPC_XY_VEL_P_ACC / MPC_XY_VEL_I_ACC, s"),
+    ("yaw_comp_gain", "1.71", float, "PX4's pose-to-acceleration gain, MPC_XY_P x MPC_XY_VEL_P_ACC, 1/s²"),
+    ("yaw_comp_max_m", "0.20", float, "cap on the compensator's setpoint offset, metres"),
+    ("yaw_comp_push_gain", "1.25", float, "the push per unit of hover accelerometer reading"),
     ("pose_lead", "false", bool, "lead the pose by the setpoint's velocity and acceleration; only with "
                                  "the interface at 50 Hz: at its default 10 Hz led poses cut the first maze corner"),
     ("allow_window", "true", bool, "fly the window when the map says it is passable"),

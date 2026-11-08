@@ -107,11 +107,15 @@ class Mission:
         self.offboard_at_s = math.nan
         self.steady_height_m = math.nan
         self.steady_since_s = math.nan
+        self.hovering = False
 
-    def tick(self, now_s: float, offboard: bool, armed: bool, drone: Drone | None) -> PoseCommand | TwistCommand | None:
-        """The command to send now, or None to send nothing; `drone` is None while its estimate is stale."""
+    def tick(self, now_s: float, offboard: bool, armed: bool, drone: Drone | None,
+             hold_climb: bool = False) -> PoseCommand | TwistCommand | None:
+        """The command to send now, or None to send nothing; `drone` is None while its estimate is stale.
+        With `hold_climb`, a drone at height keeps hovering over the start instead of starting the route."""
         elapsed_s = 0.0 if self.previous_s is None else now_s - self.previous_s
         self.previous_s = now_s
+        self.hovering = False
 
         # PX4's own disarm ends the descent; the pilot taking the drone back ends anything else,
         # and a fresh attempt starts only after a disarm
@@ -126,7 +130,7 @@ class Mission:
             case Phase.WAIT:
                 return self._wait(now_s, offboard, drone)
             case Phase.CLIMB:
-                return self._climb(now_s, drone)
+                return self._climb(now_s, drone, hold_climb)
             case Phase.FLY:
                 return self._fly(now_s, elapsed_s, drone)
             case Phase.DESCEND:
@@ -159,11 +163,13 @@ class Mission:
 
         return PoseCommand(drone.east, drone.north, self.height_m, math.nan)
 
-    def _climb(self, now_s: float, drone: Drone | None) -> PoseCommand:
+    def _climb(self, now_s: float, drone: Drone | None, hold_climb: bool) -> PoseCommand:
         """The pose over the start at the flight height, its heading not commanded, or Offboard's with
-        a fixed heading; once there, or settled short of it, the route begins."""
+        a fixed heading; once there, or settled short of it, the route begins unless `hold_climb`."""
         east, north = self.start
-        if drone is not None and (abs(drone.height_m - self.height_m) < CLIMBED_M or self._settled(now_s, drone)):
+        self.hovering = drone is not None and (abs(drone.height_m - self.height_m) < CLIMBED_M
+                                               or self._settled(now_s, drone))
+        if self.hovering and not hold_climb:
             yaw_rad = drone.yaw_rad if math.isnan(self.held_yaw_rad) else self.held_yaw_rad
             self.follower = Follower(self.start, self.route, self.walls, yaw_rad, self.top_speed_mps,
                                      turn_rate_rad_s=self.turn_rate_rad_s, lead=self.lead,

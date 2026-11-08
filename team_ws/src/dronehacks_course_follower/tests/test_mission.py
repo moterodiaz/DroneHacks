@@ -85,6 +85,20 @@ def test_a_drone_still_on_the_ground_or_still_rising_is_not_settled() -> None:
         assert mission.phase is Phase.CLIMB
 
 
+def test_a_held_climb_hovers_over_the_start_until_released() -> None:
+    # The node holds the climb while the push compensator measures the hover
+    mission = _mission()
+    mission.tick(0.0, offboard=True, armed=True, drone=_on_the_ground())
+    for step in range(1, 200):
+        command = mission.tick(step * _PERIOD_S, offboard=True, armed=True, drone=Drone(0.0, 0.0, _HEIGHT_M, 0.0),
+                               hold_climb=True)
+        assert mission.phase is Phase.CLIMB and mission.hovering
+        assert command[:3] == (0.0, 0.0, _HEIGHT_M)
+
+    mission.tick(200 * _PERIOD_S, offboard=True, armed=True, drone=Drone(0.0, 0.0, _HEIGHT_M, 0.0))
+    assert mission.phase is Phase.FLY
+
+
 def test_offboard_away_from_the_launch_mark_refuses_the_route() -> None:
     mission = _mission()
     assert mission.tick(0.0, offboard=True, armed=True, drone=_on_the_ground(east=1.0)) is None

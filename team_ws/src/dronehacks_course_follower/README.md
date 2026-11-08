@@ -115,6 +115,11 @@ tell where the mark is, so a misplaced drone flies the whole route shifted by th
 | `tunnel_lead_m` | 0.0 | > 0 flies the tunnel as one straight leg from that far outside its mouths; it touched more in SITL, so it is off |
 | `heading_mode` | ahead | `ahead` faces the point 0.8 m ahead on the route; `fixed` commands the heading at Offboard from the climb to the landing, never yawing (below) |
 | `turn_rate_dps` | 45.0 | cap on the commanded heading's turn rate (`ahead`); PX4's `MPC_YAWRAUTO_MAX` default |
+| `yaw_comp` | false | true offsets the pose against the airframe's push PX4 relearns after each yaw (below); not yet flown |
+| `yaw_comp_tau_s` | 4.5 | PX4's velocity integrator lag as modelled, `MPC_XY_VEL_P_ACC` / `MPC_XY_VEL_I_ACC` at stock values |
+| `yaw_comp_gain` | 1.71 | PX4's pose-to-acceleration gain, `MPC_XY_P` x `MPC_XY_VEL_P_ACC` at stock values |
+| `yaw_comp_max_m` | 0.20 | cap on the compensator's setpoint offset |
+| `yaw_comp_push_gain` | 1.25 | the push per unit of hover accelerometer reading, fitted on the corners of two flights |
 | `setpoint_rate_hz` | 10 | the interface's own rate, the kit default |
 | `record` | true | record the run (below); false keeps the follower up for another attempt after a disarm |
 
@@ -130,6 +135,25 @@ by hand:
 
 ```bash
 ros2 launch dronehacks_course_follower competitor.launch.py heading_mode:=fixed
+```
+
+### Push compensation: cancel the drift and still turn
+
+The drift is a push fixed to the airframe (about 0.10 m/s² forward-left of the nose in
+`20261108-013018`, 0.25 in `20261108-003042`). PX4's velocity integrator cancels it in world axes,
+so after a yaw its correction points the old way until it relearns it. With `yaw_comp:=true`
+(`yaw_comp.py`) the climb hovers over the start until 2.5 s of steady hover (under 0.2 m/s, turning
+under 5°/s; at most 10 s of waiting) give the push from PX4's accelerometer
+(`/fmu/out/sensor_combined`, FRD: forward = ax, left = -ay, times `yaw_comp_push_gain`). It then
+models the integrator as a lag of R(heading) d over `yaw_comp_tau_s` and adds
+-(R d - L) / `yaw_comp_gain`, capped at `yaw_comp_max_m`, to every pose setpoint in odom before
+PX4's offset; steady flight along the route refines the push over 30 s. The log names the push
+once and the offset each second, and `/course_follower/yaw_comp` carries both (JSON) for the bag.
+Without `px4_msgs` or accelerometer data it stays off and the climb does not wait. The defaults
+are fitted on replays of those two flights at stock PX4 gains, not yet flown.
+
+```bash
+ros2 launch dronehacks_course_follower competitor.launch.py yaw_comp:=true
 ```
 
 ### Power up on the launch mark: PX4 and the tracker must share a frame
@@ -265,5 +289,6 @@ python3 -m pytest team_ws/src/dronehacks_course_follower/tests -q
 
 They pin the planner on the packaged map and on that map turned a quarter turn, the follower's
 led pose, pace limits, heading rate and fixed heading, the course-to-odom transform, the mission's phases and the
-landing trigger, a dry run to a landing, and a guard that no course coordinate or wall name
+landing trigger, the push compensator's signs, step, decay and cap (and that it cancels the drift
+in PX4's stock loops), a dry run to a landing, and a guard that no course coordinate or wall name
 appears in the package's code.

@@ -14,11 +14,13 @@ import math
 import time
 from enum import Enum
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import rclpy
 from geometry_msgs.msg import PoseStamped, TwistStamped
 from nav_msgs.msg import Odometry
 from rclpy.node import Node
+from rclpy.qos import qos_profile_sensor_data
 from std_msgs.msg import String
 
 from .dry_run import packaged_map
@@ -28,6 +30,11 @@ from .frames import (OFFSET_LIMIT_M, CourseToOdom, NotAtRest, Px4Offset, RestOnM
 from .ladder import parse_steps, read_step, record_run
 from .mission import Mission, Phase, PoseCommand, TwistCommand
 from .planner import load_course_map, plan_flight
+from .yaw_comp import (DEFAULT_GAIN_PER_S2, DEFAULT_MAX_M, DEFAULT_PUSH_GAIN, DEFAULT_TAU_S, MEASURE_S,
+                       HorizontalSpeed, Vector, YawCompensator)
+
+if TYPE_CHECKING:
+    from px4_msgs.msg import SensorCombined
 
 # An odometry message older than this counts as no estimate: the setpoint waits for it
 ODOMETRY_STALE_S = 0.5
@@ -45,6 +52,10 @@ ODOM_FRAME = "odom"
 # With `record` on, the node exits this long after the flight's disarm, so the recording the launch
 # closes on its exit keeps the touchdown and PX4 settling
 RECORDING_TAIL_S = 5.0
+
+# With yaw_comp on, the climb hovers over the start for the push estimate at most this long: a hover
+# never steady enough for it flies the route uncompensated rather than hovering on the mark
+YAW_COMP_WAIT_S = 10.0
 
 
 class Placement(str, Enum):
@@ -99,6 +110,21 @@ class CourseFollower(Node):
                                lead=self._parameter("pose_lead", False), land=self._parameter("land", True),
                                heading_mode=heading_mode, turn_rate_rad_s=math.radians(turn_rate_dps))
 
+        # The feed-forward against the airframe's push, off until flown; it reads PX4's accelerometer
+        yaw_comp = self._parameter("yaw_comp", False)
+        comp_settings = (self._parameter("yaw_comp_tau_s", DEFAULT_TAU_S),
+                         self._parameter("yaw_comp_gain", DEFAULT_GAIN_PER_S2),
+                         self._parameter("yaw_comp_max_m", DEFAULT_MAX_M),
+                         self._parameter("yaw_comp_push_gain", DEFAULT_PUSH_GAIN))
+        self.yaw_comp = YawCompensator(*comp_settings) if yaw_comp else None
+        self.yaw_comp_offset = Vector(0.0, 0.0)
+        self.odom_yaw_rad: float | None = None
+        self.odom_speed = HorizontalSpeed()
+        self.hover_since_s: float | None = None
+        self.yaw_comp_publisher = self.create_publisher(String, "/course_follower/yaw_comp", 10)
+        if self.yaw_comp is not None:
+            self._subscribe_accelerometer()
+
         # The transform as given, or read from the rest on the mark: the map's launch heading is
         # counter-clockwise from east
         self.transform: CourseToOdom | None = None
@@ -137,6 +163,9 @@ class CourseFollower(Node):
                                + ("course placed by the given transform" if all(given) else
                                   "the course is placed from the rest on the launch mark at arming")
                                + f"; heading {heading_mode.value}, turns at {turn_rate_dps:.0f} deg/s"
+                               + (f"; yaw_comp on: tau {comp_settings[0]:.1f} s, gain {comp_settings[1]:.2f}, "
+                                  f"cap {comp_settings[2]:.2f} m, push gain {comp_settings[3]:.2f}"
+                                  if self.yaw_comp else "; yaw_comp off")
                                + f"; top speed {speed_mps:.2f} m/s"
                                + ("" if self.ladder_step is None else
                                   f" (ladder step {self.ladder_step + 1} of {len(self.ladder_steps)})"))
@@ -147,12 +176,32 @@ class CourseFollower(Node):
         value = self.get_parameter(name).value
         return float(value) if isinstance(default, float) else value
 
+    def _subscribe_accelerometer(self) -> None:
+        """Subscribes PX4's accelerometer, best effort as the kit's /fmu/out topics are; without
+        px4_msgs the compensator is turned off rather than the node failing."""
+        try:
+            from px4_msgs.msg import SensorCombined
+        except ImportError as missing:
+            self.get_logger().warning(f"yaw_comp turned off: px4_msgs cannot be imported ({missing})")
+            self.yaw_comp = None
+            return
+
+        self.create_subscription(SensorCombined, "/fmu/out/sensor_combined", self.on_accelerometer,
+                                 qos_profile_sensor_data)
+
+    def on_accelerometer(self, message: SensorCombined) -> None:
+        """Hands the horizontal accelerometer reading, FRD body axes, to the compensator's next step."""
+        if self.yaw_comp is not None:
+            self.yaw_comp.add_accel(float(message.accelerometer_m_s2[0]), float(message.accelerometer_m_s2[1]))
+
     def on_odometry(self, message: Odometry) -> None:
         """Keeps the drone's pose, moved from odom into the course frame; while the course is read
         from the rest on the mark, the pose also feeds that reading, and is None while not at rest."""
         position, orientation = message.pose.pose.position, message.pose.pose.orientation
         odom_yaw_rad = quaternion_yaw(orientation.x, orientation.y, orientation.z, orientation.w)
         self.odom_enu = (position.x, position.y, position.z)
+        self.odom_yaw_rad = odom_yaw_rad
+        self.odom_speed.update(time.monotonic(), position.x, position.y)
         if self.placement is Placement.READING:
             self.rest.add(time.monotonic(), position.x, position.y, odom_yaw_rad)
             try:
@@ -248,7 +297,8 @@ class CourseFollower(Node):
         drone = self.drone if now_s - self.drone_at_s < ODOMETRY_STALE_S else None
         if self._offset_problem(elapsed_s):
             drone = None
-        command = self.mission.tick(now_s, self.offboard, self.armed, drone)
+        hold_climb = self._compensate(now_s)
+        command = self.mission.tick(now_s, self.offboard, self.armed, drone, hold_climb=hold_climb)
         for event in self.mission.events[self.seen_events:]:
             self.get_logger().info(event)
         self.seen_events = len(self.mission.events)
@@ -263,6 +313,42 @@ class CourseFollower(Node):
             self.get_logger().info(f"flight over and disarmed: exiting in {RECORDING_TAIL_S:.0f} s to close the "
                                    "recording; restart the stack on the mark to fly again")
             self._climb_ladder()
+
+    def _compensate(self, now_s: float) -> bool:
+        """Steps the push compensator on the measured heading and speed, logging and publishing it;
+        whether the climb must hover on while it measures."""
+        if self.yaw_comp is None or self.odom_yaw_rad is None:
+            return False
+
+        # First learned in the hover over the start, refined along the route; applied only under Offboard
+        was_ready = self.yaw_comp.ready
+        airborne = self.mission.hovering or (was_ready and self.mission.phase is Phase.FLY)
+        offset = self.yaw_comp.step(now_s, self.odom_yaw_rad, self.odom_speed.speed_mps, airborne)
+        flying = self.mission.phase in (Phase.CLIMB, Phase.FLY)
+        self.yaw_comp_offset = offset if flying else Vector(0.0, 0.0)
+        self._report_yaw_comp(was_ready)
+
+        # The climb waits for the estimate, but never past YAW_COMP_WAIT_S of hover: then it flies uncompensated
+        if not self.mission.hovering:
+            self.hover_since_s = None
+        elif self.hover_since_s is None:
+            self.hover_since_s = now_s
+        waited = self.hover_since_s is not None and now_s - self.hover_since_s > YAW_COMP_WAIT_S
+        return not self.yaw_comp.ready and self.yaw_comp.imu_fresh(now_s) and not waited
+
+    def _report_yaw_comp(self, was_ready: bool) -> None:
+        """Logs the estimated push once and the offset each second, and publishes both for the bag."""
+        push = self.yaw_comp.push_body
+        if push is not None and not was_ready:
+            self.get_logger().info(f"yaw_comp: push {push.x:+.3f} forward {push.y:+.3f} left m/s² (body), from "
+                                   f"{MEASURE_S:.1f} s of steady hover")
+        if push is not None:
+            self.get_logger().info(f"yaw_comp offset {math.hypot(*self.yaw_comp_offset):.3f} m",
+                                   throttle_duration_sec=1.0)
+
+        self.yaw_comp_publisher.publish(String(data=json.dumps({
+            "push_body_m_s2": None if push is None else list(push), "offset_odom_m": list(self.yaw_comp_offset),
+            "learned_odom_m_s2": list(self.yaw_comp.learned)})))
 
     def _climb_ladder(self) -> None:
         """Records the run on the speed ladder: a landing on the pad moves the next run up a step."""
@@ -292,6 +378,9 @@ class CourseFollower(Node):
         x, y = self.transform.point_to_odom(command.east, command.north)
         offset_x, offset_y, offset_z = self.px4_offset.enu
         orientation = yaw_quaternion(self.transform.yaw_to_odom(command.yaw_rad))
+
+        # The push compensation is an odom-frame offset, added before PX4's frame offset
+        x, y = x + self.yaw_comp_offset.x, y + self.yaw_comp_offset.y
         message.pose.position.x, message.pose.position.y = x + offset_x, y + offset_y
         message.pose.position.z = self.transform.height_to_odom(command.height_m) + offset_z
         (message.pose.orientation.x, message.pose.orientation.y, message.pose.orientation.z,
