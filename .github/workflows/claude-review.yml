@@ -173,7 +173,6 @@ jobs:
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           path_to_bun_executable: ${{ steps.bun.outputs.bun-path }}
-          path_to_bun_executable: ${{ steps.bun.outputs.bun-path }}
           prompt: |
             Perform an independent REVIEW ONLY of PR ${{ github.event.issue.number }}
             in ${{ github.repository }}. Use review-context.json as the pinned
