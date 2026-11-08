@@ -1,0 +1,13 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>dronehacks_lidar_log</name>
+  <version>0.1.0</version>
+  <description>Records the MS200K lidar's raw stream from arming to 5 s after disarm, beside a team's normal launch. Read-only: publishes nothing.</description>
+  <maintainer email="51979409+TheSleepyPP@users.noreply.github.com">TheSleepyPP</maintainer>
+  <license>MIT</license>
+  <exec_depend>rclpy</exec_depend>
+  <exec_depend>std_msgs</exec_depend>
+  <exec_depend>launch</exec_depend>
+  <exec_depend>launch_ros</exec_depend>
+  <export><build_type>ament_python</build_type></export>
+</package>

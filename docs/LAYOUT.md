@@ -6,7 +6,7 @@ What each top-level folder on `main` is for. File counts are left out on purpose
 | Path | Remit |
 |---|---|
 | [`contracts/`](../contracts/) | The interface rules code must follow (AGENTS.md §3.1: contracts beat code): PX4 parameter allowlist, course map format and the v3 layout, frames, ROS graph, changelog. |
-| [`team_ws/src/`](../team_ws/src/) | ROS 2 packages that go into `~/team_ws/src` on the drone. `dronehacks_nav`: the navigation node forked from the kit's square mission. `dronehacks_manual_maze_tunnel_chicane_gateb_landing`: the full-course mission, with waypoints derived from the course map. |
+| [`team_ws/src/`](../team_ws/src/) | ROS 2 packages that go into `~/team_ws/src` on the drone. `dronehacks_nav`: the navigation node forked from the kit's square mission. `dronehacks_manual_maze_tunnel_chicane_gateb_landing`: the full-course mission, with waypoints derived from the course map. `dronehacks_lidar_log`: records the lidar from arming to disarm beside a team launch, read-only. |
 | [`core/`](../core/) | Pure navigation primitives, no ROS: frames, grid, costmap, planner, trajectory. |
 | [`planner/`](../planner/) | `dronehacks_planner`: course map in, flyable trajectory out (route, clearance, speed limits, follower), pure Python. Not yet flown or wired into ROS; see its README. |
 | [`course/`](../course/) | `step_to_map.py`: generates the course map YAML from the organisers' STEP model. |
