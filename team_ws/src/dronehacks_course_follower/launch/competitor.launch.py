@@ -74,7 +74,8 @@ FOLLOWER_ARGUMENTS = [
                                  "the interface at 50 Hz: at its default 10 Hz led poses cut the first maze corner"),
     ("allow_window", "true", bool, "fly the window when the map says it is passable"),
     ("land", "true", bool, "descend onto the pad by twist until PX4 disarms; false = hold over it"),
-    ("tunnel_lead_m", "0.0", float, "fly the tunnel straight from this far outside its mouths; 0 = off"),
+    ("tunnel_lead_m", "0.75", float, "fly the tunnel straight from this far outside its mouths; 0 = off; "
+     "skybeta-11 hit the wall west of the south mouth turning nearer"),
     ("record", "true", bool, "record a light bag of the run; the follower exits after the flight's disarm "
                              "to close it, so one flight per launch"),
 ]

@@ -103,6 +103,9 @@ on 2026-11-08, wider than this map's, so the map errs narrow there. The team's S
 which would leave under 0.6 m against the north wall: the taped gap rules it out, so it is not in the map.
 Everything else is the published v3 map below, unchanged. The route goes
 from the launch mark along the diagonal's north-west side, around its top end, to the tunnel.
+The two east rocks are placed from the team's photos and description on 2026-11-08 (estimated,
+not taped): one against the east net level with the turn south of the tunnel, the other against
+the south net east of the window; none is straight south of the tunnel's mouth.
 The boulders are still avoided; whether to plan over them (smoother, faster, but under the
 rangefinder) is being checked.
 
@@ -152,7 +155,7 @@ tell where the mark is, so a misplaced drone flies the whole route shifted by th
 | `pose_lead` | false | true leads the pose by velocity and acceleration: faster, but only safe with the interface at 50 Hz (Known risks) |
 | `allow_window` | true | false always takes Gate B |
 | `land` | true | false holds over the pad for the pilot |
-| `tunnel_lead_m` | 0.0 | > 0 flies the tunnel as one straight leg from that far outside its mouths; it touched more in SITL, so it is off |
+| `tunnel_lead_m` | 0.75 | > 0 flies the tunnel as one straight leg from that far outside its mouths; it touched more in SITL, but skybeta-11 hit the wall west of the south mouth turning nearer it on 2026-11-08, so the real course wins |
 | `heading_mode` | ahead | `ahead` faces the point 0.8 m ahead on the route; `fixed` commands the heading at Offboard from the climb to the landing, never yawing (below) |
 | `turn_rate_dps` | 45.0 | cap on the commanded heading's turn rate (`ahead`); PX4's `MPC_YAWRAUTO_MAX` default |
 | `yaw_comp` | false | true offsets the pose against the airframe's push PX4 relearns after each yaw (below); not yet flown |
