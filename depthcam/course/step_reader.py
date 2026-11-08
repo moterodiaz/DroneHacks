@@ -369,7 +369,9 @@ def _fit_conic(loop: np.ndarray, normal: np.ndarray) -> Optional[Conic]:
     scale = max(float(np.abs(x).max()), float(np.abs(y).max()), 1e-9)
     xs, ys = x / scale, y / scale
     design = np.stack([xs * xs, xs * ys, ys * ys, xs, ys, np.ones_like(xs)], axis=1)
-    coef = np.linalg.svd(design)[2][-1]
+    # Reduced SVD: Vh is identical (6 columns), and the unused N x N U is
+    # never built, so dense B-spline loops do not waste memory as N grows.
+    coef = np.linalg.svd(design, full_matrices=False)[2][-1]
     A, B, C, D, E, F = coef
     den = 4.0 * A * C - B * B
     if den <= 1e-12:
