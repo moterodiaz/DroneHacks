@@ -57,8 +57,9 @@ FOLLOWER_ARGUMENTS = [
     ("stop_settle_s", "1.0", float, "and steady there, facing the next leg within 10 deg, this long"),
     ("stop_hold_timeout_s", "15.0", float, "a hold that never settles goes on after this, logged"),
     ("ladder_file", "/root/team_ws/course_follower_ladder.json", str, "where the ladder's step is kept across runs"),
-    ("heading_mode", "ahead", str, "ahead = face the point 0.8 m ahead on the route; fixed = hold the heading at "
-                                   "Offboard from the climb to the landing, never yawing"),
+    ("heading_mode", "fixed", str, "fixed = hold the heading at Offboard from the climb to the landing, never "
+                                   "yawing (skybeta-11 drifted 10-20 cm after each in-place yaw, under 5 cm "
+                                   "without); ahead = face the point 0.8 m ahead on the route"),
     ("turn_rate_dps", "45.0", float, "cap on the commanded heading's turn rate, deg/s"),
     ("return_home", "", str, "true or false forces the return to the launch mark after the pad landing (rule 7.10; "
                              "needs COM_DISARM_LAND 5 s); empty = the ladder's step"),

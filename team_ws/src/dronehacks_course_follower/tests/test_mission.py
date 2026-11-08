@@ -135,6 +135,47 @@ def test_at_the_routes_end_it_descends_fast_enough_to_land_and_stops_at_the_disa
     assert mission.flight_over(armed=False)
 
 
+def _flying_for(seconds: float) -> tuple[Mission, float]:
+    """A mission flown along its route for `seconds` with the drone on its reference, and the time."""
+    mission = _mission()
+    mission.tick(0.0, offboard=True, armed=True, drone=_on_the_ground())
+    mission.tick(_PERIOD_S, offboard=True, armed=True, drone=Drone(0.0, 0.0, _HEIGHT_M, 0.0))
+    now_s = 2 * _PERIOD_S
+    while now_s < seconds:
+        mission.tick(now_s, offboard=True, armed=True, drone=_airborne(mission))
+        now_s += _PERIOD_S
+
+    return mission, now_s
+
+
+def test_a_tracker_jump_in_flight_descends_straight_down_until_the_disarm() -> None:
+    # cuVSLAM jumped about 8 m at once on skybeta-11; steering onto the jumped pose crosses walls
+    mission, now_s = _flying_for(1.0)
+    east, north = mission.follower.reference()
+    command = mission.tick(now_s, offboard=True, armed=True, drone=Drone(east - 8.0, north, _HEIGHT_M, 0.0))
+    assert mission.phase is Phase.LOST
+    assert isinstance(command, TwistCommand)
+    assert (command.east_mps, command.north_mps) == (0.0, 0.0) and -command.up_mps > _LAND_DETECTOR_MPS
+
+    # Back on a sane pose, it still goes straight down, and PX4's disarm ends it off the pad
+    command = mission.tick(now_s + _PERIOD_S, offboard=True, armed=True, drone=Drone(east, north + 0.5, 0.5, 0.0))
+    assert (command.east_mps, command.north_mps) == (0.0, 0.0)
+    mission.tick(now_s + 2 * _PERIOD_S, offboard=True, armed=False, drone=None)
+    assert mission.phase is Phase.DONE and not mission.landed_on_pad
+
+
+def test_odometry_back_after_a_gap_is_not_a_jump() -> None:
+    # Half a second without odometry at 1 m/s moves the drone 0.5 m: over the jump distance, not its speed
+    mission, now_s = _flying_for(1.0)
+    east, north = mission.follower.reference()
+    mission.tick(now_s, offboard=True, armed=True, drone=Drone(east, north, _HEIGHT_M, 0.0))
+    for step in range(1, 25):
+        mission.tick(now_s + step * _PERIOD_S, offboard=True, armed=True, drone=None)
+
+    mission.tick(now_s + 25 * _PERIOD_S, offboard=True, armed=True, drone=Drone(east + 0.5, north, _HEIGHT_M, 0.0))
+    assert mission.phase is Phase.FLY
+
+
 def test_the_flight_is_over_only_once_offboard_was_flown_and_px4_has_disarmed() -> None:
     mission = _mission()
 

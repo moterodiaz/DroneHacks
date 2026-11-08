@@ -84,6 +84,12 @@ RETURN_BRAKE_M_S2 = 1.0
 # With no odometry the return holds its pose this long, then descends straight down where it is
 RETURN_STALE_LAND_S = 3.0
 
+# The tracker has jumped when its pose moves more than this, faster than the speed below: no flight
+# moves so fast, and cuVSLAM has jumped metres at once on skybeta-11. Steering on a jumped pose
+# flies into a wall, so the drone then descends straight down where it is
+TRACKING_JUMP_M = 0.3
+TRACKING_JUMP_MPS = 3.0
+
 
 class Phase(str, Enum):
     """Where the mission is."""
@@ -96,16 +102,17 @@ class Phase(str, Enum):
     RETURN_CLIMB = "return_climb"         # straight up over the pad to the return height
     RETURN_FLY = "return_fly"             # sliding straight to over the launch mark
     RETURN_DESCEND = "return_descend"     # twisting down onto the launch mark until PX4 disarms
-    DONE = "done"                         # landed and disarmed, on the pad or back on the launch mark
+    LOST = "lost"                         # the tracker jumped: straight down where it is until PX4 disarms
+    DONE = "done"                      # landed and disarmed, on the pad or back on the launch mark
     ABORTED = "aborted"                   # the pilot has it; nothing is sent until a disarm
 
 
 # Phases that end in DONE when PX4 disarms: the drone is on the ground or coming down onto it
-_LANDING_PHASES = (Phase.DESCEND, Phase.RETURN_REST, Phase.RETURN_DESCEND)
+_LANDING_PHASES = (Phase.DESCEND, Phase.RETURN_REST, Phase.RETURN_DESCEND, Phase.LOST)
 
 # Phases flown under Offboard: Offboard ending in any of them is the pilot taking over
 _OFFBOARD_PHASES = (Phase.CLIMB, Phase.FLY, Phase.DESCEND, Phase.RETURN_REST, Phase.RETURN_CLIMB,
-                    Phase.RETURN_FLY, Phase.RETURN_DESCEND)
+                    Phase.RETURN_FLY, Phase.RETURN_DESCEND, Phase.LOST)
 
 # Phases from the pad descent on: PX4's offset stays frozen, so the rangefinder's floor error on
 # the pad and its steps over the wall tops never reach a setpoint
@@ -195,6 +202,7 @@ class Mission:
         self.straight_down = False
         self.stale_since_s: float | None = None
         self.last_drone: Drone | None = None
+        self.last_drone_s = math.nan
 
     @property
     def pad(self) -> tuple[float, float]:
@@ -215,7 +223,8 @@ class Mission:
         self.previous_s = now_s
         self.hovering = False
         if drone is not None:
-            self.last_drone = drone
+            self._check_tracking(now_s, drone)
+            self.last_drone, self.last_drone_s = drone, now_s
 
         # PX4's own disarm ends a landing; the pilot taking the drone back ends anything else,
         # and a fresh attempt starts only after a disarm
@@ -245,6 +254,8 @@ class Mission:
                 return self._return_fly(now_s, elapsed_s, drone)
             case Phase.RETURN_DESCEND:
                 return self._land(now_s, self.launch, drone)
+            case Phase.LOST:
+                return self._land(now_s, self.launch, None)
             case _:
                 return None
 
@@ -388,6 +399,17 @@ class Mission:
 
         return PoseCommand(*self.launch, self.return_plan.height_m, self.return_yaw_rad)
 
+    def _check_tracking(self, now_s: float, drone: Drone) -> None:
+        """Ends any flight phase in a straight-down descent when the tracker's position across the
+        floor has jumped since the last one, by more than `TRACKING_JUMP_M` and faster than `TRACKING_JUMP_MPS`."""
+        if self.phase not in _OFFBOARD_PHASES or self.phase is Phase.LOST or self.last_drone is None:
+            return
+
+        moved_m = math.dist((drone.east, drone.north), (self.last_drone.east, self.last_drone.north))
+        if moved_m > TRACKING_JUMP_M and moved_m > TRACKING_JUMP_MPS * (now_s - self.last_drone_s):
+            self.straight_down = True
+            self._enter(Phase.LOST, f"the tracker jumped {moved_m:.2f} m at once: descending straight down")
+
     def _stale_landing(self, now_s: float, drone: Drone | None) -> bool:
         """Whether the return has gone `RETURN_STALE_LAND_S` without odometry: it then descends
         straight down where it is, since steering blind could cross a wall."""
@@ -432,6 +454,9 @@ class Mission:
 
         if self.phase is Phase.RETURN_REST:
             return f"disarmed on the pad during the return's rest {after}: is COM_DISARM_LAND under 5 s?"
+
+        if self.phase is Phase.LOST:
+            return f"disarmed where the tracker jumped {after}"
 
         if self.last_drone is None:
             return f"disarmed after the return {after}"

@@ -172,7 +172,7 @@ tell where the mark is, so a misplaced drone flies the whole route shifted by th
 | `allow_window` | true | false always takes Gate B |
 | `land` | true | false holds over the pad for the pilot |
 | `tunnel_lead_m` | 0.75 | > 0 flies the tunnel as one straight leg from that far outside its mouths; it touched more in SITL, but skybeta-11 hit the wall west of the south mouth turning nearer it on 2026-11-08, so the real course wins |
-| `heading_mode` | ahead | `ahead` faces the point 0.8 m ahead on the route; `fixed` commands the heading at Offboard from the climb to the landing, never yawing (below) |
+| `heading_mode` | fixed | `fixed` commands the heading at Offboard from the climb to the landing, never yawing; `ahead` faces the point 0.8 m ahead on the route (below) |
 | `turn_rate_dps` | 45.0 | cap on the commanded heading's turn rate (`ahead`); PX4's `MPC_YAWRAUTO_MAX` default |
 | `yaw_comp` | false | true offsets the pose against the airframe's push PX4 relearns after each yaw (below); not yet flown |
 | `yaw_comp_tau_s` | 4.5 | PX4's velocity integrator lag as modelled, `MPC_XY_VEL_P_ACC` / `MPC_XY_VEL_I_ACC` at stock values |
@@ -218,15 +218,18 @@ ros2 run dronehacks_course_follower dry_run --return-home      # reports the lan
 
 In the square test (`flights/20261108-013018-light-square`) the drone drifted 10-20 cm off each
 corner after an in-place yaw and took about 10 s to crawl back; a hold without a yaw stayed within
-about 5 cm. `heading_mode:=fixed` flies the route without yawing at all, the camera facing the
-launch heading throughout, so the pace never waits on a turn; `turn_rate_dps:=20.0` keeps the
-look-ahead heading but turns slower. Compare one run each against the default. The stack passes
-no arguments, so set the default in the drone's copy of `launch/competitor.launch.py`, or launch
-by hand:
+about 5 cm. So the default, `heading_mode:=fixed`, flies the route without yawing at all, the
+camera facing the launch heading throughout: the push PX4's integrator has learnt stays pointing
+the right way, and no hold waits on a turn. Facing north, the camera looks back out of the tunnel's
+lit north mouth while the drone flies south through it. `heading_mode:=ahead` turns to face along
+the route, slower with `turn_rate_dps:=20.0`.
 
-```bash
-ros2 launch dronehacks_course_follower competitor.launch.py heading_mode:=fixed
-```
+### The tracker jumping: straight down
+
+cuVSLAM has jumped metres at once on skybeta-11 (during a manual landing and on the ground,
+`flights/2026-11-08-slot.md`). In any Offboard phase, a pose more than 0.3 m from the last one and
+faster than 3 m/s ends the run: the mission descends straight down where it is, steering on
+nothing, until PX4 lands and disarms, and logs `the tracker jumped ... m at once`.
 
 ### Push compensation: cancel the drift and still turn
 
