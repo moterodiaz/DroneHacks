@@ -39,7 +39,8 @@ SPEEDS = [('0.5x', 0.5), ('1x real time', 1.0), ('2x', 2.0), ('4x', 4.0), ('max'
 
 
 class App:
-    def __init__(self, root):
+    def __init__(self, root, load=()):
+        """``load``: saved run folders (or folders of them) to draw over the map at start."""
         self.root = root
         root.title('DroneHacks SITL - drone 1 (skybeta-01), PX4 v1.16 + skybeta 0.3.2 kit, STEP course + arena edits')
         root.geometry('1600x980')
@@ -60,7 +61,10 @@ class App:
         self._map_arena = None          # the arena the map shows
         self._loading_arena = None      # the arena being loaded for it
         self._course_ready = None
+        self.overlays = []              # saved runs drawn over the map (gui/saved.py)
         self._build_layout()
+        if load:
+            self._add_saved(list(load))
         self._refresh_arena()
         self.root.after(50, self._poll)
         root.protocol('WM_DELETE_WINDOW', self._on_close)
@@ -430,16 +434,20 @@ class App:
         if old is not None:
             self.map.show_lidar.set(old.show_lidar.get())
             self.map.show_est.set(old.show_est.get())
+        self.map.overlays = list(self.overlays)
         self._map_arena = arena
         self.map.canvas.pack(fill='both', expand=True)
         ttk.Checkbutton(self._map_bar, text='lidar', variable=self.map.show_lidar).pack(side='left')
         ttk.Checkbutton(self._map_bar, text='estimates', variable=self.map.show_est).pack(side='left')
         ttk.Button(self._map_bar, text='Fit', command=self.map.fit).pack(side='left')
+        ttk.Button(self._map_bar, text='Load paths...', command=self.load_saved).pack(side='left')
+        ttk.Button(self._map_bar, text='Clear paths', command=self.clear_saved).pack(side='left')
         edits = f", edits {desc['edits']}" if desc.get('edits') else ''
         ttk.Label(self._map_bar, text=f"  arena: {arena}  |  {desc['step']}{edits}  ({desc['solids']} solids, "
                                       f"{desc['triangles']} triangles, sha256 {desc['sha256'][:12]})",
                   foreground='#607d8b').pack(side='left')
-        self.root.after(100, self.map.fit)
+        # fit this map only: a map replaced within the delay (a quick arena reload) is gone by then
+        self.root.after(100, lambda m=self.map: m.fit() if m is self.map else None)
         if self.proc is None:
             self.status_line.configure(text='Ready. Choose a version and press Start.')
 
@@ -620,6 +628,39 @@ class App:
         self.pause_btn.configure(state='disabled')
         self.stop_btn.configure(state='disabled')
         self.start_btn.configure(state='normal')
+
+    # -- saved runs over the map ----------------------------------------------------------------
+    def load_saved(self):
+        d = filedialog.askdirectory(title='Load the paths of a saved run, or of a folder of runs',
+                                    initialdir=os.path.join(SITL_ROOT, 'runs'))
+        if d:
+            self._add_saved([d])
+
+    def _add_saved(self, paths):
+        """Draw the saved runs under ``paths``; show their arena when they agree and nothing flies."""
+        from dronesim.gui.saved import common_arena, load_paths
+        new = load_paths(paths, start_index=len(self.overlays))
+        if not new:
+            if hasattr(self, 'status_line'):
+                self.status_line.configure(text=f'No saved run (trajectory.csv / plan.json) under {paths[0]}')
+            return
+        self.overlays += new
+        arena = common_arena(self.overlays)
+        if arena and self.proc is None:
+            keys = [k for k, _lab in ARENA_CHOICES]
+            if arena in keys:
+                self.arena_box.current(keys.index(arena))    # the runs' arena, so auto doesn't switch it back
+                self._refresh_arena()
+        if self.map is not None:
+            self.map.set_overlays(self.overlays)
+        if hasattr(self, 'status_line'):
+            self.status_line.configure(text=f'Drawing {len(self.overlays)} saved run(s)'
+                                            + (f' (arena {arena})' if arena else ''))
+
+    def clear_saved(self):
+        self.overlays = []
+        if self.map is not None:
+            self.map.set_overlays([])
 
     def save(self):
         d = filedialog.askdirectory(title='Save the run into a folder', initialdir=os.path.join(SITL_ROOT, 'runs'))
@@ -864,10 +905,10 @@ class App:
         self.status_line.configure(text='Run finished: see Run info / result. Save it, or Stop to set up another run.')
 
 
-def main():
+def main(load=()):
     mp.freeze_support()
     root = tk.Tk()
-    App(root)
+    App(root, load=load)
     root.mainloop()
 
 

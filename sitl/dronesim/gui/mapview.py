@@ -54,6 +54,7 @@ class MapView:
         self.cx, self.cy = 0.0, 0.0           # course point at the canvas centre
         self.trail = []
         self.plan = None              # the version's planned path (course frame), when observed
+        self.overlays = []            # saved runs drawn over the map (gui/saved.py)
         self.items = {}
         self.show_lidar = tk.BooleanVar(value=True)
         self.show_est = tk.BooleanVar(value=True)
@@ -125,6 +126,7 @@ class MapView:
         x0, y0 = 14, (self.canvas.winfo_height() or 600) - 14
         c.create_line(x0, y0, x0 + self.scale, y0, width=3, fill='#37474f')
         c.create_text(x0 + self.scale / 2, y0 - 9, text='1 m', fill='#37474f', font=('Segoe UI', 8))
+        self._draw_overlays()
         self._draw_plan()
         self.items['trail'] = c.create_line(0, 0, 0, 0, fill='#1e88e5', width=2)
         self.items['lidar'] = []
@@ -143,6 +145,29 @@ class MapView:
         """The version's planned path ({'xy': [[x, y]...], 'waypoints', 'goals', ...}) or None."""
         self.plan = plan if plan and plan.get('xy') else None
         self.redraw_static()
+
+    def set_overlays(self, overlays):
+        """Saved runs to draw: [{'label', 'colour', 'plan': [(x, y)], 'trail': [(x, y)]}] (gui/saved.py)."""
+        self.overlays = list(overlays or [])
+        self.redraw_static()
+
+    def _draw_overlays(self):
+        """Each saved run: its plan dashed, its flown trail solid, in its colour; a legend top left."""
+        if not self.overlays:
+            return
+        c = self.canvas
+        for o in self.overlays:
+            if len(o.get('plan') or []) >= 2:
+                c.create_line(*[v for q in o['plan'] for v in self.w2c(*q)], fill=o['colour'], width=1, dash=(5, 4))
+            if len(o.get('trail') or []) >= 2:
+                c.create_line(*[v for q in o['trail'] for v in self.w2c(*q)], fill=o['colour'], width=2)
+        x, y = 12, 12
+        c.create_text(x, y, text='saved runs: plan dashed, flown solid', anchor='nw', fill='#37474f',
+                      font=('Segoe UI', 8, 'bold'))
+        for i, o in enumerate(self.overlays):
+            yy = y + 16 * (i + 1)
+            c.create_line(x, yy + 6, x + 22, yy + 6, fill=o['colour'], width=3)
+            c.create_text(x + 28, yy, text=o['label'], anchor='nw', fill=o['colour'], font=('Segoe UI', 8))
 
     def _draw_plan(self):
         p = self.plan

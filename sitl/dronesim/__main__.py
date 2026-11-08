@@ -99,7 +99,7 @@ def cmd_run(args):
 
 def cmd_gui(args):
     from .gui.app import main
-    main()
+    main(load=args.load or ())
 
 
 def main(argv=None):
@@ -128,7 +128,9 @@ def main(argv=None):
     r.add_argument('--fault', action='append', help='t:action[:arg], e.g. 40:vo_lost:3  50:pilot:takeover')
     r.add_argument('--quiet', action='store_true')
     r.add_argument('--verbose', action='store_true')
-    sub.add_parser('gui')
+    g = sub.add_parser('gui')
+    g.add_argument('--load', action='append', metavar='DIR',
+                   help='draw a saved run (its folder, or a folder of run folders) over the map; repeatable')
     args = p.parse_args(argv)
     if args.cmd == 'list':
         cmd_list(args)

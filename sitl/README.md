@@ -8,6 +8,7 @@ The world is the STEP model, `dronehacks-course-v3.step`.
 
 ```
 py -m dronesim gui              # the graphical test environment (or double-click run_gui.cmd)
+py -m dronesim gui --load runs/<folder>   # ...with saved runs' paths drawn over the map
 py -m dronesim list             # autonomy versions, followers, options, PX4 parameter profiles
 py -m dronesim run --version traj --follower path_lead --option route=window --out runs/x
 py -m dronesim run --version lidar_forbidden --option dropout=hold --speed-cap 1.5 --out runs/y
@@ -112,7 +113,29 @@ How a run picks its arena (`Scenario.arena`, CLI `--arena`, GUI **Arena**):
 A new arena builds its own heightmap and distance-field cache once, keyed by the STEP's and the
 edits file's SHA-256: about 40 s, like the STEP's. `result.json` records the arena.
 
-**The window lines in the taped arena** (2026-11-08, traj @ dafb071). Every run: dark tunnel,
+**The window lines in the taped arena, with the rolling take-off and early descent** (2026-11-08,
+traj @ 4148468). These are the runs in `runs/taped-2026-11-08_rolling-takeoff_early-descent/`, if
+you have that local folder: `py -m dronesim gui --load` it. Every run: dark tunnel, PX4
+`MPC_XY_VEL_MAX` 12 (skybeta-11's, `--speed-cap 12`). The route was tunnel > window > pad, 13.08 m,
+flown at 1.23 m.
+
+| Line | Plan | `land=land`, seeds 1 / 2 / 3: clock to the pad disarm | Score |
+|---|---|---|---|
+| `window_0p5mps` | 27.2 s at 0.5 m/s | 33.7 / 33.9 / 37.1 s | 31 + window bonus, 0 touches |
+| `window_2mps` | 16.4 s at 2.0 m/s | 21.5 / 22.3 / 22.7 s | 31 + window bonus, 0 touches |
+
+* Against the runs below, the clock is 18-22 s shorter on the 0.5 m/s line and 20-24 s shorter
+  on the 2 m/s line. Three changes:
+  * the smoother no longer falls back to sharp corners on this map (`repair_iterations` 60);
+  * FOLLOW starts 0.3 m up (`rolling_takeoff_m`);
+  * the descent starts as the whole drone clears the window (`early_descent`), with no pause over
+    the pad.
+* With the shipped `land: false` (seed 1, both lines), the drone descended from the window and
+  held over the pad at 0.33-0.39 m for the pilot: CP1-4, 24 points, 0 touches. That is lower
+  than the 0.45 m target, because this PX4 model settles about 0.1 m under a pose target, as on
+  the old climb.
+
+**Before: the window lines in the taped arena** (2026-11-08, traj @ dafb071). Every run: dark tunnel,
 `land=land`, the plan read from `plan.json`. The route was tunnel > window > pad, 13.31 m, flown
 at 1.23 m.
 
@@ -201,6 +224,11 @@ on), so `DRONEHACKS_*` variables do not arrive, just as on the drone.
     builds `dronehacks_traj`. A saved run (GUI Save or CLI `--out`) writes the full plan to
     `plan.json`, with its points, times, speeds, route waypoints, goals and the map it read;
     `result.json` carries the same summary without the points.
+  * **Saved runs** (map bar: **Load paths...**, **Clear paths**; or `gui --load DIR`, repeatable).
+    You can pick one saved run's folder, or a folder of them. Each run's plan is drawn dashed and
+    its flown trail (while armed) solid, one colour per run. A legend names its flight line, seed
+    and result. When all loaded runs flew the same arena, the Arena box switches to it
+    (`dronesim/gui/saved.py`).
   * Below the map: height (true, EKF2, cuVSLAM, setpoint) and speed / estimate-error charts.
 * **Right: status.**
   * PX4 nav state, user-intended mode, failsafe, takeoff state, EKF2 validity and dead
@@ -552,7 +580,7 @@ walls.
 
 ```
 cd sitl
-py -B -m unittest tests.test_rosfake tests.test_models tests.test_step_mesh tests.test_course_layout tests.test_cache tests.test_catalog tests.test_review_fixes tests.test_arena   # ~1 min
+py -B -m unittest tests.test_rosfake tests.test_models tests.test_step_mesh tests.test_course_layout tests.test_cache tests.test_catalog tests.test_review_fixes tests.test_arena tests.test_saved_runs   # ~1 min
 py -B -m unittest tests.test_flight -v                                            # ~5 min: real flights
 ```
 
@@ -568,6 +596,7 @@ py -B -m unittest tests.test_flight -v                                          
   * edge loops through a surface pole: the course boulders, a split hemisphere and a sphere of
     two lunes;
   * raycast and closest-point correctness and timing, with the open roof.
+* `test_saved_runs`: saved runs as map overlays: finding the runs, reading each one's plan, armed trail and label, thinning, and the shared arena.
 * `test_arena`: arenas and the plan observer.
   * The edits file matches nav_traj's copy.
   * Wall meshes are closed, with the right volume and only the opening's vertices inside.
