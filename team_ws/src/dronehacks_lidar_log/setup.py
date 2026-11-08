@@ -12,5 +12,6 @@ setup(
     ],
     install_requires=["setuptools"],
     zip_safe=True,
-    entry_points={"console_scripts": ["lidar_logger = dronehacks_lidar_log.logger:main"]},
+    entry_points={"console_scripts": ["lidar_logger = dronehacks_lidar_log.logger:main",
+                                      "lidar_probe = dronehacks_lidar_log.probe:main"]},
 )

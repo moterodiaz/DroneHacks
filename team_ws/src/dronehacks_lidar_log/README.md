@@ -22,8 +22,26 @@ bag's pose and attitude. Every write is flushed, so a crash or power cut keeps e
 A re-arm within the 5 s tail keeps one file; a later arm starts a new folder.
 
 The device is the `device` parameter (default `/dev/ms200`), else the first of
-`/dev/serial/by-id/*CP210*`, `*Silicon_Labs*`, `/dev/ttyUSB*`, at 230400 baud. The stack container
-runs privileged with `/dev` mounted, so it can open the port.
+`/dev/serial/by-id/*CP210*`, `*Silicon_Labs*`, `/dev/ttyUSB*`, at 230400 baud. With none of
+those, a CH340 adapter (`1a86:7523`) is read straight through usbfs (`ch340.py`): skybeta-11's
+kernel (5.15.185-tegra) is built without `CONFIG_USB_SERIAL_CH341`, so the MS200K's own CH340
+adapter gets no `/dev/ttyUSB*`. `ch340.py` sets it up as Linux's `ch341.c` does (baud divisor,
+8N1, DTR/RTS) using the standard library only. The stack container runs privileged as root with
+`/dev` mounted, so it can open either.
+
+Ubuntu's `brltty-udev.service` (braille displays) claims every CH340 first, and the read then fails
+with `Errno 16 Device or resource busy`. On skybeta-11 it was stopped and masked on 2026-11-08 (undo
+with `systemctl unmask`):
+
+```bash
+sudo systemctl stop brltty-udev.service brltty.service
+sudo systemctl mask brltty-udev.service brltty.service   # then replug the lidar
+```
+
+Check the port before a flight, in the container:
+`ros2 run dronehacks_lidar_log lidar_probe` reads 3 s and prints the valid frame count, the
+rotation rate and a few ranges, then PASS or FAIL. On skybeta-11, 2026-11-08: 377 valid frames/s
+(about 4,500 points/s), rotation 10.0 Hz, PASS.
 
 ## Running it
 
@@ -52,8 +70,11 @@ The included team package must be installed in the same workspace.
 python3 -m pytest team_ws/src/dronehacks_lidar_log/test -q
 ```
 
-The recorder's arm/disarm windows and file format, without ROS or a serial port.
+The recorder's arm/disarm windows and file format, the CH340 register values against the Linux
+driver's (230400, 115200 and its 9600 default), the usbfs ioctl numbers, and the probe's frame
+parsing; all without ROS, a serial port or the device.
 
-Not checked: any run on the drone (the real port, the wrapped launches). The MS200K's eligibility
+Checked on the drone: the CH340 read (`lidar_probe` PASS above). Not checked: a flight with the
+wrapped launches. The MS200K's eligibility
 for judged runs is unresolved (`DRONEHACKS.md`, evidence boundaries): ask the organisers before
 flying it in one.

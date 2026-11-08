@@ -6,8 +6,10 @@ publishes nothing and never touches PX4, so the flight code beside it is unaffec
 Each armed window becomes /root/team_ws/flights/<UTC>-lidar/ (the host's ~/team_ws/flights):
   lidar.bin   b"DHLIDAR1\\n", then records of struct "<dI" (host wall-clock time, length) + bytes
   meta.json   device, baud, start/stop times, bytes written
-Wall-clock time (time.time) is what the flight bags use, so scans pair with their poses. The raw
-bytes are MS200 frames: parse them with depthcam/course/ms200.py (FrameParser, Assembler).
+With no serial device, a CH340 adapter on USB is read through usbfs instead (ch340.py):
+skybeta-11's kernel has no CH340 driver. Wall-clock time (time.time) is what the flight bags use,
+so scans pair with their poses. The raw bytes are MS200 frames: parse them with
+depthcam/course/ms200.py (FrameParser, Assembler).
 """
 from __future__ import annotations
 
@@ -32,6 +34,22 @@ def find_device(preferred: str) -> Optional[str]:
         if hits:
             return hits[0]
     return None
+
+
+def open_port(preferred: str, baud: int):
+    """(name, opener) for the lidar: a serial device if one exists, else a driverless CH340 on USB."""
+    dev = find_device(preferred)
+    if dev is not None:
+        def opener():
+            import serial  # pyserial ships with the image (MAVProxy depends on it)
+            return serial.Serial(dev, baud, timeout=0.1)
+        return dev, opener
+    from . import ch340
+    hit = ch340.find()
+    if hit is not None:
+        path, sysfs = hit
+        return f"{path} (CH340 {sysfs}, no driver: usbfs)", lambda: ch340.Ch340(path, baud)
+    return None, None
 
 
 class Recorder:
@@ -116,18 +134,18 @@ def main() -> None:
     stop = threading.Event()
 
     def reader() -> None:
-        import serial  # pyserial ships with the image (MAVProxy depends on it)
         warned = False
         while not stop.is_set():
-            dev = find_device(device_param)
+            dev, opener = open_port(device_param, baud)
             if dev is None:
                 if not warned:
-                    log.warn(f"no lidar serial port ({device_param} or {', '.join(CANDIDATES)}): retrying every 2 s")
+                    log.warn(f"no lidar port ({device_param}, {', '.join(CANDIDATES)} or a CH340 on USB): "
+                             "retrying every 2 s")
                     warned = True
                 stop.wait(2.0)
                 continue
             try:
-                with serial.Serial(dev, baud, timeout=0.1) as s:
+                with opener() as s:
                     port["dev"] = dev
                     log.info(f"lidar on {dev} at {baud} baud; recording only while armed")
                     warned = False
