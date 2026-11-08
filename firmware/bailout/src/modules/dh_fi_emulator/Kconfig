@@ -1,0 +1,7 @@
+menuconfig MODULES_DH_FI_EMULATOR
+	bool "dh_fi_emulator"
+	default n
+	depends on PLATFORM_POSIX
+	---help---
+		SITL test only: publishes trajectory_setpoint at 10 Hz like the kit's
+		flight_interface, to test that DH Bailout keeps control.

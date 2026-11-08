@@ -1,0 +1,8 @@
+#!/bin/sh
+#
+# Pixhawk 6C board extras (DroneHacks build).
+#
+# Start the "DH Bailout" flight mode. It registers with commander as an external
+# mode, so commander must already be running (rcS sources this file after the
+# vehicle apps). COM_FLTMODEx = 100 + (index - 1) puts it on the RC mode switch.
+dh_bailout start

@@ -1,0 +1,6 @@
+menuconfig MODULES_DH_BAILOUT
+	bool "dh_bailout"
+	default n
+	---help---
+		DroneHacks "DH Bailout" flight mode: registers as an external mode,
+		brakes to rest, then descends until PX4 detects the landing and disarms.

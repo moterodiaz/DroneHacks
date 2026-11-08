@@ -2,6 +2,41 @@
 
 Newest entries first. One entry per contract-affecting change, linking the PR.
 
+## 2026-11-08 — px4.md: `COM_FLTMODE1` row and the DH Bailout firmware scoped exception (PR #46)
+
+Branch `core/bailout-firmware` (PR #46, @jsun4231). Two additions to
+`contracts/px4.md`, both **blocked** until their own conditions clear:
+
+- A `COM_FLTMODE1` row: `100` (skybeta-11 only; organisers' value `0` =
+  Manual) so mode-switch position 1 (channel 6, `RC_MAP_FLTMODE` 6), which
+  selected Manual, selects "DH Bailout" (External Mode 1) instead. Positions
+  4 and 6 (Altitude, Position) and the kill and arm switches stay as issued,
+  and no slot may hold Acro (§3.6). Requires the DH Bailout firmware; without
+  it, value 100 selects nothing. Set by hand in QGroundControl after saving
+  their baseline, never by code. Organiser permission pending. Source label
+  `team` (asked for by @jsun4231, 2026-11-07).
+- A "Scoped exception: the DH Bailout firmware (blocked)" section:
+  `firmware/bailout` builds PX4 for skybeta-11's Pixhawk 6C as the organisers'
+  fleet firmware `v1.16.2-1-g7a39c59` plus one commit adding the `dh_bailout`
+  module (a pilot-initiated brake-settle-descend land abort, rules 5.1–5.3 and
+  7.11). It writes no parameter, sends no vehicle command, cannot arm
+  (`mode_req_prevent_arming`), and changes no failsafe, kill switch, geofence
+  or battery behaviour. Flashing stays blocked until organiser permission is
+  recorded here, `sitl_bailout_test.py` passes at the exact commit (with and
+  without `--fi`), a props-off bench check passes (mode listed, switch selects
+  it, arming refused, switch-back works, and `fc_params_compare.py` against
+  the saved baseline differs only in `COM_DISARM_LAND`, `COM_FLTMODE1`,
+  `COM_MODE0_HASH` and the flight counters), and a human flashes it props off.
+- The adjacent paragraph now records that `COM_FLTMODE1` does not open the
+  rest of `COM_*`, and that PX4's commander itself writes `COM_MODE0_HASH` on
+  the mode's first registration — PX4's own bookkeeping, not a write by our
+  code.
+
+No parameter or firmware is written by this entry alone; every action above
+stays blocked until its listed conditions hold. Autonomous flight stays
+blocked. Affected owner: contracts (@moterodiaz), notified 2026-11-08 by the
+correction agent adding this required entry.
+
 ## 2026-11-07 — our drone is skybeta-11: drone-specific rows corrected
 
 The team switched from drone 1 to drone 11 (skybeta-11) on 2026-11-07. The

@@ -1,0 +1,5 @@
+# Everything here is copied into a Linux PX4 tree or runs on NuttX/Linux: keep LF on every
+# checkout. With core.autocrlf=true on Windows, a CRLF checkout would put carriage returns
+# into rc.board_extras (read by NuttX's shell) and change build.sh's commit SHA
+# (v1.16.2-2-g5cc214d).
+* text=auto eol=lf
