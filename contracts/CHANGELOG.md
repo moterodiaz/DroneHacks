@@ -2,20 +2,52 @@
 
 Newest entries first. One entry per contract-affecting change, linking the PR.
 
-## 2026-11-07 — DH Bailout firmware and COM_FLTMODE1 (proposed, blocked)
+## 2026-11-07 — our drone is skybeta-11: drone-specific rows corrected
 
-Proposes two contract changes for skybeta-11, both blocked until the organisers
-give permission, as was done for `COM_DISARM_LAND`, and until SITL and props-off
-bench evidence exist.
-- A scoped exception to the firmware pin: the organisers'
-  `v1.16.2-1-g7a39c59` plus one commit adding the "DH Bailout" flight mode
-  (`firmware/bailout`).
-- `COM_FLTMODE1` `0 → 100`: the mode-switch position that selected Manual selects
-  DH Bailout instead.
+The team switched from drone 1 to drone 11 (skybeta-11) on 2026-11-07. The
+drone-specific rows in `px4.md` were drone 1's, and now carry skybeta-11's
+values, read from its FC over USB on 2026-11-07. They equal
+`px4-baselines/skybeta-11-2026-11-07.params`, except the approved
+`COM_DISARM_LAND` 5 and two flight counters.
 
-The proposal also records `COM_MODE0_HASH` as PX4's own write when the mode
-registers. The failsafe, kill-switch, geofence and battery entries are unchanged.
-The request came from @jsun4231. Affected owner: contracts (@moterodiaz).
+- `NAV_RCL_ACT` is `2` (Return), not `6` (disarm). Return needs a global
+  position, so PX4 falls back to Land, or to Descend.
+- `MPC_XY_VEL_MAX` is `12` m/s, not `1.0`.
+- The firmware is `v1.16.2-1-g7a39c59` (organisers' patched build), not `v1.16.1`.
+- The DDS domain is `11`, not `1`.
+
+No value was written to the FC; this records what is there. Nothing changes
+in the allowlist. Affected owner: contracts (@moterodiaz).
+
+## 2026-11-07 — course layout revision: M1–M3 removed, two walls added, checkpoint 1 removed
+
+Branch `course/course-v3-layout-change`. The course changed; @jsun4231
+supplied the updated CAD (`dronehacks-course-v3.step`, now a SolidWorks
+export, SHA-256 `2194664e…cb90b876`) and stated that the checkpoints are
+unchanged except that checkpoint 1 is removed.
+
+- `course.md`: new "Layout revision 2026-11-07" section (removed M1–M3, the
+  two added walls with their footprints, the new 0.998 m gap); a geometry row
+  for the added walls' thicknesses (0.100 m, 0.350 m); checkpoint 1 struck
+  out; checkpoint 2's Gate A given as the explicit line
+  `(0.3048, 2.1209)`–`(0.3048, 3.048)`, the old M3–net gap on M3's
+  centreline, because no wall bounds it any more; the error budget notes the
+  new gap. New source label `team` for these rows.
+- `course_v3_layout.yaml` regenerated from the new model by
+  `course/step_to_map.py`, which now reads SolidWorks exports (whitespace,
+  part names, multi-body parts, circles and ellipses written as B-splines)
+  and checks wall thickness against the 0.102 / 0.100 / 0.350 m rows.
+- Alternatives considered: renumbering checkpoints 2–5 as 1–4 (rejected:
+  "identical" checkpoints keep their names, and the scoring rows stay
+  comparable); dropping Gate A's line with M3 (rejected: the checkpoint is
+  unchanged, so its line is too).
+- Acceptance: `py -I -m unittest discover -s tests` and
+  `pytest course/tests`; `step_to_map.py --self-check` prints PASS on the new
+  model.
+
+Affected owners: @moterodiaz (course, contracts, navigation, localization).
+Consumers that read checkpoint 1 or the M1–M3 walls (the lidar build's
+`depthcam/course/maps/` and routes) still describe the 2026-10-27 layout.
 
 ## 2026-11-07 — COM_DISARM_LAND 5 s on skybeta-11
 

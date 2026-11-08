@@ -1,6 +1,6 @@
 # lidar-vo-fusion
 
-This method flies the DroneHacks course on drone 1. It's this team's own version, separate from
+This method flies the DroneHacks course on drone 11. It's this team's own version, separate from
 Mateo's (the PR #5 contracts and his field guide).
 
 - **The route:** planned from the organisers' STEP model through the ground-truth checkpoints.
@@ -165,7 +165,7 @@ from the bench: lidar against taped marks read 5-12 cm (`course/docs/bench-resul
    drive all four nodes under `rclpy`, with a pseudo-terminal as the MS200K's port. Nothing here
    has run under ROS yet. A user-space install on this laptop was blocked as running downloaded
    code.
-2. **On drone 1:**
+2. **On drone 11:**
    - confirm `/dev/ms200` in the container, the past-test mount values, and `rest_height_m`
      (0.07 m);
    - the kit's container pins numpy below 2. No numpy-2-only call was found, but nothing has run
@@ -198,11 +198,11 @@ from the bench: lidar against taped marks read 5-12 cm (`course/docs/bench-resul
 | `../../package.xml`, `setup.py`, `setup.cfg`, `resource/` | the ROS 2 package `dronehacks_lidar` |
 | `../../launch/lidar_nav.launch.py`, `lidar_nav_{allowed,forbidden}[_gate_b].launch.py` | flight interface + the four nodes; the per-run variants |
 | `../../routes/course_v3_{window,gate_b}.json` | the routes, planned from the STEP map through the checkpoints |
-| `../../deploy/install_on_drone.sh` | install on drone 1 (refuses any other host) |
+| `../../deploy/install_on_drone.sh` | install on drone 11 (refuses any other host) |
 | `../../dronehacks_lidar/*_node.py`, `px4_topics.py`, `launch_variants.py` | the ROS 2 nodes and helpers |
 | `../../follower/route.py`, `make_route.py`, `mission.py` | the route format, the route maker, the mission (ROS-free) |
 | `../../pose_fusion/` | Guard, command correction, drift filter, localiser, map facts, frames, policy (ROS-free) |
 | `../../course/` | ported: map, extractor, planner, matcher, lidar reader, docs |
 | `config/pose_fusion.example.yaml` | parameters for all four nodes (installed with the package) |
-| `docs/deploy.md`, `docs/kit-interfaces.md` | deploying on drone 1; the organisers' interfaces |
+| `docs/deploy.md`, `docs/kit-interfaces.md` | deploying on drone 11; the organisers' interfaces |
 | `../../tests/` | `test_follower.py` (routes, closed loop, mission), `test_vo_guard.py`, `test_setpoint_correction.py`, `test_pose_fusion.py`, `test_lidar_localizer.py`; `test_ros_nodes.py` (needs ROS) |

@@ -105,7 +105,7 @@ RETURN_TRANSIT = "RETURN_TRANSIT"
 @dataclasses.dataclass(frozen=True)
 class MissionConfig:
     #: Body centre above the floor when landed. contracts/frames.md: 0.07 m
-    #: (tape-measured in the FlyX lab). Confirm on drone 1. No default.
+    #: (tape-measured in the FlyX lab). Confirm on drone 11. No default.
     rest_height_m: float
     #: Prechecks before the takeoff pose is offered.
     start_tolerance_m: float = 0.15

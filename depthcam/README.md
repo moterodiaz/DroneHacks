@@ -18,7 +18,7 @@ protocol: each method lives in its own folder under [methods/](methods/) with it
 | `follower/` | the route follower (ROS-free): `make_route.py` plans the route from the STEP-model map through the ground-truth checkpoints; `mission.py` flies it (pre-takeoff checks, take off, follow at the planned heading, hold, land) |
 | `routes/` | the planned routes, `course_v3_window.json` and `course_v3_gate_b.json` (format `dronehacks-lidar-route/1`) |
 | `dronehacks_lidar/`, `launch/`, `package.xml`, `setup.py` | the ROS 2 package `dronehacks_lidar` (this folder is its root): the four nodes and the launch files |
-| `deploy/` | `install_on_drone.sh`: installs the package on drone 1 (refuses any other host); see [methods/lidar-vo-fusion/docs/deploy.md](methods/lidar-vo-fusion/docs/deploy.md) |
+| `deploy/` | `install_on_drone.sh`: installs the package on drone 11 (refuses any other host); see [methods/lidar-vo-fusion/docs/deploy.md](methods/lidar-vo-fusion/docs/deploy.md) |
 | `tests/` | `python -m pytest tests -q`: 300 pass, 9 skip, no camera, no GPU, no lidar, no PX4 (a fake cuVSLAM stands in for the engine; synthetic scans for the lidar; a stand-in PX4 for the closed loops). `tests/test_ros_nodes.py` needs ROS 2 Humble and px4_msgs and skips without them |
 | `recordings/`, `snapshots/` | outputs, git-ignored |
 

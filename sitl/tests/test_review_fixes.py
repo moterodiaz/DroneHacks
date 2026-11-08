@@ -83,8 +83,8 @@ class ReviewFixTests(unittest.TestCase):
         ref.t_start, ref.t_finish = 0.0, 50.0
         for cp in ref.checkpoints:
             cp['done_t'] = cp['whole_t'] = 10.0
-        ref.checkpoints[0]['over_wall'] = True               # CP1 over a wall: 15 % of its points
-        ref.checkpoints[3]['route'] = 'window'
+        ref.checkpoints[0]['over_wall'] = True               # CP2 over a wall: 15 % of its points
+        next(cp for cp in ref.checkpoints if cp['id'] == 4)['route'] = 'window'
         summary = ref.summary()
         self.assertEqual(summary['window_bonus'], 5)
         self.assertAlmostEqual(summary['checkpoints'][0]['earned'], 0.15 * ref.checkpoints[0]['points'])

@@ -1,6 +1,6 @@
-# Deploying `dronehacks_lidar` on drone 1
+# Deploying `dronehacks_lidar` on drone 11
 
-These steps take the package from this repo to drone 1's team workspace (hostname `skybeta-01`),
+These steps take the package from this repo to drone 11's team workspace (hostname `skybeta-11`),
 following the kit's procedure (`drone-snapshot/home/dronehacks/skybeta/docs/competitor_guide.md`
 §5). Never log into or deploy to another drone: that gets a team disqualified (AGENTS.md §1).
 
@@ -15,7 +15,7 @@ bash depthcam/deploy/install_on_drone.sh    # copies the package's build inputs 
 ~/skybeta/host/run.sh build                 # the team image, with pyserial
 ```
 
-The script refuses to run on any host but `skybeta-01`. `depthcam/` is the package root. The
+The script refuses to run on any host but `skybeta-11`. `depthcam/` is the package root. The
 script copies only what colcon builds from it: `package.xml`, `setup.py`, `setup.cfg`,
 `resource/`, `launch/`, `routes/`, the Python packages, the map and rules JSON, and the config.
 It also copies the ROS tests, because the kit's container sees only `~/team_ws`. The research
@@ -33,7 +33,7 @@ ROS_DOMAIN_ID=101 python3 -m pytest tests/test_ros_nodes.py -q
 ```
 
 The tests publish setpoints on `/skybeta/setpoint/pose`. `ROS_DOMAIN_ID=101` keeps them away
-from the running stack (domain 1), and the kit's loopback-only DDS keeps them on this Jetson. The
+from the running stack (domain 11), and the kit's loopback-only DDS keeps them on this Jetson. The
 tests refuse to run in the kit's container if the domain is the drone's own, or DDS isn't
 loopback-only.
 The stack's `competitor` window builds the workspace with `team_build.sh` when the stack starts.

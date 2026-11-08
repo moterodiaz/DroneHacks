@@ -1,11 +1,12 @@
 {
  "format": "course-rules/1",
- "name": "Competition course v3 (FINAL Course v3)",
+ "name": "Competition course v3 (dronehacks-course-v3, 2026-11-07 layout)",
  "map": "course_v3_map.json",
  "notes": [
   "Gates are crossed in order by the drone's centre; the planner keeps the whole drone (plus margin) clear of every obstacle.",
   "Gate kinds: segment [[x,y],[x,y]] | between [feature, feature] (the clear gap between them at flight height) | opening <wall> (its window) | tube_end <tube> + end p0/p1.",
-  "CP1: the organisers said the drone should follow roughly the floor line, so CP1 is the line's turn east, across the first corridor.",
+  "Layout change (2026-11-07, dronehacks-course-v3.step from SolidWorks): the maze dividers M1, M2, M3 and the net roof are gone, two new walls stand in the north-west (Part67 / Boss-Extrude1[1] against the west and north nets, Part67 / Boss-Extrude1[2] a diagonal wall north of Barrier 1), and checkpoint 1 (end of the first corridor) is removed. Checkpoints 2-5 keep their ids, names, lines and points.",
+  "CP2 Gate A is now an explicit segment because its southern wall (M3) is gone: the line where it was, on M3's centreline from M3's old north end to the north net. The old referee built it from the gap between M3 and the north net, on M3's east face, about 5 cm east of this line.",
   "Clock (organisers): starts when the drone leaves the launch mark, stops when it disarms on the pad. Touches of a wall, the tunnel or a boulder add 5 s each.",
   "Return (organisers): after disarming, take off again unaided, cross the barrier, land and disarm within 2 ft of the launch mark inside the 3 minute limit. A failed return loses only the bonus.",
   "No lights on the drone (organisers).",
@@ -16,10 +17,8 @@
  "finish": {"marking": "Landing pad 5 ft", "inside_radius_m": 0.7366},
  "return": {"marking": "Launch mark", "within_m": 0.6096, "time_limit_s": 180.0},
  "checkpoints": [
-  {"id": 1, "name": "CP1 end of first corridor", "points": 4,
-   "gate": {"segment": [[-3.048, 2.58445], [-1.9812, 2.58445]]}},
   {"id": 2, "name": "CP2 Gate A", "points": 7,
-   "gate": {"between": ["M3 maze divider", "Net side north"]}},
+   "gate": {"segment": [[0.3048, 2.1209], [0.3048, 3.048]]}},
   {"id": 3, "name": "CP3 tunnel south end", "points": 10,
    "gate": {"tube_end": "Tube oval 58 x 72 x 60", "end": "p0"}},
   {"id": 4, "name": "CP4 landing area", "points": 7,

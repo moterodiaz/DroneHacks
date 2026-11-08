@@ -1,0 +1,2 @@
+# Keep CAD exchange files byte-exact: generated maps record their SHA-256.
+*.step -text

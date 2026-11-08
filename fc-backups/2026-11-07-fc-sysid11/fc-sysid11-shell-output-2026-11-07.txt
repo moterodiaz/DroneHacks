@@ -1,0 +1,150 @@
+### nsh> ver all
+
+NuttShell (NSH) NuttX-11.0.0
+nsh> [Kver all
+HW arch: PX4_FMU_V6C
+HW type: V6C000002
+HW version: 0x000
+HW revision: 0x002
+PX4 git-hash: 7a39c5954139c917d21e0c5cdf6cc10449b1c011
+PX4 version: 1.16.2 0 (17826304)
+OS: NuttX
+OS version: Release 11.0.0 (184549631)
+OS git-hash: c21890c6c91d09a648308644094bd86817231682
+Build datetime: Oct 20 2026 23:49:18
+Build uri: localhost
+Build variant: default
+Toolchain: GNU GCC, 9.3.1 20200408 (release)
+PX4GUID: 000600000000363938313533511300410049
+MCU: STM32H7[4|5]xxx, rev. V
+nsh> [K
+
+### nsh> param status
+
+NuttShell (NSH) NuttX-11.0.0
+nsh> [Kparam status
+INFO  [parameters] summary: 1108/2065 (used/total)
+INFO  [parameters] file: /fs/mtd_params
+INFO  [parameters] backup file: /fs/microsd/parameters_backup.bson
+INFO  [parameters] storage array: 115/2065 elements (928 bytes total)
+INFO  [parameters] storage array (custom defaults): 26/2065 elements (256 bytes total)
+INFO  [parameters] auto save: on
+INFO  [parameters] last auto save: 1347.249 seconds ago
+param: export: 1 events, 3436us elapsed, 3436.00us avg, min 3436us max 3436us   nanus rms
+param: find: 200525 events
+param: get: 9082601 events
+param: set: 115 events, 1645us elapsed, 14.30us avg, min 5us max 28us 6.123us rms
+nsh> [K
+
+### nsh> ls /fs
+
+NuttShell (NSH) NuttX-11.0.0
+nsh> [Kls /fs
+/fs:
+ bbr0
+ bbr1
+ bbr2
+ bbr3
+ microsd/
+ mtd_caldata
+ mtd_id
+ mtd_mft_rev
+ mtd_params
+nsh> [K
+
+### nsh> ls -l /fs/microsd
+
+NuttShell (NSH) NuttX-11.0.0
+nsh> [Kls -l /fs/microsd
+/fs/microsd:
+ -rw-rw-rw-   32768 param_import_fail.bson
+ -rw-rw-rw-    1762 param_import_fail.txt
+ -rw-rw-rw-  128528 dataman
+ -rw-rw-rw-    2382 parameters_backup.bson
+ drw-rw-rw-       0 log/
+ drw-rw-rw-       0 ufw/
+ drw-rw-rw-       0 uavcan.db/
+ -rw-rw-rw-       0 logdata.txt
+nsh> [K
+
+### nsh> ls -l /fs/microsd/etc
+
+NuttShell (NSH) NuttX-11.0.0
+nsh> [Kls -l /fs/microsd/etc
+nsh: ls: stat failed: No such file or directory
+nsh> [K
+
+### nsh> cat /fs/microsd/etc/config.txt
+
+NuttShell (NSH) NuttX-11.0.0
+nsh> [Kcat /fs/microsd/etc/config.txt
+nsh: cat: open failed: Not a directory
+nsh> [K
+
+### nsh> cat /fs/microsd/etc/extras.txt
+
+NuttShell (NSH) NuttX-11.0.0
+nsh> [Kcat /fs/microsd/etc/extras.txt
+nsh: cat: open failed: Not a directory
+nsh> [K
+
+### nsh> cat /fs/microsd/etc/mixers
+
+NuttShell (NSH) NuttX-11.0.0
+nsh> [Kcat /fs/microsd/etc/mixers
+nsh: cat: open failed: Not a directory
+nsh> [K
+
+### nsh> mtd status
+
+NuttShell (NSH) NuttX-11.0.0
+nsh> [Kmtd status
+INFO  [mtd] Flash Geometry of instance 0:
+  blocksize:      32
+  erasesize:      32
+  neraseblocks:   1024
+  No. partitions: 1
+    partition: 0:
+     name:   /fs/mtd_params
+     blocks: 1024 (32768 bytes)
+  Device size: 1024 Blocks (32768 bytes)
+  TOTAL SIZE: 32 KiB
+INFO  [mtd] Flash Geometry of instance 1:
+  blocksize:      32
+  erasesize:      32
+  neraseblocks:   256
+  No. partitions: 3
+    partition: 0:
+     name:   /fs/mtd_caldata
+     blocks: 240 (7680 bytes)
+    partition: 1:
+     name:   /fs/mtd_mft_rev
+     blocks: 8 (256 bytes)
+    partition: 2:
+     name:   /fs/mtd_id
+     blocks: 8 (256 bytes)
+  Device size: 256 Blocks (8192 bytes)
+  TOTAL SIZE: 8 KiB
+nsh> [K
+
+### nsh> df
+
+NuttShell (NSH) NuttX-11.0.0
+nsh> [Kdf
+  Block    Number
+  Size     Blocks       Used   Available Mounted on
+     0          0          0           0 /bin
+   512        461        461           0 /etc
+ 32768     242304        494      241810 /fs/microsd
+     0          0          0           0 /proc
+nsh> [K
+
+### nsh> free
+
+NuttShell (NSH) NuttX-11.0.0
+nsh> [Kfree
+                   total       used       free    largest  nused  nfree
+        Umem:     952656     314752     637904     459536   1253     72
+        Prog:    2097184    2005472      91712      85376  62671   2866
+nsh> [K
+

@@ -18,7 +18,8 @@ py -m dronesim run --version traj --option route=window --option rocks=fly_over 
 Run these from `sitl/`. Several `run` commands may run at once: each simulation builds its own
 tree (removed when it ends), and the shared caches are written atomically. You need Python 3.10+ with `numpy` and `pyyaml` (`requirements.txt`).
 Tkinter comes with the standard Windows installer. No ROS, Docker, WSL or GPU is needed. The first
-start builds the course caches from the STEP file, which takes about 40 s once.
+start builds the course caches from the STEP file, which takes about 75 s once (the 2026-11-07 export
+has about a quarter more triangles than the earlier one).
 
 ---
 
@@ -35,9 +36,34 @@ start builds the course caches from the STEP file, which takes about 40 s once.
 | VL53L1X rangefinder | Modelled: one beam raycast against the mesh, 5 Hz, 0–4 m | `03a_height_reference.params` |
 | MS200K lidar | **Byte-exact serial stream** on a virtual `/dev/ms200`: 47-byte frames, CRC-8, and each point raycast at its own time. The team's own driver parses it | the team's `course/ms200.py` |
 | Airframe | 6-DOF rigid body. Rotor geometry comes from `CA_ROTOR*`; motors, drag, ground effect, battery and the landing gear are modelled, and props and body collide with the mesh | `config` defaults in `vehicle/physics.py` |
-| Course | **The STEP file**: 33 solids tessellated from the B-rep, with names, so walls, the window, the tube, domed boulders, nets and the pad are all real geometry | `dronehacks-course-v3.step` |
+| Course | **The STEP file**: 31 solids tessellated from the B-rep, with names, so walls, the window, the tube, domed boulders, nets and the pad are all real geometry (the 2026-11-07 layout, below) | `dronehacks-course-v3.step` |
 | Safety pilot | The organizers' procedure, scripted: arm on Altitude, then Position 2 s later, then hands off. With the return enabled, it re-arms on the pad 3 s after the disarm the same way. Every RC channel can also be operated from the GUI | kit README "How your drone is tested" |
-| Referee | Rulebook §4 against ground truth: whole-drone checkpoints in order, +5 s per touch (the body, the props or the landing gear), the over-wall rule, end of run, window bonus, the optional return (rule 7.10) | `course/course_v3_rules.json` (team ground truth, blob `3675a35`) |
+| Referee | Rulebook §4 against ground truth: whole-drone checkpoints in order, +5 s per touch (the body, the props or the landing gear), the over-wall rule, end of run, window bonus, the optional return (rule 7.10) | `course/course_v3_rules.json` (team ground truth, blob `3675a35`, updated here for the 2026-11-07 layout: blob `827e75b`) |
+
+### The course (2026-11-07 layout)
+
+`dronehacks-course-v3.step` is now the team's SolidWorks 2023 export (SHA-256 `2194664e…b876`,
+kept byte-exact by `.gitattributes`). It replaced the 2026-11-06 Onshape export
+(`b0e52800…4500`). What changed:
+
+* **Removed** (hidden in the assembly, so not exported): the maze dividers M1, M2 and M3 and the
+  net roof. The net's side panels are still 3.048 m tall, and the top of the net box is the
+  course's height limit: climbing above it ends the run as leaving the course.
+* **Added**: two walls, the two bodies of one part (`Part67 / Boss-Extrude1[1]` and `[2]`), 68 in
+  tall: a 1.8 × 0.35 m block against the west and north nets, and a 0.10 m diagonal wall at
+  42.9° from east whose south end meets Barrier 1's north face. The narrowest new gap is about
+  1.0 m, between the two.
+* **Checkpoints**: CP1 (end of the first corridor) is gone. CP2–CP5 keep their ids, names, lines
+  and points. CP2 Gate A is now an explicit segment where it was (M3's centreline from its old
+  north end to the north net), because its southern wall is gone.
+* Every other part is unchanged (bounding boxes within 0.1 mm).
+
+How the SITL reads it: instance names come from the PRODUCT, minus SolidWorks' `.step` file
+extension and `^<assembly>` virtual-component suffix, so the names are the same as before; a
+multi-body part's solids are `<part> / <body>`. A solid whose name gives no kind (here `Part67`)
+is a wall if it stands on the floor and reaches the wall top, so touching it costs 5 s. SolidWorks
+writes the boulder domes as two B-spline halves whose edges meet at the apex (Onshape used a
+VERTEX_LOOP there); the tessellator now handles edge loops through a surface pole.
 
 ### One test session, as the simulation runs it
 
@@ -265,6 +291,9 @@ runtime.
 
 * A touch is any contact of the body, a prop or the landing gear with a wall, the tube, its
   supports or a boulder. Contacts with one object within 0.5 s count as one touch.
+* **Leaving the course** is leaving the nets' bounding box (5 cm margin). The 2026-11-07 export
+  has no roof, so nothing physically stops a climb; above the panels' top (3.048 m) the run
+  ends.
 * The window bonus (5 points) is for any finished window-route run, even one with a checkpoint
   taken over a wall.
 * **The optional return (rule 7.10).** After the outbound pad disarm, if the version's return
@@ -301,6 +330,27 @@ runtime.
 
 Each of these comes from running the real code here. They are worth checking on the drone.
 
+Findings 1–12 were measured on the **2026-11-06 layout** (Onshape export: maze dividers M1–M3, a
+net roof, five checkpoints). The 2026-11-07 layout changes the course north of Barrier 1, so
+route results there need re-running once the autonomy branches have new routes; findings that
+no longer apply are marked *superseded* rather than removed.
+
+**On the 2026-11-07 layout**, `traj` (`navigation/vo-traj-follower` at `0b783d9`, which routes
+through CP2 Gate A as a gate goal) with `land=land`, dark tunnel, dropout coast:
+
+| route | track speed | seed | checkpoints | time | touches | penalised |
+|---|---|---|---|---|---|---|
+| window | 0.8 m/s | 1 / 2 / 3 | 31 + window bonus | 37.1 / 34.8 / 34.3 s | 0 / 0 / 0 | 37.1 / 34.8 / 34.3 s |
+| window | 0.9 m/s | 1 | 31 + window bonus | 35.8 s | 0 | 35.8 s |
+| window | 1.0 m/s | 1 | 31 + window bonus | 35.1 s | 1 (window frame) | 40.1 s |
+| gate_b | shipped speed | 1 | 31 | 63.1 s | 0 | 63.1 s |
+| gate_b | 0.8 m/s | 1 | 31 | 38.9 s | 1 (C1) | 43.9 s |
+| gate_b | 1.0 m/s | 1 | 31 | 38.3 s | 2 (C1) | 48.3 s |
+
+The Gate B touches are on C1 in the turn after the tunnel; the chicane did not change. The lidar
+builds, `vo_nolidar` and `manual_full` still fly the 2026-11-06 layout's routes and hit the new
+walls.
+
 1. **Drone 1's 2026-10-15 parameter dump has `COM_FLTMODE6 = 0`.** The switch position the pilot
    calls "Position" is Manual there, so the arm-then-Position procedure never starts Offboard. The
    fleet baseline and drone 16 have 2. Check the live value before a test.
@@ -308,7 +358,8 @@ Each of these comes from running the real code here. They are worth checking on 
    1.0 m/s. The lag governor holds the reference back because PX4's position loop lags by
    v/`MPC_XY_P`. This matches the planner bench's "plain poses" result. With `path_lead` it takes
    about half the time.
-3. **CP1 is easy to miss.** The rules file's CP1 line is at north 2.584 m. The traj route turns
+3. *Superseded by the 2026-11-07 layout: CP1 is removed.* **CP1 is easy to miss.** The rules
+   file's CP1 line was at north 2.584 m. The traj route turns
    east with its centre just past it but its tail short of it, so the *whole drone* never crosses.
    Every later checkpoint then does not count (rule 7.6). The lidar routes go far enough north.
 4. **The dark tunnel defeated every plan, the lidar ones too; flying through fixes it.**
@@ -329,7 +380,8 @@ Each of these comes from running the real code here. They are worth checking on 
      * `vo_nolidar` finishes all five checkpoints with no touches, in 105.3 s (104.9 s lit).
      * `lidar_allowed`, `lidar_forbidden` and `return_flight` reach CP4 with no touches, then
        hold over the pad (landing is off by default).
-     * traj gets through the tube but still scores nothing, because of finding 3.
+     * traj gets through the tube but still scores nothing, because of finding 3 (superseded:
+       CP1 is gone in the 2026-11-07 layout).
      * After the tube, the path stays within 1 cm (`lidar_forbidden`, median) to 7 cm
        (`vo_nolidar`, median; 12.5 cm at most) of the same version's lit-tunnel path.
      * The `dropout: hold` option reproduces the old failure.
@@ -337,7 +389,8 @@ Each of these comes from running the real code here. They are worth checking on 
 5. **`manual_full` assumes odom +x = course east.** cuVSLAM's +x is the nose, which faces north on
    the launch mark, so the drone flies west into the net and later flips.
 6. **The kit's 5 m square** flies into the north net at about 2 m. In this course, that is the
-   point of trying it here first.
+   point of trying it here first. In the 2026-11-07 layout it touches the new
+   `Part67 / Boss-Extrude1[1]` block first (seed 1, 30.0 s).
 7. **Landing.** The followers descend at a constant `descent_mps` (0.3 m/s, PX4's own crawl
    speed), about 2.3 s from the cruise height to the pad. The SITL had kept the drone armed on
    the pad for 21 s after touchdown, because its PX4 model lacked the ground-contact thrust cut.
@@ -374,7 +427,8 @@ Each of these comes from running the real code here. They are worth checking on 
    * **Drift ×1** (default): no touches. Median error 2–7 cm, worst 0.12–0.19 m. Drift is a
      random walk, mostly in heading, so one setting gives quite different runs: a different
      random sequence at ×1 reached 0.34 m.
-   * **Drift ×3 and ×5**: 1–2 wall touches per run (the C2a chicane wall, the maze dividers),
+   * **Drift ×3 and ×5**: 1–2 wall touches per run (the C2a chicane wall, the maze dividers of
+     the old layout),
      worst error 0.33–0.45 m. All still finish.
    * **Drift ×10**: seed 1 hit the tube and crashed. Seed 2 never left TAKEOFF: cuVSLAM's height
      read 0.50 m while PX4 held 0.73 m on the rangefinder, and traj waits for the *odom* height
@@ -396,6 +450,10 @@ Each of these comes from running the real code here. They are worth checking on 
    * It disarmed 0.005 m from the launch mark's centre at 136.1 s: 116.9 s after the clock
      started, inside the 3 minutes. Run points x 1.25.
    * With `return: off` the drone stays on the pad.
+   * *Not reproduced on the 2026-11-07 layout* until the lidar build's own map is updated:
+     `return_flight` (at `959e234`) arms but never takes off, because `pose_fusion` never reports
+     ready against the old `course_v3_map.json` it ships (the same build takes off on the old
+     STEP model).
 
 ---
 
@@ -403,17 +461,25 @@ Each of these comes from running the real code here. They are worth checking on 
 
 ```
 cd sitl
-py -B -m unittest tests.test_rosfake tests.test_models tests.test_step_mesh tests.test_cache tests.test_catalog tests.test_review_fixes   # ~10 s
+py -B -m unittest tests.test_rosfake tests.test_models tests.test_step_mesh tests.test_course_layout tests.test_cache tests.test_catalog tests.test_review_fixes   # ~1 min
 py -B -m unittest tests.test_flight -v                                            # ~5 min: real flights
 ```
 
 **What they cover.**
 
 * `test_step_mesh`:
-  * the course model against reference numbers from two independent extractions;
-  * watertightness of all 33 solids;
+  * the course model against reference numbers from two independent extractions, and the
+    two new walls;
+  * watertightness of all 31 solids;
   * the window opening and the tube;
-  * raycast and closest-point correctness and timing.
+  * instance names from products (SolidWorks' `.step` extension and `^<assembly>` suffix, the
+    `<part> / <body>` names of a multi-body part), on synthetic assemblies and the course;
+  * edge loops through a surface pole: the course boulders, a split hemisphere and a sphere of
+    two lunes;
+  * raycast and closest-point correctness and timing, with the open roof.
+* `test_course_layout`: the geometry wall fallback (synthetic and the two new walls), the net
+  box as the height limit without a roof, and the rules file (no CP1, CP2 a segment, every name
+  resolving).
 * `test_rosfake`:
   * rosidl message semantics;
   * parameter typing;
@@ -427,7 +493,7 @@ py -B -m unittest tests.test_flight -v                                          
   * the takeoff ramp;
   * parameter profiles (including the `COM_FLTMODE6` finding);
   * the MS200 frame codec;
-  * the referee's gates from the STEP model and its whole-drone crossing rule.
+  * the referee's gates from the STEP model and its whole-drone crossing rule (on CP2).
 * `test_catalog`: the rocks option's launch variants and requirements, and the tunables.
 * `test_cache`:
   * workspace cleanup measures ages on the real clock (parallel runs used to delete each
@@ -468,7 +534,8 @@ call `dronesim.rosfake.activate()` and build the kit packages with
 * **Callbacks take zero simulated time.** A long planning computation freezes simulated time
   instead of delaying the stack.
 * **Contacts.** The nets are rigid. Contact is penalty-based; a crash ends the run but the tumble
-  is not modelled in detail.
+  is not modelled in detail. There is no roof solid (2026-11-07 export); the referee, not the
+  physics, enforces the height limit.
 * **Python version.** The local interpreter (3.13) differs from the Jetson (3.10).
 
 ## Code map

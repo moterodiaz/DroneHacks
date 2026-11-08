@@ -32,11 +32,10 @@ def hull(points):
 
 
 def course_shapes(course):
-    """[(name, kind, polygon xy)] for drawing, from the STEP solids."""
-    from ..world.course import classify
+    """[(name, kind, polygon xy)] for drawing, from the STEP solids (kinds as the course
+    classified them, so an unnamed wall is drawn as a wall)."""
     shapes = []
-    for s in course.solids:
-        kind = classify(s.name)
+    for s, kind in zip(course.solids, course.kinds):
         v = s.triangles.reshape(-1, 3)
         poly = hull(v[:, :2].tolist())
         shapes.append((s.name, kind, poly, float(s.bbox_max[2])))

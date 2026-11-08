@@ -5,7 +5,7 @@ px4_msgs built, from ``depthcam/``:
 
     python3 -m pytest tests/test_ros_nodes.py -q
 
-On drone 1, in the kit's container (``~/skybeta/host/run.sh shell``), after ``team_build.sh``:
+On drone 11, in the kit's container (``~/skybeta/host/run.sh shell``), after ``team_build.sh``:
 
     source /root/team_ws/install/setup.bash
     cd /root/team_ws/src/dronehacks_lidar

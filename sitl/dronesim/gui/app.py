@@ -509,7 +509,7 @@ class App:
             self._send(('quit',))           # the last run, kept after Stop for Save
             self._finish_proc()
         if self.map is None:
-            messagebox.showinfo('SITL', 'The course is still loading (first start builds the STEP cache, ~40 s).')
+            messagebox.showinfo('SITL', 'The course is still loading (first start builds the STEP cache, ~75 s).')
             return
         try:
             sc = self._scenario()

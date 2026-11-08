@@ -75,6 +75,11 @@ def _as_tube(solid: Solid) -> Optional[Dict[str, Any]]:
     if len(closed) < 4:
         return None
     u = closed[0].axis / np.linalg.norm(closed[0].axis)
+    # A conic's normal may point either way along the tube; fix the sign (largest component
+    # positive) so ``p0`` is always the end with the lower coordinate along the axis, whichever
+    # end face the exporter wrote first.  The rules' ``tube_end ... end p0`` depends on it.
+    if u[int(np.argmax(np.abs(u)))] < 0.0:
+        u = -u
     if any(abs(float(np.dot(c.axis, u))) < 0.999 for c in closed):
         return None
     groups: Dict[int, List[Conic]] = {}
@@ -292,7 +297,8 @@ class CourseMap:
         return cls(json.loads(Path(path).read_text(encoding="utf-8")))
 
     def save(self, path: Path) -> None:
-        Path(path).write_text(json.dumps(self.data, indent=1) + "\n", encoding="utf-8")
+        # LF on every OS: generated planner maps record this file's SHA-256
+        Path(path).write_text(json.dumps(self.data, indent=1) + "\n", encoding="utf-8", newline="\n")
 
     def feature(self, name: str) -> Dict[str, Any]:
         for f in self.features:

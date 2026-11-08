@@ -38,12 +38,12 @@ python3 -m dronehacks_autonomy.dry_run maps/course_v3_layout.yaml --rest-height 
 python3 -m dronehacks_autonomy.dry_run maps/course_v3_layout.yaml --rest-height 0.07 --return-height 2.2
 ```
 
-## Put it on drone 1
+## Put it on drone 11
 
 These steps are for a person: they touch the drone and end in a flight.
 
-1. Copy this folder to `~/team_ws/src/dronehacks_autonomy` on drone 1. Run `hostname` first; it
-   must print `skybeta-01`.
+1. Copy this folder to `~/team_ws/src/dronehacks_autonomy` on drone 11. Run `hostname` first; it
+   must print `skybeta-11`.
 2. In the container: `team_build.sh --packages-select dronehacks_autonomy`.
 3. Set `COMPETITOR_PKG=dronehacks_autonomy` in `/etc/skybeta/drone.env`.
 4. Create `~/team_ws/autonomy_params.yaml`, with values read off this drone:

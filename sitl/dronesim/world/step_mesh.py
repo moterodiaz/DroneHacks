@@ -38,7 +38,8 @@ Assembly placement (AP214; CAx-IF recommended practices, "assembly structure"):
   A point with coordinates ``p`` in the child representation therefore has
   coordinates ``T(item_2) @ inv(T(item_1)) @ p`` in the parent, where ``T(a)``
   maps placement ``a``'s local coordinates into its representation.
-  In ``dronehacks-course-v3.step`` every one of the 33 transformations maps the
+  In ``dronehacks-course-v3.step`` every transformation (33 in the Onshape
+  export of 2026-11-06, 30 in the SolidWorks export of 2026-11-07) maps the
   identity placement onto the identity placement, so both conceivable
   directions give the identity: the parts are modelled in world coordinates
   (confirmed against the known boulder and landing-pad positions).  The
@@ -47,6 +48,15 @@ Assembly placement (AP214; CAx-IF recommended practices, "assembly structure"):
 * A child SHAPE_REPRESENTATION (placements only) is linked to the
   ADVANCED_BREP_SHAPE_REPRESENTATION holding the MANIFOLD_SOLID_BREP by a plain
   SHAPE_REPRESENTATION_RELATIONSHIP (no transformation).
+* Instance names come from the PRODUCT of the instanced PRODUCT_DEFINITION
+  (its name, else its id, else its shape representation's name), cleaned by
+  :func:`product_label`: a trailing CAD file extension (SolidWorks writes
+  ``'Barrier 1.step'``) and a SolidWorks virtual-component suffix
+  ``'^<assembly>'`` are dropped.  Occurrence (NAUO) names are not used
+  (SolidWorks writes them blank).  A product with several MANIFOLD_SOLID_BREPs
+  (a multi-body part) names them ``'<product> / <body name>'``, or
+  ``'<product> / <n>'`` when body names are blank or repeated.  A product
+  instanced more than once gets ``' (2)'``, ``' (3)'``, ...
 * Units come from the GLOBAL_UNIT_ASSIGNED_CONTEXT of the representation's
   context (SI prefixes and CONVERSION_BASED_UNIT are honoured); all output is in
   metres.
@@ -72,7 +82,10 @@ Topology and orientation (ISO 10303-42):
   arcs is meant; an edge whose two vertices coincide is the full curve.
 * ``VERTEX_LOOP(name, vertex)``: a degenerate loop at a surface singularity
   (cone apex, pole of a revolved dome).  In (u, v) it becomes a segment of the
-  pole iso-line.
+  pole iso-line.  An EDGE_LOOP may also pass through a pole (SolidWorks splits
+  a dome into two faces whose meridian edges meet at the apex): that vertex
+  becomes a segment of the pole iso-line too, between the parameters of its
+  two neighbours (:meth:`_ParametricFace._uv_loop`).
 * SURFACE_CURVE / SEAM_CURVE / INTERSECTION_CURVE are tessellated from their
   ``curve_3d``.
 
@@ -93,6 +106,7 @@ from __future__ import annotations
 import hashlib
 import math
 import os
+import re
 import tempfile
 import zipfile
 from collections import defaultdict
@@ -112,10 +126,13 @@ __all__ = [
     "WatertightReport",
     "load_step",
     "load_step_cached",
+    "product_label",
 ]
 
 #: Bump whenever tessellation output changes, to invalidate caches.
-MESH_VERSION = 1
+#: 2: names from the PRODUCT (extension / virtual-component suffix stripped), edge loops
+#:    through a surface pole.
+MESH_VERSION = 2
 
 _TWO_PI = 2.0 * math.pi
 
@@ -1605,7 +1622,10 @@ class _ParametricFace:
     * two loops wrap (a full band, e.g. a cylinder between two circles): they are
       joined by a cut along the periodic direction, the cut appearing twice;
     * one loop wraps and the other side is a pole (VERTEX_LOOP, or a natural
-      pole such as a sphere's): the polygon is closed along the pole iso-line.
+      pole such as a sphere's): the polygon is closed along the pole iso-line;
+    * a loop passes through a pole: the pole vertex is replaced by a segment of
+      the pole iso-line (see :meth:`_uv_loop`), so the loop is an ordinary
+      outer boundary.
 
     The polygon is ear-clipped, made Delaunay, filled with a hexagonal lattice of
     spacing ~``max_edge`` and refined (centroid insertion) until every interior
@@ -1623,26 +1643,143 @@ class _ParametricFace:
         self.err = f"face #{fid} ({surf.kind})"
 
     # -- loop mapping ----------------------------------------------------------
-    def _uv_loop(self, pts: np.ndarray) -> Tuple[np.ndarray, List[int]]:
-        u, v = self.s.invert(pts)
+    def _uv_loop(self, pts: np.ndarray) -> Tuple[np.ndarray, np.ndarray, List[int]]:
+        """(uv, xyz, winding) of an edge loop, unwrapped across periodic seams.
+
+        A loop vertex on a surface pole (e.g. two meridians of a dome meeting at its
+        apex) has no single (u, v): the pole is a whole iso-line in the parameter
+        domain.  Such a vertex (or run of vertices) is replaced by two points on the
+        pole iso-line, at the free coordinate of the incoming and of the outgoing
+        neighbour, both carrying the vertex's 3-D position; the segment between them
+        runs along the pole and is filled in later (:meth:`_close_poles`), as for a
+        VERTEX_LOOP pole.  When the pole iso-line runs along a periodic direction the
+        step along it is free by whole periods: it is chosen so the loop does not
+        wrap in that direction.  A loop through two poles along the same periodic
+        direction (a lune between two meridians) closes either way; the choice is the
+        one that runs counter-clockwise about the face normal, as an outer bound does.
+        """
+        poles = self.s.poles()
+        pole_of = self._pole_ids(pts, poles)
+        if (pole_of >= 0).all():
+            raise StepMeshError(f"{self.err}: an edge loop lies entirely on a surface pole")
+        if (pole_of >= 0).any():
+            # Start on an off-pole point preceded by an off-pole point, so that no pole run
+            # straddles the loop's closing segment.
+            off = pole_of < 0
+            starts = np.flatnonzero(off & np.roll(off, 1))
+            s0 = int(starts[0]) if len(starts) else int(np.flatnonzero(off)[0])
+            pts = np.roll(pts, -s0, axis=0)
+            pole_of = np.roll(pole_of, -s0)
+        keep = np.flatnonzero(pole_of < 0)
+        u, v = self.s.invert(pts[keep])
         uv = np.stack([u, v], axis=1)
-        resid = np.linalg.norm(self.s.eval(uv[:, 0], uv[:, 1]) - pts, axis=1).max()
+        resid = np.linalg.norm(self.s.eval(uv[:, 0], uv[:, 1]) - pts[keep], axis=1).max()
         if resid > max(1e-4, 2 * self.tol):
             raise StepMeshError(f"{self.err}: boundary is {resid:.3g} m off its surface")
+        n = len(keep)
+        # after[i]: the pole (index into ``poles``) visited between keep[i] and keep[i + 1], or -1
+        after = np.full(n, -1)
+        for i in range(n):
+            gap = np.arange(keep[i] + 1, keep[i + 1] if i + 1 < n else len(pts))
+            ids = set(int(p) for p in pole_of[gap])
+            if len(ids) > 1:
+                raise StepMeshError(f"{self.err}: an edge loop runs from one surface pole to another")
+            if ids:
+                after[i] = ids.pop()
+        d = np.roll(uv, -1, axis=0) - uv           # d[i] = uv[i + 1] - uv[i], cyclically
         winding = [0, 0]
         for k, per in enumerate(self.s.periods):
             if per:
-                d = _wrap(np.diff(uv[:, k], append=uv[0, k]), per)
-                uv[1:, k] = uv[0, k] + np.cumsum(d[:-1])
-                winding[k] = int(round(d.sum() / per))
-        return uv, winding
+                d[:, k] = _wrap(d[:, k], per)
+                along = [i for i in range(n) if after[i] >= 0 and poles[after[i]][0] != k]
+                if along:   # the free step along the pole closes the loop in this direction
+                    d[along[0], k] -= per * round(float(d[:, k].sum()) / per)
+                if len(along) == 2:
+                    d = self._orient_pole_steps(uv, d, after, keep, pts, poles, along, k, per)
+                elif len(along) > 2:
+                    raise StepMeshError(f"{self.err}: an edge loop passes through a surface pole more than "
+                                        "twice (unsupported)")
+                uv[1:, k] = uv[0, k] + np.cumsum(d[:-1, k])
+                winding[k] = int(round(float(d[:, k].sum()) / per))
+        if not (after >= 0).any():
+            return uv, pts, winding
+        out_uv, out_xyz = self._with_pole_points(uv, d, after, keep, pts, poles)
+        return out_uv, out_xyz, winding
 
-    def _check_poles(self, pts: np.ndarray) -> None:
-        for j, val in self.s.poles():
-            q = self._pole_point(j, val)
-            if (np.linalg.norm(pts - q, axis=1) < 1e-7).any():
-                raise StepMeshError(f"{self.err}: an edge loop passes through a surface pole "
-                                    "(only VERTEX_LOOP poles are supported)")
+    def _with_pole_points(self, uv, d, after, keep, pts, poles) -> Tuple[np.ndarray, np.ndarray]:
+        """The loop's off-pole points, each pole visit replaced by its two pole iso-line points."""
+        out_uv: List[np.ndarray] = []
+        out_xyz: List[np.ndarray] = []
+        for i in range(len(uv)):
+            out_uv.append(uv[i])
+            out_xyz.append(pts[keep[i]])
+            if after[i] < 0:
+                continue
+            j, val = poles[after[i]]
+            per = self.s.periods[j]
+            q = pts[keep[i] + 1]                    # the pole vertex (first of its run)
+            p_in, p_out = uv[i].copy(), uv[i] + d[i]
+            for p in (p_in, p_out):
+                p[j] = val + (per * round((p[j] - val) / per) if per else 0.0)
+            out_uv += [p_in, p_out]
+            out_xyz += [q, q]
+        return np.array(out_uv), np.array(out_xyz)
+
+    def _orient_pole_steps(self, uv, d, after, keep, pts, poles, along, k, per) -> np.ndarray:
+        """Two free pole steps along periodic direction ``k``: shift a whole period from one to
+        the other until the loop runs counter-clockwise about the face normal in (u, v)."""
+        want = 1.0 if self.sense else -1.0
+        for m in (0, 1, -1):
+            cand = d.copy()
+            cand[along[0], k] += m * per
+            cand[along[1], k] -= m * per
+            trial = uv.copy()
+            trial[1:, k] = trial[0, k] + np.cumsum(cand[:-1, k])
+            ring, _ = self._with_pole_points(trial, cand, after, keep, pts, poles)
+            if np.ptp(ring[:, k]) <= per * (1 + 1e-9) and \
+                    _ring_area(ring[:, 0], ring[:, 1], range(len(ring))) * want > 0:
+                return cand
+        raise StepMeshError(f"{self.err}: cannot orient an edge loop through two surface poles")
+
+    def _pole_ids(self, pts: np.ndarray, poles: Sequence[Tuple[int, float]]) -> np.ndarray:
+        """Per loop point: the index of the surface pole it sits on, else -1."""
+        out = np.full(len(pts), -1)
+        tol = max(1e-6, 0.01 * self.tol)
+        for p, (j, val) in enumerate(poles):
+            near = (np.linalg.norm(pts - self._pole_point(j, val), axis=1) <= tol) & (out < 0)
+            out[near] = p
+        return out
+
+    def _close_poles(self, rings: List[Tuple[np.ndarray, np.ndarray]]) -> List[Tuple[np.ndarray, np.ndarray]]:
+        """Sample the ring segments that run along a pole iso-line (both ends on the pole,
+        same 3-D point) at the lattice spacing, every sample at the pole's 3-D position;
+        the triangles between them are degenerate and dropped, leaving a fan at the pole."""
+        poles = self.s.poles()
+        if not poles:
+            return rings
+        out = []
+        for uv, xyz in rings:
+            m = len(uv)
+            new_uv: List[np.ndarray] = []
+            new_xyz: List[np.ndarray] = []
+            for i in range(m):
+                a, b = uv[i], uv[(i + 1) % m]
+                new_uv.append(a[None])
+                new_xyz.append(xyz[i][None])
+                if not (np.isfinite(xyz[i]).all() and np.array_equal(xyz[i], xyz[(i + 1) % m])):
+                    continue
+                for j, val in poles:
+                    span = abs(float(b[1 - j] - a[1 - j]))
+                    if abs(a[j] - val) > 1e-12 * max(1.0, abs(val)) or abs(b[j] - val) > 1e-12 * max(1.0, abs(val)):
+                        continue
+                    n_pole = int(math.ceil(span * self.scale[1 - j] / self.h - 1e-9))
+                    if n_pole > 1:
+                        s = np.linspace(0.0, 1.0, n_pole + 1)[1:-1]
+                        new_uv.append(a + np.outer(s, b - a))
+                        new_xyz.append(np.repeat(xyz[i][None], len(s), axis=0))
+                    break
+            out.append((np.concatenate(new_uv), np.concatenate(new_xyz)))
+        return out
 
     def _pole_point(self, j: int, val: float) -> np.ndarray:
         other = 0.0
@@ -1656,11 +1793,11 @@ class _ParametricFace:
     def run(self) -> np.ndarray:
         edge_loops = [lp for lp in self.loops if not lp.vertex]
         vloops = [lp for lp in self.loops if lp.vertex]
-        uvs, winds = [], []
+        uvs, xyzs, winds = [], [], []
         for lp in edge_loops:
-            self._check_poles(lp.points)
-            uv, w = self._uv_loop(lp.points)
+            uv, xyz, w = self._uv_loop(lp.points)
             uvs.append(uv)
+            xyzs.append(xyz)
             winds.append(w)
         dirs = {k for w in winds for k in (0, 1) if w[k] != 0}
         if len(dirs) > 1 or any(abs(w[k]) > 1 for w in winds for k in (0, 1)):
@@ -1681,10 +1818,10 @@ class _ParametricFace:
             flags = [edge_loops[i].outer for i in plain]
             outer = plain[flags.index(True)] if any(flags) else plain[int(np.argmax([areas[i] for i in plain]))]
             centre = 0.5 * (uvs[outer].min(0) + uvs[outer].max(0))
-            rings.append((uvs[outer], edge_loops[outer].points))
+            rings.append((uvs[outer], xyzs[outer]))
             for i in plain:
                 if i != outer:
-                    rings.append((self._shift_into(uvs[i], centre), edge_loops[i].points))
+                    rings.append((self._shift_into(uvs[i], centre), xyzs[i]))
             self._setup_metric([r[0] for r in rings])
         else:
             P = self.s.periods[k]
@@ -1692,8 +1829,7 @@ class _ParametricFace:
             if len(wrap) == 2 and not vloops:
                 a, b = wrap
                 self._setup_metric([uvs[a], uvs[b]] + [uvs[i] for i in plain])
-                ring = self._band(k, P, uvs[a], winds[a][k], edge_loops[a].points,
-                                  uvs[b], winds[b][k], edge_loops[b].points)
+                ring = self._band(k, P, uvs[a], winds[a][k], xyzs[a], uvs[b], winds[b][k], xyzs[b])
             elif len(wrap) == 1 and len(vloops) <= 1:
                 a = wrap[0]
                 if vloops:
@@ -1703,15 +1839,15 @@ class _ParametricFace:
                 jv = pole_val[1]
                 extra = np.array([[uvs[a][0, k], jv]]) if k == 0 else np.array([[jv, uvs[a][0, k]]])
                 self._setup_metric([uvs[a], extra] + [uvs[i] for i in plain])
-                ring = self._cap(k, P, uvs[a], winds[a][k], edge_loops[a].points, jv, pole_val[2])
+                ring = self._cap(k, P, uvs[a], winds[a][k], xyzs[a], jv, pole_val[2])
             else:
                 raise StepMeshError(f"{self.err}: unsupported boundary configuration "
                                     f"({len(wrap)} wrapping loop(s), {len(vloops)} vertex loop(s))")
             rings.append(ring)
             centre = 0.5 * (ring[0].min(0) + ring[0].max(0))
             for i in plain:
-                rings.append((self._shift_into(uvs[i], centre), edge_loops[i].points))
-        return self._mesh(rings)
+                rings.append((self._shift_into(uvs[i], centre), xyzs[i]))
+        return self._mesh(self._close_poles(rings))
 
     def _shift_into(self, uv: np.ndarray, centre: np.ndarray) -> np.ndarray:
         uv = uv.copy()
@@ -1997,21 +2133,66 @@ def _relationship_matrix(sf: StepFile, rr: Entity, child_reps: Sequence[int]) ->
     return m12 if child_is_rep1 else np.linalg.inv(m12)
 
 
+_CAD_EXTENSION = re.compile(r"\.(?:step|stp|sldprt|sldasm)$", re.IGNORECASE)
+_VIRTUAL_COMPONENT = re.compile(r"(.+)\^[^^]+")
+
+
+def product_label(raw: Optional[str]) -> str:
+    """Display name of a PRODUCT (or shape representation) name.
+
+    CAD exporters decorate part names: SolidWorks writes the source file name
+    (``'Barrier 1.step'``) and names a virtual component (a part saved inside
+    its assembly) ``'<part>^<assembly name>'``.  A trailing CAD file extension
+    (``.step``, ``.stp``, ``.sldprt``, ``.sldasm``, any case) and a ``^<assembly>``
+    suffix are removed; anything else is kept as written.
+    """
+    name = _CAD_EXTENSION.sub("", str(raw or "").strip()).strip()
+    m = _VIRTUAL_COMPONENT.fullmatch(name)
+    if m:
+        name = _CAD_EXTENSION.sub("", m.group(1).strip()).strip()
+    return name
+
+
+def _body_labels(name: str, msbs: Sequence[Entity]) -> List[str]:
+    """Instance names of the solids of one product: the product name for a single body,
+    ``'<product> / <body name>'`` for several, with 1-based indices when a body name is
+    empty or repeated."""
+    if len(msbs) == 1:
+        return [name]
+    bodies = [str(m.args[0] or "").strip() for m in msbs]
+    if not all(bodies) or len(set(bodies)) != len(bodies):
+        bodies = [str(k + 1) for k in range(len(msbs))]
+    return [f"{name} / {b}" for b in bodies]
+
+
 def _assembly_instances(sf: StepFile) -> List[_Instance]:
-    pd_name: Dict[int, str] = {}
-    for pd in sf.by_type("PRODUCT_DEFINITION"):
-        try:
-            prod = sf.get(sf.get(pd.args[2]).args[2])
-            pd_name[pd.id] = prod.args[1] or prod.args[0] or f"#{pd.id}"
-        except (KeyError, IndexError):
-            pd_name[pd.id] = f"#{pd.id}"
     pds_def = {p.id: p.args[2].id for p in sf.by_type("PRODUCT_DEFINITION_SHAPE") if isinstance(p.args[2], Ref)}
+    pd_ids = {pd.id for pd in sf.by_type("PRODUCT_DEFINITION")}
     pd_reps: Dict[int, List[int]] = defaultdict(list)
     for sdr in sf.by_type("SHAPE_DEFINITION_REPRESENTATION"):
         d = pds_def.get(sdr.args[0].id)
-        if d is not None and d in pd_name:
+        if d is not None and d in pd_ids:
             pd_reps[d].append(sdr.args[1].id)
     sdr_reps = {r for reps in pd_reps.values() for r in reps}
+
+    # Instance names come from the PRODUCT (PRODUCT_DEFINITION -> formation -> PRODUCT):
+    # its name, else its id, else the name of its shape representation.  Occurrence
+    # (NAUO) names are not used: SolidWorks writes them blank.
+    pd_name: Dict[int, str] = {}
+    for pd in sf.by_type("PRODUCT_DEFINITION"):
+        candidates: List[Optional[str]] = []
+        try:
+            prod = sf.get(sf.get(pd.args[2]).args[2])
+            candidates += [prod.args[1], prod.args[0]]
+        except (KeyError, IndexError, AttributeError):
+            pass
+        for rid in pd_reps.get(pd.id, ()):
+            try:
+                candidates.append(sf.get(rid).args[0])
+            except (KeyError, IndexError):
+                pass
+        labels = [product_label(c) for c in candidates if isinstance(c, str)]
+        pd_name[pd.id] = next((c for c in labels if c), f"#{pd.id}")
 
     children: Dict[int, List[Entity]] = defaultdict(list)
     child_pds = set()
@@ -2062,8 +2243,7 @@ def _assembly_instances(sf: StepFile) -> List[_Instance]:
         if depth > 32:
             raise StepMeshError("assembly nesting deeper than 32 levels (cycle?)")
         solids = solids_of(pd)
-        for k, (msb, rep) in enumerate(solids):
-            label = name if len(solids) == 1 else f"{name}/{msb.args[0] or k + 1}"
+        for label, (msb, rep) in zip(_body_labels(name, [s[0] for s in solids]), solids):
             instances.append(_Instance(label, msb, matrix, rep))
         for nauo in children.get(pd, ()):
             child = nauo.args[4].id
@@ -2071,7 +2251,7 @@ def _assembly_instances(sf: StepFile) -> List[_Instance]:
             if rr is None:
                 raise StepMeshError(f"#{nauo.id}: occurrence has no CONTEXT_DEPENDENT_SHAPE_REPRESENTATION")
             m = _relationship_matrix(sf, rr, pd_reps.get(child, ()))
-            walk(child, matrix @ m, nauo.args[1] or pd_name.get(child, f"#{child}"), depth + 1)
+            walk(child, matrix @ m, pd_name.get(child, f"#{child}"), depth + 1)
 
     for pd in sorted(pd_name):
         if pd not in child_pds:

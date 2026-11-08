@@ -1,0 +1,27 @@
+{
+  "captured_utc": "2026-11-08T04:44:49Z",
+  "port": "COM3",
+  "heartbeat": {
+    "sysid": 11,
+    "compid": 1,
+    "type": 2,
+    "autopilot": 12,
+    "base_mode": 29,
+    "custom_mode": 50593792,
+    "system_status": 0
+  },
+  "autopilot_version": {
+    "capabilities": 59647,
+    "flight_sw_version": "0x01100200",
+    "middleware_sw_version": "0x01100200",
+    "os_sw_version": "0x0b0000ff",
+    "board_version": "0x00000038",
+    "flight_custom_version": "0000004195c5397a",
+    "middleware_custom_version": "0000004195c5397a",
+    "os_custom_version": "a6091dc9c69018c2",
+    "vendor_id": 12677,
+    "product_id": 56,
+    "uid": 3833496850778372145,
+    "uid2": ""
+  }
+}
