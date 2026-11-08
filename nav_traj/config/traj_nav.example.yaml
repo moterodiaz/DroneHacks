@@ -17,7 +17,7 @@ mission:
     # not this kit's numbers.
     # Body centre above the floor when landed, tape-measured (contracts/frames.md
     # body_resting_height). Setpoint z = slice_height - this.
-    rest_height_m: .nan
+    rest_height_m: 0.07
     # The measured course->odom transform, contracts/frames.md:
     #   p_odom = o_odom + R_odom_course * p_course
     # Measure it at each tracking initialisation; do NOT assume an identity rotation from the
@@ -25,12 +25,12 @@ mission:
     # course_to_odom_yaw: the rotation of R_odom_course, radians CCW from east
     # (0.0 = odom +x is course east; -1.5708 = odom +x is course north).
     # course_to_odom_{x,y}: o_odom, the odom reading of the course origin, metres.
-    course_to_odom_yaw: .nan
-    course_to_odom_x: .nan
-    course_to_odom_y: .nan
+    course_to_odom_yaw: -1.5708
+    course_to_odom_x: -0.9144
+    course_to_odom_y: -2.5146
     # MPC_XY_VEL_MAX on the drone. fleet/SN0001 params say 1.0, 00_baseline says 12. Read the live
     # value (QGroundControl > Parameters) and set it here: the speed profile plans to it.
-    v_max_mps: 1.0
+    v_max_mps: 0.5
     prefer: [""]                     # e.g. ["gate_b"] to force an alternative; [""] = fastest verified
     state_topic: "/skybeta/state"
     land_detected_topic: "auto"      # /fmu/out/vehicle_land_detected[_vN], read only
@@ -53,4 +53,4 @@ mission:
     pose_timeout_s: 0.5
     max_prediction_s: 0.2
     abort_cross_track_m: 0.35        # off the path by more than this: hold and wait for the pilot
-    land: false                      # hold over the pad for the pilot; only the window lines land (px4.md exception)
+    land: false                      # hold over the pad for the pilot (px4.md); true needs a landing contract
