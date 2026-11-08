@@ -5,7 +5,41 @@ DroneDepthCamTesting repo (branch `host-agnostic-cuvslam-setup`: `docs/dronehack
 `docs/day-one-checklist.md`, `sim/README.md`), where each finding is recorded with its command,
 host and output. **[M]** measured, **[I]** inferred. "SITL" is that repo's PX4 v1.16.1 SITL with
 Gazebo, a simulated OAK-D and cuVSLAM in the loop, flown through the organisers' unmodified bridge.
-Nothing here has been checked on a real drone yet.
+The section "On skybeta-11" is from our own drone's square-test flights; the rest is not yet
+checked on a real drone.
+
+## On skybeta-11 (2026-11-07) [M unless marked]
+
+Read from the light bags in `flights/` (odometry, `/skybeta/state`, `/fmu/in/trajectory_setpoint`,
+`/fmu/out/*`); no PX4 ULog yet. Analysis scripts in Michael Bar On's session scratchpad (`drift/`,
+`flights11/`).
+
+- **PX4's height has its own origin.** PX4 takes height from the rangefinder with its origin
+  where the FC powered up; odom's is where the stack started. `003042` read PX4 −0.72 m on the
+  floor against odom 0.01 m and flew to 1.33 m for 0.74 m. Power-cycling on the mark plus the
+  PX4-offset correction fixed it: `013018` held 0.71-0.75 m for 0.73 m, with the offset 0.13 m on
+  the floor and 0.20-0.23 m in the air.
+- **The drone drifts after every yaw in place, not on arrival.** In `013018` PX4's estimate and
+  odom agree (median 1.3 cm, 95th percentile 3.3 cm; heading 0.6°) and PX4 receives the right
+  target, so it is control error. Moves close to under 3 cm within about 1 s; a hold without a yaw
+  stayed within 7 cm. After each 90° yaw at 20°/s the error peaked at 10-18 cm, 1-3 s after the
+  yaw ended, always to the left of the new nose, and took up to 8 s to come back under 5 cm.
+- **Why: a push fixed to the airframe.** The acceleration PX4's tilt does not account for is
+  about 0.10 m/s² (about 0.6° of tilt), forward-left of the nose; it is steadier in the body frame
+  than the world frame, and rotating it by each yaw predicts every corner's drift direction within
+  9-18°. PX4's integrator holds the correction in world axes, so a yaw leaves it pointing the wrong
+  way until relearned. In `003042` the push was 0.25 m/s². [I] A thrust axis tilted about 1° from
+  the IMU, or an unlearned accelerometer bias; the ULog's `estimator_sensor_bias` tells them apart.
+- **What it means for the route [I].** A heading change Δψ leaves PX4 short by 2 sin(Δψ/2) times
+  the push: 10-18 cm per 90° at 0.10 m/s², 25-35 cm at 0.25, against about ±0.18 m of margin in
+  the maze. Fixes without touching PX4: hold a fixed heading (`heading_mode:=fixed` in both
+  packages), or yaw slowly on straights, in smaller steps, with a settle after. The square test's
+  `heading_mode:=both` flies one lap fixed and one turning, an A/B in one flight.
+- **Touch-and-go:** PX4 disarmed 1.9 s after touchdown, 0.8 s into the climb out, and Offboard
+  needs the pilot after a disarm. A return flight must climb within about 1 s of touchdown.
+- **Landing:** 0.3 m/s showed no ground contact for 1.3 s after touchdown (`003042`); both packages
+  descend at 0.5 m/s, and `013018` disarmed on the ground. Odom moved about 15 cm sideways at
+  touchdown; tape-measure the landing spot to tell a slide from a tracker jump.
 
 ## Before arming (2026-11-07)
 
