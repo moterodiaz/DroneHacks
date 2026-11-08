@@ -5,8 +5,8 @@ import math
 
 import pytest
 
-from dronehacks_course_follower.frames import (REST_WINDOW_S, CourseToOdom, NotAtRest, RestOnMark, quaternion_yaw,
-                                               yaw_quaternion)
+from dronehacks_course_follower.frames import (REST_WINDOW_S, CourseToOdom, NotAtRest, RestOnMark, frames_disagree,
+                                               quaternion_yaw, yaw_quaternion)
 
 # An arbitrary measured transform: odom turned a third of a right angle from the course, its
 # launch reading off zero, its origin a little above the floor
@@ -96,3 +96,15 @@ def test_too_little_odometry_is_not_a_rest_and_old_samples_are_forgotten() -> No
     carried = [(index * 0.05, 3.0 - 0.05 * index, 0.0, 0.0) for index in range(60)]
     still = [(3.0 + index * 0.05, 0.0, 0.0, 0.0) for index in range(int(REST_WINDOW_S / 0.05) + 5)]
     assert _rest(carried + still).transform().point_to_odom(*_MARK) == pytest.approx((0.0, 0.0))
+
+
+def test_px4_and_odometry_that_started_apart_are_named_and_agreeing_ones_pass() -> None:
+    # PX4 NED reads the tracker's ENU with x and y swapped and z negated when both start together
+    odom = (-0.04, -0.01, 0.01)
+    assert frames_disagree(odom, (-0.01, -0.04, -0.03), limit_m=0.15) is None
+
+    # Skybeta-11's last cage flight: PX4's height origin 0.73 m above the floor, the tracker's on it
+    assert "height" in frames_disagree(odom, (-0.01, -0.04, 0.72), limit_m=0.15)
+
+    # The tracker started 3.3 m from where PX4's position puts the drone
+    assert "position" in frames_disagree((-3.30, 0.64, 0.0), (0.0, 0.0, 0.0), limit_m=0.15)

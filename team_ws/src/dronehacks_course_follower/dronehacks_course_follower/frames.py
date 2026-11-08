@@ -123,6 +123,27 @@ class RestOnMark:
                             origin_height_m=self.origin_height_m)
 
 
+def frames_disagree(odom_enu: tuple[float, float, float], px4_ned: tuple[float, float, float],
+                    limit_m: float) -> str | None:
+    """Why PX4's local position and the tracker's odometry disagree by more than `limit_m`, or None.
+
+    The kit's interface hands PX4 an odom ENU setpoint as NED (x and y swapped, z negated), which is
+    only right while both frames share an origin. PX4 takes x, y and yaw from vision but its height
+    from the rangefinder, with its origin where the flight controller powered up; odom's origin is
+    where the stack started. A drone powered up off its take-off spot flies every setpoint shifted."""
+    north_m, east_m, down_m = px4_ned
+    x_m, y_m, z_m = odom_enu
+    horizontal_m = math.hypot(east_m - x_m, north_m - y_m)
+    if horizontal_m > limit_m:
+        return f"PX4 position and cuVSLAM disagree by {horizontal_m:.2f} m"
+
+    vertical_m = abs(-down_m - z_m)
+    if vertical_m > limit_m:
+        return f"PX4 height and cuVSLAM disagree by {vertical_m:.2f} m"
+
+    return None
+
+
 def wrap_angle(angle_rad: float) -> float:
     """The angle brought into [-pi, pi); NaN stays NaN."""
     return (angle_rad + math.pi) % (2 * math.pi) - math.pi

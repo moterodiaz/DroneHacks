@@ -45,7 +45,10 @@ FOLLOWER_ARGUMENTS = [
     ("odom_origin_height_m", "0.0", float, "height of the odom origin above the floor, metres"),
     ("odometry_topic", "/visual_slam/tracking/odometry", str, "drone pose source, odom frame"),
     ("rate_hz", "50.0", float, "follower setpoint rate"),
-    ("speed_mps", "1.0", float, "top speed along the route, m/s"),
+    ("speed_mps", "nan", float, "top speed along the route, m/s; NaN flies the speed ladder's current step"),
+    ("speed_ladder", "0.5,0.7,0.85,1.0", str, "the ladder's rising top speeds, m/s: a recorded run that lands "
+                                              "on the pad moves the next run up a step"),
+    ("ladder_file", "/root/team_ws/course_follower_ladder.json", str, "where the ladder's step is kept across runs"),
     ("pose_lead", "false", bool, "lead the pose by the setpoint's velocity and acceleration; only with "
                                  "the interface at 50 Hz: at its default 10 Hz led poses cut the first maze corner"),
     ("allow_window", "true", bool, "fly the window when the map says it is passable"),

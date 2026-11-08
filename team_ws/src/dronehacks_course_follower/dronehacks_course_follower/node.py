@@ -18,17 +18,31 @@ from pathlib import Path
 import rclpy
 from geometry_msgs.msg import PoseStamped, TwistStamped
 from nav_msgs.msg import Odometry
+from px4_msgs.msg import VehicleLocalPosition
 from rclpy.node import Node
+from rclpy.qos import qos_profile_sensor_data
 from std_msgs.msg import String
 
 from .dry_run import packaged_map
 from .follower import Drone
-from .frames import CourseToOdom, NotAtRest, RestOnMark, quaternion_yaw, yaw_quaternion
-from .mission import Mission, PoseCommand, TwistCommand
+from .frames import CourseToOdom, NotAtRest, RestOnMark, frames_disagree, quaternion_yaw, yaw_quaternion
+from .ladder import parse_steps, read_step, record_run
+from .mission import Mission, Phase, PoseCommand, TwistCommand
 from .planner import load_course_map, plan_flight
 
 # An odometry message older than this counts as no estimate: the setpoint waits for it
 ODOMETRY_STALE_S = 0.5
+
+# Before Offboard, PX4's local position and the odometry must agree this closely, or nothing is
+# streamed and the kit never takes over: the interface hands PX4 odom setpoints unchanged
+FRAMES_LIMIT_M = 0.15
+
+# The speed ladder's top speeds, m/s: a recorded run that lands on the pad moves the next up a step.
+# It stops at PX4's MPC_XY_VEL_MAX on the kit, 1.0 m/s
+DEFAULT_LADDER = "0.5,0.7,0.85,1.0"
+
+# Where the ladder's step lives across stack restarts: the team workspace, the host's ~/team_ws
+LADDER_FILE = "/root/team_ws/course_follower_ladder.json"
 
 # The frame the flight interface reads setpoints in
 ODOM_FRAME = "odom"
@@ -66,15 +80,24 @@ class CourseFollower(Node):
                               tunnel_lead_m=self._parameter("tunnel_lead_m", 0.0))
         launch = (float(course_map["launch"][0]), float(course_map["launch"][1]))
         origin_height_m = self._parameter("odom_origin_height_m", 0.0)
-        self.mission = Mission(planned.route, planned.walls, float(course_map["height_m"]), launch,
-                               self._parameter("speed_mps", 1.0), lead=self._parameter("pose_lead", False),
-                               land=self._parameter("land", True))
 
         # One flight per launch while recording: the run ends a little after its disarm, and the
         # transform flown is written into the run's folder for the flight report
         self.record = bool(self._parameter("record", False))
         self.run_dir = self._parameter("run_dir", "")
         self.over_at_s: float | None = None
+
+        # The top speed: given, or, for a recorded run, the speed ladder's current step
+        self.ladder_steps = parse_steps(self._parameter("speed_ladder", DEFAULT_LADDER))
+        self.ladder_path = Path(self._parameter("ladder_file", LADDER_FILE))
+        self.ladder_step: int | None = None
+        speed_mps = self._parameter("speed_mps", math.nan)
+        if not math.isfinite(speed_mps):
+            self.ladder_step = read_step(self.ladder_path, len(self.ladder_steps)) if self.record else 0
+            speed_mps = self.ladder_steps[self.ladder_step]
+
+        self.mission = Mission(planned.route, planned.walls, float(course_map["height_m"]), launch, speed_mps,
+                               lead=self._parameter("pose_lead", False), land=self._parameter("land", True))
 
         # The transform as given, or read from the rest on the mark: the map's launch heading is
         # counter-clockwise from east
@@ -93,6 +116,13 @@ class CourseFollower(Node):
         self.drone_at_s = -math.inf
         self.offboard, self.armed = False, False
         self.seen_events = 0
+
+        # PX4's local position (read only) and the raw odometry, compared before Offboard
+        self.odom_enu: tuple[float, float, float] | None = None
+        self.px4_ned: tuple[float, float, float] | None = None
+        self.frames_problem: str | None = None
+        self.create_subscription(VehicleLocalPosition, "/fmu/out/vehicle_local_position", self.on_px4_position,
+                                 qos_profile_sensor_data)
         self.pose_publisher = self.create_publisher(PoseStamped, "/skybeta/setpoint/pose", 10)
         self.twist_publisher = self.create_publisher(TwistStamped, "/skybeta/setpoint/twist", 10)
         self.create_subscription(Odometry, self._parameter("odometry_topic", "/visual_slam/tracking/odometry"),
@@ -104,7 +134,10 @@ class CourseFollower(Node):
                                f"{'flown' if planned.window_flown else 'closed'}, flight height "
                                f"{self.mission.height_m:.2f} m (odom z {self.mission.height_m - origin_height_m:.2f}); "
                                + ("course placed by the given transform" if all(given) else
-                                  "the course is placed from the rest on the launch mark at arming"))
+                                  "the course is placed from the rest on the launch mark at arming")
+                               + f"; top speed {speed_mps:.2f} m/s"
+                               + ("" if self.ladder_step is None else
+                                  f" (ladder step {self.ladder_step + 1} of {len(self.ladder_steps)})"))
 
     def _parameter(self, name: str, default: float | bool | str) -> float | bool | str:
         """Declares a parameter with its default and returns its value."""
@@ -117,6 +150,7 @@ class CourseFollower(Node):
         from the rest on the mark, the pose also feeds that reading, and is None while not at rest."""
         position, orientation = message.pose.pose.position, message.pose.pose.orientation
         odom_yaw_rad = quaternion_yaw(orientation.x, orientation.y, orientation.z, orientation.w)
+        self.odom_enu = (position.x, position.y, position.z)
         if self.placement is Placement.READING:
             self.rest.add(time.monotonic(), position.x, position.y, odom_yaw_rad)
             try:
@@ -180,10 +214,35 @@ class CourseFollower(Node):
                         f"    course_to_odom_x: {self.transform.odom_origin[0]!r}\n"
                         f"    course_to_odom_y: {self.transform.odom_origin[1]!r}\n", encoding="utf-8")
 
+    def on_px4_position(self, message: VehicleLocalPosition) -> None:
+        """Keeps PX4's local position (NED) while PX4 holds it valid."""
+        if message.xy_valid and message.z_valid:
+            self.px4_ned = (message.x, message.y, message.z)
+
+    def _frames_problem(self) -> str | None:
+        """Why the odometry cannot be handed to PX4 yet, or None; logged once per change."""
+        problem = None
+        if self.odom_enu is not None:
+            problem = ("no valid PX4 local position yet" if self.px4_ned is None else
+                       frames_disagree(self.odom_enu, self.px4_ned, FRAMES_LIMIT_M))
+
+        if problem != self.frames_problem:
+            if problem:
+                self.get_logger().error(f"{problem}: not streaming, so no Offboard. Power-cycle the drone (FC and "
+                                        "Jetson) sitting on the launch mark")
+            else:
+                self.get_logger().info("PX4 and cuVSLAM agree: streaming")
+            self.frames_problem = problem
+
+        return problem
+
     def on_tick(self) -> None:
-        """One mission step: its command published, its phase changes logged."""
+        """One mission step: its command published, its phase changes logged. Before Offboard, nothing
+        is streamed while PX4's frame and the tracker's disagree."""
         now_s = time.monotonic()
         drone = self.drone if now_s - self.drone_at_s < ODOMETRY_STALE_S else None
+        if self.mission.phase is Phase.WAIT and self._frames_problem():
+            drone = None
         command = self.mission.tick(now_s, self.offboard, self.armed, drone)
         for event in self.mission.events[self.seen_events:]:
             self.get_logger().info(event)
@@ -198,6 +257,22 @@ class CourseFollower(Node):
             self.over_at_s = now_s
             self.get_logger().info(f"flight over and disarmed: exiting in {RECORDING_TAIL_S:.0f} s to close the "
                                    "recording; restart the stack on the mark to fly again")
+            self._climb_ladder()
+
+    def _climb_ladder(self) -> None:
+        """Records the run on the speed ladder: a landing on the pad moves the next run up a step."""
+        if self.ladder_step is None:
+            return
+
+        landed = self.mission.phase is Phase.DONE
+        try:
+            next_step = record_run(self.ladder_path, self.ladder_step, self.ladder_steps, landed)
+        except OSError as failure:
+            self.get_logger().error(f"speed ladder not written to {self.ladder_path}: {failure}")
+            return
+
+        self.get_logger().info(f"speed ladder: {'landed on the pad' if landed else 'did not land on the pad'}, "
+                               f"next run {self.ladder_steps[next_step]:.2f} m/s")
 
     def finished(self) -> bool:
         """Whether the recorded flight is over and its tail kept, so the node can exit."""

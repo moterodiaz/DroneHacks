@@ -105,7 +105,9 @@ tell where the mark is, so a misplaced drone flies the whole route shifted by th
 | `course_map` | packaged | a surveyed map |
 | `course_to_odom_yaw`, `_x`, `_y` | NaN | a measured transform, all three or none; none reads it from the rest on the mark at arming |
 | `odom_origin_height_m` | 0.0 | the odom origin's height above the floor; 0 flies odom z = map height, as the manual navigator's `hover_altitude_m` does |
-| `speed_mps` | 1.0 | `MPC_XY_VEL_MAX` is 1.0 on the kit |
+| `speed_mps` | NaN | a fixed top speed; NaN flies the speed ladder's current step (below) |
+| `speed_ladder` | 0.5,0.7,0.85,1.0 | rising top speeds, m/s; 1.0 is the kit's `MPC_XY_VEL_MAX` |
+| `ladder_file` | /root/team_ws/course_follower_ladder.json | the ladder's step across runs (host: `~/team_ws/`) |
 | `rate_hz` | 50 | follower publish rate |
 | `pose_lead` | false | true leads the pose by velocity and acceleration: faster, but only safe with the interface at 50 Hz (Known risks) |
 | `allow_window` | true | false always takes Gate B |
@@ -113,6 +115,28 @@ tell where the mark is, so a misplaced drone flies the whole route shifted by th
 | `tunnel_lead_m` | 0.0 | > 0 flies the tunnel as one straight leg from that far outside its mouths; it touched more in SITL, so it is off |
 | `setpoint_rate_hz` | 10 | the interface's own rate, the kit default |
 | `record` | true | record the run (below); false keeps the follower up for another attempt after a disarm |
+
+### Power up on the launch mark: PX4 and the tracker must share a frame
+
+The kit's interface hands PX4 our odom setpoint unchanged (ENU to NED). PX4 takes x, y and yaw from
+vision but its height from the rangefinder (`EKF2_EV_CTRL` 9, `EKF2_HGT_REF` 2), with its origin
+where the flight controller powered up; odom's is where the stack started. On skybeta-11
+(2026-11-07, `flights/20261108-003042-light-square` on `core/flight-iteration`) PX4 read -0.72 m
+on the floor against odom's 0.01 m and the square test flew to 1.33 m for 0.74 m. **Power-cycle the
+drone, FC and Jetson, sitting on the launch mark.** Before Offboard the follower compares PX4's
+`/fmu/out/vehicle_local_position` (read only) with the odometry and, while they differ by over
+0.15 m, streams nothing, so the kit never takes over: the log says `PX4 height and cuVSLAM disagree
+by 0.73 m: not streaming, so no Offboard. Power-cycle ...`, then `PX4 and cuVSLAM agree: streaming`.
+
+### The speed ladder: each clean run flies the next one faster
+
+With no `speed_mps` given, a recorded run flies the ladder's current step, read from `ladder_file`
+at launch; when it ends, a landing on the pad (PX4 disarmed in the descent) moves the next run up a
+step, anything else keeps the speed. The log names it at launch (`top speed 0.70 m/s (ladder step 2
+of 4)`) and at the end (`speed ladder: landed on the pad, next run 0.85 m/s`). The file keeps every
+run. To repeat or go back a speed, edit its `step` (0 is the first) on the host,
+`~/team_ws/course_follower_ladder.json`; delete it to start again at the slowest. The ladder cannot
+see wall touches: watch each run, and step back by hand after one.
 
 ### Every run is recorded
 
