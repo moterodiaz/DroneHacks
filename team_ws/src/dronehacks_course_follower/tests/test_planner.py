@@ -68,9 +68,6 @@ def test_the_route_passes_every_goal_in_the_maps_order_and_ends_on_the_last(cour
     assert math.dist(planned.route[-1], goals[-1]) <= _CELL_DIAGONAL_M
 
 
-@pytest.mark.xfail(reason="at the measured window's height the west rock's ring shortens the window leg's exit "
-                          "below the smooth follower's corner arc; stop-and-go's straight legs are unaffected",
-                   strict=False)
 def test_the_window_is_flown_square_through_its_middle(course_map: dict[str, Any], planned: PlannedCourse) -> None:
     window = course_map["goals"]["window"]
     along = np.asarray(window["along"])
