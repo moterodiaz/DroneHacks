@@ -2,6 +2,16 @@
 
 Newest entries first. One entry per contract-affecting change, linking the PR.
 
+## 2026-11-07 — COM_DISARM_LAND 5 s on skybeta-11
+
+Allow `COM_DISARM_LAND = 5` (organisers' default 2) on skybeta-11, with the
+organisers' permission as reported by the team on 2026-11-07. Set by hand in
+QGroundControl after saving their `.params` baseline; no code writes it. Reason:
+the square test's touch-and-go must rest on the ground and lift off before PX4
+disarms, and lift-off took over 0.8 s in flight 20261108-013018, where the 2 s
+window disarmed it mid-climb. Every other `COM_*` parameter stays frozen.
+Affected owner: contracts (@moterodiaz). Open item: record the granting organiser.
+
 ## 2026-11-07 — autonomous repository decisions and guarded merges
 
 [PR #31](https://github.com/moterodiaz/DroneHacks/pull/31):
