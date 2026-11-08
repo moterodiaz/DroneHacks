@@ -109,7 +109,10 @@ Everything else is the published v3 map below, unchanged. The route goes
 from the launch mark along the diagonal's north-west side, around its top end, to the tunnel.
 The two east rocks are placed from the team's photos and description on 2026-11-08 (estimated,
 not taped): one against the east net level with the turn south of the tunnel, the other against
-the south net east of the window; none is straight south of the tunnel's mouth.
+the south net east of the window; none is straight south of the tunnel's mouth. The rock west of
+the window sits slightly further south than the published map has it, moved 0.15 m (estimated).
+Stop-and-go's legs keep off the rocks' rangefinder rings without the corner-cutting margin, since
+it holds at every corner, and it drops a corner crowding the hold before or after it.
 The boulders are still avoided; whether to plan over them (smoother, faster, but under the
 rangefinder) is being checked.
 
