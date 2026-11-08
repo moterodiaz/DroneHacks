@@ -90,12 +90,33 @@ class ConvertTest(unittest.TestCase):
         self.assertAlmostEqual(max(long_x), 2.25 + 0.70, places=3)
         self.assertNotAlmostEqual(min(long_x), 2.25 - 0.6825, places=3)
 
-    def test_rock_launch_pad_and_checkpoints(self):
+    def test_rock_launch_pad_and_checkpoint_gate(self):
         self.assertEqual(self.doc["boulders"], [{"centre": [-2.0, 2.0], "radius": 0.2, "height": 0.5}])
         self.assertEqual(self.doc["launch"], {"position": [-2.0, -2.0], "heading": [0.0, 1.0]})
         self.assertEqual(self.goals["pad"]["params"]["radius"], 0.65)
-        self.assertEqual(self.doc["checkpoints"], [{"name": "CP1", "line": [[-3.0, -1.0], [-1.5, -1.0]]}])
-        self.assertEqual([g["name"] for g in self.doc["goals"]], ["tunnel", "window", "gap", "pad"])
+        # a checkpoint line is a goal the route flies through, in the rules' order
+        self.assertNotIn("checkpoints", self.doc)
+        self.assertEqual([g["name"] for g in self.doc["goals"]], ["cp1", "tunnel", "window", "gap", "pad"])
+        cp1 = self.goals["cp1"]
+        self.assertEqual((cp1["shape"], cp1["centre"]), ("gate", [-2.25, -1.0]))
+        self.assertEqual(cp1["params"], {"axis": [0.0, 1.0], "width": 1.5, "depth": 0.0})
+        self.assertNotIn("group", cp1)
+
+    def test_checkpoint_gate_is_flown_towards_the_next_goal_not_the_pad(self):
+        # A line at x = -1 from the south net: the tunnel (next) is east of it, the pad west.
+        self.rules["checkpoints"][0]["gate"] = {"segment": [[-1.0, -3.0], [-1.0, -1.0]]}
+        cp1 = convert(self.cmap, self.rules, (0, 1))["goals"][0]
+        self.assertEqual(cp1["params"]["axis"], [1.0, 0.0])
+
+    def test_block_footprint_is_an_obstacle(self):
+        self.cmap["features"].append({"name": "Block", "kind": "block", "z": [0.0, 1.7],
+                                      "footprint": [[-3.0, 2.6], [-2.4, 2.6], [-2.4, 3.0], [-3.0, 3.0]]})
+        doc = convert(self.cmap, self.rules, (0, 1))
+        edges = {(tuple(s["start"]), tuple(s["end"])) for s in doc["segments"]}
+        self.assertLessEqual({((-3.0, 2.6), (-2.4, 2.6)), ((-2.4, 2.6), (-2.4, 3.0))}, edges)
+        low = dict(self.cmap["features"][-1], z=[0.0, 0.3], name="Low block")
+        self.cmap["features"][-1] = low
+        self.assertEqual(len(convert(self.cmap, self.rules, (0, 1))["segments"]), len(self.doc["segments"]))
 
     def test_low_support_is_left_out(self):
         self.assertFalse(any(abs(s["start"][1]) < 0.02 and 1.9 <= s["start"][0] <= 2.6 and s["start"][0] != 1.55
@@ -133,9 +154,9 @@ class ConvertTest(unittest.TestCase):
 
     def test_result_is_a_valid_map_the_planner_flies(self):
         cmap = parse_map(self.doc)
-        self.assertEqual(len(cmap.stages()), 3)
+        self.assertEqual(len(cmap.stages()), 4)
         route = plan(cmap)
-        self.assertEqual(route.goals[0], "tunnel")
+        self.assertEqual(route.goals[:2], ["cp1", "tunnel"])
         self.assertEqual(route.goals[-1], "pad")
         self.assertGreaterEqual(route.min_margin_m, 0.0)
 

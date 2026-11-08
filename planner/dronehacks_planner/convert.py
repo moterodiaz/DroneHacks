@@ -18,6 +18,8 @@ slices at the flight height across the drone's whole vertical band
   wall at the widest in the band, so paths beside the tube are not credited
   with clearance the obstacle does not have.
 * **Rocks** become boulders, with their height.
+* **Blocks** (solids too thick to be a wall, e.g. a 0.35 m deep wall block)
+  become their footprint edges.
 * **Supports and markings** below the band are left out. The start and
   finish markings give the launch position and the pad.
 
@@ -27,12 +29,16 @@ Goals come from the rules' checkpoints, in order:
   ``rect`` (window) goal. A ``gate`` goal comes from ``between`` two
   features (across their closest points at flight height) or from the
   ``ends`` of two walls (between their facing end points);
+* a plain ``gate`` (a ``segment`` line, or ``between`` / ``ends``) gives a
+  ``gate`` goal of its own, named after the checkpoint, so the route flies
+  through every checkpoint line: a checkpoint counts only once the whole
+  drone has crossed its line, in order;
 * ``land`` gives the pad.
 
-Openings in a group are flown towards the pad. Segment and between gates
-before the tunnel are written as ``checkpoints``, which the planner does not
-read yet (PROPOSED). ``--route-gate`` replaces a route's gate, e.g. to follow
-``contracts/course.md`` where the rules file disagrees with it.
+Openings in a group are flown towards the pad. A checkpoint's own gate is
+flown towards the goal after it (for a maze gate, the tunnel), so the course's
+order sets the direction. ``--route-gate`` replaces a route's gate, e.g. to
+follow ``contracts/course.md`` where the rules file disagrees with it.
 
 The launch heading is not in the STEP: pass it (``contracts/frames.md``: facing
 north up the first corridor, ``0 1``). No course coordinate is written in this
@@ -89,6 +95,8 @@ def convert(cmap: dict, rules: dict, launch_heading: Sequence[float], slice_heig
         elif kind == "support" and overlaps(f["z"]):
             for rect in _wall_pieces(f, covers):
                 segments += _edges(rect, f["name"])
+        elif kind == "block" and overlaps(f["z"]):
+            segments += _edges(f["footprint"], f["name"])
 
     start = _marking(features, rules["start"]["marking"])
     finish = _marking(features, rules["finish"]["marking"])
@@ -96,7 +104,7 @@ def convert(cmap: dict, rules: dict, launch_heading: Sequence[float], slice_heig
     pad = {"name": "pad", "shape": "disc", "centre": _r(finish["centre"]), "params": {"radius": round(pad_radius, 5)}}
 
     goals: List[dict] = []
-    checkpoints: List[dict] = []
+    toward_next: List[int] = []  # checkpoint gates, flown towards the goal after them
     route_gates = route_gates or {}
     for cp in rules["checkpoints"]:
         if cp.get("land"):
@@ -110,12 +118,16 @@ def convert(cmap: dict, rules: dict, launch_heading: Sequence[float], slice_heig
                 goal = _gate_goal(name, gate, features, finish["centre"], covers, lo, hi)
                 goal["group"] = group
                 goals.append(goal)
-        elif "gate" in cp:
-            checkpoints.append({"name": cp["name"], "line": [_r(p) for p in _gate_line(cp["gate"], features, covers)]})
+        elif "gate" in cp and any(k in cp["gate"] for k in ("segment", "between", "ends")):
+            toward_next.append(len(goals))
+            goals.append(_gate_goal(_slug(cp["name"]), cp["gate"], features, finish["centre"], covers, lo, hi))
         else:
             raise ConvertError(f"checkpoint {cp.get('name')!r} has no gate this converter understands")
     if not any(g["shape"] == "disc" for g in goals):
         goals.append(pad)
+    for i in toward_next:
+        goal, nxt = goals[i], goals[i + 1]
+        goal["params"]["axis"] = _r(_toward(tuple(goal["params"]["axis"]), tuple(goal["centre"]), nxt["centre"]), 6)
 
     hx, hy = float(launch_heading[0]), float(launch_heading[1])
     n = math.hypot(hx, hy)
@@ -128,7 +140,6 @@ def convert(cmap: dict, rules: dict, launch_heading: Sequence[float], slice_heig
         "segments": segments,
         "boulders": [{k: v for k, v in b.items() if k != "name"} for b in boulders],
         "goals": goals,
-        "checkpoints": checkpoints,
     }
 
 
@@ -309,7 +320,7 @@ def _marking(features: dict, name: str) -> dict:
 
 
 def _r(p, nd: int = 5) -> List[float]:
-    return [round(float(p[0]), nd), round(float(p[1]), nd)]
+    return [round(float(p[0]), nd) + 0.0, round(float(p[1]), nd) + 0.0]  # + 0.0: no "-0.0"
 
 
 def _slug(s: str) -> str:
@@ -362,14 +373,13 @@ def main(argv=None) -> int:
             f'"{a}"' if " " in a else a for a in _portable(argv if argv is not None else sys.argv[1:])),
         f"# Sliced at {args.slice_height} m over the drone's band +-{args.half_height} m. Not surveyed: the real",
         "# course may sit a few cm off its model (contracts/course.md, Layout tolerance).",
-        "# Fields not in contracts/course.md yet (launch, depth, gate, group, boulder height,",
-        "# checkpoints) are PROPOSED; see planner/README.md.",
+        "# Fields not in contracts/course.md yet (launch, depth, gate, group, boulder height)",
+        "# are PROPOSED; see planner/README.md.",
     ]
     body = yaml.safe_dump(doc, sort_keys=False, default_flow_style=None, width=120)
     Path(args.out).write_text("\n".join(header) + "\n" + body, encoding="utf-8", newline="\n")
     print(f"wrote {args.out}: {len(doc['segments'])} edges, {len(doc['boulders'])} boulders, goals "
-          + " > ".join(g["name"] + (f"[{g['group']}]" if "group" in g else "") for g in doc["goals"])
-          + f", {len(doc['checkpoints'])} checkpoint lines")
+          + " > ".join(g["name"] + (f"[{g['group']}]" if "group" in g else "") for g in doc["goals"]))
     return 0
 
 

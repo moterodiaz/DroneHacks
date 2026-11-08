@@ -1,0 +1,3 @@
+# Keep the bytes exactly as generated: the map's header records these files' sha256.
+source/*.json -text
+*.yaml -text

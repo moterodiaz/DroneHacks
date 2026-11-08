@@ -1,0 +1,31 @@
+{
+ "format": "course-rules/1",
+ "name": "Competition course v3, 2026-11-07 layout (dronehacks-course-v3)",
+ "map": "course_v3_map.json",
+ "notes": [
+  "Gates are crossed in order by the drone's centre; the planner keeps the whole drone (plus margin) clear of every obstacle.",
+  "Gate kinds: segment [[x,y],[x,y]] | between [feature, feature] (the clear gap between them at flight height) | opening <wall> (its window) | tube_end <tube> + end p0/p1.",
+  "2026-11-07 layout: the maze dividers M1-M3 and the net roof are gone from the CAD; two walls were added (part Part67: a 1.8 x 0.35 m block in the north-west corner and a 0.10 m diagonal wall from Barrier 1). Checkpoint 1 was removed; checkpoints 2-5 are unchanged and keep their numbers.",
+  "CP2 Gate A stays where it was: across the old gap between M3's north end and the north net, on M3's centreline. With M3 gone nothing bounds it to the south, so it is an explicit segment.",
+  "Clock (organisers): starts when the drone leaves the launch mark, stops when it disarms on the pad. Touches of a wall, the tunnel or a boulder add 5 s each.",
+  "Return (organisers): after disarming, take off again unaided, cross the barrier, land and disarm within 2 ft of the launch mark inside the 3 minute limit. A failed return loses only the bonus.",
+  "No lights on the drone (organisers).",
+  "extra_margin_m is a planning choice, not a rule: 10 cm more room inside the dark tube, where camera VIO drops out and only lidar + IMU are left."
+ ],
+ "extra_margin_m": {"Tube oval 58 x 72 x 60": 0.10},
+ "start": {"marking": "Launch mark"},
+ "finish": {"marking": "Landing pad 5 ft", "inside_radius_m": 0.7366},
+ "return": {"marking": "Launch mark", "within_m": 0.6096, "time_limit_s": 180.0},
+ "checkpoints": [
+  {"id": 2, "name": "CP2 Gate A", "points": 7,
+   "gate": {"segment": [[0.3048, 2.1209], [0.3048, 3.048]]}},
+  {"id": 3, "name": "CP3 tunnel south end", "points": 10,
+   "gate": {"tube_end": "Tube oval 58 x 72 x 60", "end": "p0"}},
+  {"id": 4, "name": "CP4 landing area", "points": 7,
+   "routes": {
+    "window": {"gate": {"opening": "C2a chicane wall (window)"}, "bonus_points": 5},
+    "gate_b": {"gate": {"between": ["C2b chicane wall", "Barrier 2"]}, "bonus_points": 0}
+   }},
+  {"id": 5, "name": "CP5 land and disarm on the pad", "points": 7, "land": true}
+ ]
+}
