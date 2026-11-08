@@ -12,14 +12,32 @@ or changes mode). About 57 s.
 | 3 | Left 0.5 m | turn +90 deg | 3 s |
 | 4 | Back 0.5 m | turn +90 deg | 3 s |
 | 5 | Right 0.5 m, over the start | turn +90 deg, back to the take-off heading | 3 s |
-| 6 | Land as the course follower does: 0.3 m/s down, pulling back over the start | | |
+| 6 | Land as the course follower does: 0.5 m/s down (PX4 needs over 0.275 m/s to see ground contact), pulling back over the start | | |
 | 7 | Idle on the ground 1 s after PX4 reports landed (under `COM_DISARM_LAND`, 2 s) | | |
 | 8 | Take off to 0.73 m | | 3 s |
 | 9 | Land the same way; PX4 disarms | | |
 
 Forward/left are the body axes at power-on. Moves never yaw; a hold's 3 s start once the drone
-is within 10 cm and 5 deg. Pilot to Altitude: stops for good. Pose stale: holds still, then
-straight down after 3 s. A step over 20 s: lands where it is. Status on `/square_test/status`.
+is within 10 cm horizontally, 15 cm vertically and 5 deg. Pilot to Altitude: stops for good. Pose
+stale: holds still, then straight down after 3 s. A step over 20 s: lands where it is. Status on
+`/square_test/status`.
+
+## Power up on the spot (why the first flights never moved sideways)
+
+The kit's interface hands PX4 our odom setpoint unchanged (ENU to NED), so PX4's local frame and
+cuVSLAM's odom must start in the same place. PX4 takes only x, y and yaw from vision
+(`EKF2_EV_CTRL` 9) and its height from the rangefinder (`EKF2_HGT_REF` 2), so its height origin is
+where the flight controller powered up; odom's origin is where the stack started. In skybeta-11's
+last flight (`flights/20261108-003042-light-square`, recovered from the cut bag) PX4 read -0.72 m
+on the floor while odom read 0.01 m: it flew to 1.33 m by odom for a 0.74 m setpoint, so the first
+hold's height check never passed and the 20 s timeout landed it. In `20261108-002220` odom read
+-0.76 m on the floor (the stack had started higher). **Power-cycle the drone, FC and Jetson,
+sitting on its take-off spot**, and leave it there until the stack is up.
+
+The node checks it: before Offboard it compares PX4's `/fmu/out/vehicle_local_position` (read only)
+with odom, and while they differ by over `frames_limit_m` (0.15 m) it streams nothing, so the kit
+never takes over. The log says `PX4 height and cuVSLAM disagree by 0.73 m: not streaming, so no
+Offboard. Power-cycle the drone ...`, then `PX4 and cuVSLAM agree: streaming` once fixed.
 
 ## On the drone
 

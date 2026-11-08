@@ -11,7 +11,7 @@ The sequence (``plan``), every hold 3 s once within ``arrive_m`` of the target:
       during each hold it first yaws slowly (``yaw_rate_dps``) to face the next leg: +90 deg
       (a left turn) at each corner, and +90 more over the start, so it faces its take-off heading
       again before landing. Moves never yaw; a hold's 3 s start once position and heading arrive
-    land, exactly as the real follower does: velocity straight down at 0.3 m/s, pulling back over
+    land, as the course follower does: velocity straight down at 0.5 m/s, pulling back over
       the start, then pressing down gently once PX4 reports landed
     wait on the ground ``ground_s``, still pressing down (motors at idle, not off: see below)
     take off again to height_m, hold
@@ -40,11 +40,14 @@ class Config:
     height_m: float = 0.73          # the real follower's setpoint z (cruise_z_m 0.80 - rest_height_m 0.07)
     speed_mps: float = 0.3
     lead_m: float = 0.3
-    arrive_m: float = 0.10          # the real follower's land_tolerance_m
+    arrive_m: float = 0.10          # horizontal: the real follower's land_tolerance_m
+    arrive_z_m: float = 0.15        # vertical: PX4 holds height by rangefinder, a few cm off cuVSLAM's z
     hold_s: float = 3.0
     ground_s: float = 1.0           # after PX4 says landed; must stay under COM_DISARM_LAND (2 s)
     step_timeout_s: float = 20.0
-    descent_mps: float = 0.3        # the real follower's descent_mps
+    descent_mps: float = 0.5        # PX4 counts ground contact only while the setpoint descends at 1.1 x
+                                    # LNDMC_Z_VEL_MAX = 0.275 m/s; at 0.3 skybeta-11 showed none 1.3 s
+                                    # after touchdown (2026-11-07). 0.5, as the course follower lands
     land_xy_gain: float = 1.0       # the real follower's land_xy_gain
     land_xy_max_mps: float = 0.2    # the real follower's land_xy_max_mps
     pose_timeout_s: float = 0.5
@@ -155,7 +158,9 @@ class Mission:
             self.heading += max(-c.yaw_rate_dps * dt, min(c.yaw_rate_dps * dt, turn))
             facing = self.start_yaw is None or (
                 abs(turn) < 1e-9 and (yaw is None or abs(_wrap(yaw - self._yaw_cmd())) <= math.radians(c.yaw_tol_deg)))
-            if math.dist(pose, self.target) > c.arrive_m or not facing:
+            arrived = (math.dist(pose[:2], self.target[:2]) <= c.arrive_m
+                       and abs(pose[2] - self.target[2]) <= c.arrive_z_m)
+            if not arrived or not facing:
                 self.dwell_since = None
             elif self.dwell_since is None:
                 self.dwell_since = t
@@ -194,6 +199,26 @@ class Mission:
     def _abort(self, why):
         self.i = len(self.steps) - 1            # the final 'disarm' landing
         self.reason = why
+
+
+def frames_disagree(odom_enu, px4_ned, limit_m=0.15):
+    """Why PX4's local position and cuVSLAM's odometry disagree by more than ``limit_m``, or None.
+
+    The kit's interface turns an odom ENU setpoint into PX4 NED by swapping x/y and negating z, so
+    it is only right when both frames started in the same place. PX4 fuses vision for x, y and yaw
+    only (EKF2_EV_CTRL 9) and takes height from the rangefinder (EKF2_HGT_REF 2): its height origin
+    is where the flight controller powered up, the tracker's where the stack started. On
+    skybeta-11 (2026-11-07) PX4 read -0.72 m on the floor while odom read 0.01 m, and the drone
+    flew to 1.33 m for a 0.74 m setpoint. Power-cycling the drone on its take-off spot fixes it."""
+    north, east, down = px4_ned
+    x, y, z = odom_enu
+    horizontal = math.hypot(east - x, north - y)
+    vertical = abs(-down - z)
+    if horizontal > limit_m:
+        return 'PX4 position and cuVSLAM disagree by {:.2f} m'.format(horizontal)
+    if vertical > limit_m:
+        return 'PX4 height and cuVSLAM disagree by {:.2f} m'.format(vertical)
+    return None
 
 
 def _wrap(a):

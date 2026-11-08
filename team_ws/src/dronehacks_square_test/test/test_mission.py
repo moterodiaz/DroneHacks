@@ -1,7 +1,7 @@
 """Fly the mission against a crude drone model, including PX4's auto-disarm after landing."""
 import math
 
-from dronehacks_square_test.mission import DONE, STOPPED, Config, Mission, _wrap
+from dronehacks_square_test.mission import DONE, STOPPED, Config, Mission, _wrap, frames_disagree
 
 DT = 0.05
 START = (2.0, -1.0, 0.0)
@@ -9,9 +9,11 @@ COM_DISARM_LAND = 2.0
 START_YAW = 0.4                  # rad: not zero, so the test catches a missing offset
 
 
-def fly(mission, drop_pose=None, takeover_at=None, max_t=150.0, heading=True):
+def fly(mission, drop_pose=None, takeover_at=None, max_t=150.0, heading=True, height_bias=0.0):
     """Moves toward a pose setpoint at <= 0.6 m/s (z floored 0.3 m, as the kit does), follows
-    twists, sits on the ground at z 0. Disarms after COM_DISARM_LAND landed, which ends Offboard."""
+    twists, sits on the ground at z 0. Disarms after COM_DISARM_LAND landed, which ends Offboard.
+    `height_bias` is how far below a commanded height the drone settles in the tracker's z: PX4
+    holds height by its rangefinder, which reads a few centimetres apart from cuVSLAM."""
     x, y, z = START
     yaw = START_YAW
     armed = True
@@ -35,7 +37,7 @@ def fly(mission, drop_pose=None, takeover_at=None, max_t=150.0, heading=True):
         if not offboard:
             pass                              # PX4 ignores setpoints outside Offboard
         elif cmd.kind == 'pose':
-            d = [cmd.x - x, cmd.y - y, max(cmd.z, 0.3) - z]
+            d = [cmd.x - x, cmd.y - y, max(cmd.z, 0.3) - height_bias - z]
             n = math.sqrt(sum(v * v for v in d))
             f = min(1.0, 0.6 * DT / n) if n else 0.0
             x, y, z = x + d[0] * f, y + d[1] * f, z + d[2] * f
@@ -120,6 +122,28 @@ def test_turns_slowly_to_face_each_leg():
     for (t0, a), (t1, b) in zip(yaws, yaws[1:]):
         assert abs(_wrap(b - a)) <= math.radians(20) * (t1 - t0) + 1e-9   # never faster than 20 deg/s
     assert max(abs(_wrap(b - a)) for (_, a), (_, b) in zip(yaws, yaws[1:])) > 0   # it did turn
+
+
+def test_a_height_a_little_off_the_trackers_still_flies_the_box():
+    # The rangefinder PX4 holds height by and cuVSLAM's z differ by a few percent of the height,
+    # so the drone settles 12 cm under the tracker's target: the box must still be flown
+    m = Mission(Config())
+    track, _ = fly(m, height_bias=0.12)
+    assert m.state == DONE and m.reason == 'disarmed on the ground', m.reason
+    x0, y0, _ = START
+    assert max(p[1] for p in track) > x0 + 0.45 and max(p[2] for p in track) > y0 + 0.45
+
+
+def test_frames_that_disagree_are_named_and_agreeing_ones_pass():
+    # PX4 NED is the tracker's ENU with x and y swapped and z negated, when both started together
+    odom = (-0.04, -0.01, 0.01)
+    assert frames_disagree(odom, (-0.01, -0.04, -0.03), limit_m=0.15) is None
+
+    # Skybeta-11 on 2026-11-07: PX4's height origin 0.73 m above the floor, the tracker's on it
+    assert 'height' in frames_disagree(odom, (-0.01, -0.04, 0.72), limit_m=0.15)
+
+    # The tracker started 3.3 m away from where PX4's position says the drone is
+    assert 'position' in frames_disagree((-3.30, 0.64, 0.0), (0.0, 0.0, 0.0), limit_m=0.15)
 
 
 def test_without_heading_it_flies_without_commanding_yaw():
