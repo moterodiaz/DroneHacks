@@ -320,6 +320,31 @@ class WholeFlightTest(unittest.TestCase):
         self.assertEqual(checks["openings"], {"cp2_gate_a": True, "tunnel": True, "window": True})
         self.assertTrue(checks["on_pad"])
 
+    def test_the_window_0p5mps_slow_line_flies_the_same_route_at_half_a_metre_per_second(self):
+        # config/flight_line_window_0p5mps.yaml: the 2 m/s line's route, every speed 0.5 m/s
+        import yaml
+        from dronehacks_planner.limits import VehicleLimits
+        from dronehacks_planner.route import PlannerConfig
+        line = yaml.safe_load((_paths.PACKAGE_ROOT / "config" / "flight_line_window_0p5mps.yaml")
+                              .read_text(encoding="utf-8"))["mission"]["ros__parameters"]
+        cfg = dataclasses.replace(CONFIG, twist_speed_max_mps=line["twist_speed_max_mps"])
+        prepared = prep(_paths.PACKAGE_ROOT / "maps" / "course_v3_step.yaml", cfg,
+                        limits=dataclasses.replace(VehicleLimits(), v_max_mps=line["v_max_mps"]),
+                        planner=dataclasses.replace(PlannerConfig(), prefer=tuple(line["prefer"])),
+                        track_speed_mps=line["track_speed_mps"])
+        self.assertEqual(prepared.plan.route.goals, ["cp2_gate_a", "tunnel", "window", "pad"])
+        self.assertEqual(prepared.v_max_mps, 0.5)
+        # PX4 at the organisers' MPC_XY_VEL_MAX 1.0 (above the line) and the interface at 0.5
+        log = fly(prepared.mission, VehicleLimits(), VehicleSimConfig(twist_speed_cap_mps=0.5))
+        checks = flight_checks(prepared, log.pos)
+        self.assertIn("disarm", log.events)
+        self.assertEqual(checks["wall_touches"], 0)
+        self.assertEqual(checks["openings"], {"cp2_gate_a": True, "tunnel": True, "window": True})
+        self.assertTrue(checks["on_pad"])
+        follow = np.array([s == FOLLOW for s in log.state])
+        speed = np.hypot(*np.diff(log.pos[follow, :2], axis=0).T) / np.diff(log.t[follow])
+        self.assertLess(float(speed.max()), 0.6)         # slow throughout (0.5 + the loop's overshoot)
+
     def test_a_plan_that_fails_its_checks_at_a_speed_is_planned_slower_not_refused(self):
         # the 2026-10-27 STEP map's window route over the boulders breaks the jerk limit at 1.5 m/s
         # and up (the 2026-11-07 layout's routes verify at every speed, so the old map is kept as a

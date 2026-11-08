@@ -276,6 +276,34 @@ class LaunchTest(unittest.TestCase):
         self.assertEqual(fi.kwargs["parameters"][0]["max_speed_mps"].perform(
             type("Ctx", (), {"launch_configurations": {"max_speed_mps": "2.0"}})()), "2.0")
 
+    def test_window_0p5mps_slow_line_is_the_2mps_line_with_every_speed_at_0p5(self):
+        handle = fake_ros.install(fake_ros.Handle())
+        handle.share["dronehacks_traj"] = str(_paths.PACKAGE_ROOT)
+        with mock.patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("DRONEHACKS_MAP", None)
+            os.environ.pop("DRONEHACKS_GUARD", None)
+            inc = load_launch("traj_nav_competitor_window_0p5mps.launch.py").generate_launch_description().entities[0]
+        config = os.path.join(str(_paths.PACKAGE_ROOT), "config")
+        line = os.path.join(config, "flight_line_window_0p5mps.yaml")
+        self.assertEqual(inc.launch_arguments["mission_overrides"], line)
+        self.assertEqual(inc.launch_arguments["max_speed_mps"], "0.5")
+        self.assertEqual(inc.launch_arguments["guard_package"], "none")
+        self.assertTrue(inc.launch_arguments["map_file"].endswith(os.path.join("maps", "course_v3_step.yaml")))
+        self.assertTrue(inc.source.path.endswith("traj_nav.launch.py"))
+        with open(line, encoding="utf-8") as fh:
+            slow = yaml.safe_load(fh)
+        with open(os.path.join(config, "flight_line_window_2mps.yaml"), encoding="utf-8") as fh:
+            fast = yaml.safe_load(fh)
+        speeds = ("track_speed_mps", "v_max_mps", "twist_speed_max_mps")
+        self.assertEqual({k: slow["mission"]["ros__parameters"][k] for k in speeds}, dict.fromkeys(speeds, 0.5))
+        self.assertEqual(slow["flight_interface"]["ros__parameters"], {"max_speed_mps": 0.5})
+        # the only difference from the 2 m/s line is the speeds
+        for doc in (slow, fast):
+            for k in speeds:
+                doc["mission"]["ros__parameters"][k] = None
+            doc["flight_interface"]["ros__parameters"]["max_speed_mps"] = None
+        self.assertEqual(slow, fast)
+
 
 if __name__ == "__main__":
     unittest.main()
