@@ -240,6 +240,29 @@ def resolve_selection(version, option_values=None, follower=None, tunables=None)
     return launch, params, hook, notes
 
 
+def resolve_arena(version, option_values=None, explicit=None):
+    """``(arena, why)``: the course a run flies in (``world.arena.ARENAS``).
+
+    An explicit choice (the scenario's ``arena``) always wins. Otherwise ("auto", None or '') a
+    chosen option whose choice names an ``arena`` picks it, e.g. a flight line planned on the
+    taped course; else the STEP as exported. Two chosen options naming different arenas are an
+    error: the run could not match both."""
+    from ..world.arena import DEFAULT_ARENA, check_arena
+    if explicit not in (None, '', 'auto'):
+        return check_arena(str(explicit)), 'chosen in the scenario'
+    found = None
+    for name, opt in version.get('options', {}).items():
+        choice = str((option_values or {}).get(name, opt.get('default')))
+        arena = (opt['choices'].get(choice) or {}).get('arena')
+        if not arena:
+            continue
+        why = f"{opt.get('label', name)} {choice!r} is planned on it"
+        if found and found[0] != arena:
+            raise VersionError(f"{version['id']}: {found[1]} ({found[0]}) but {why} ({arena})")
+        found = (check_arena(str(arena)), why)
+    return found if found else (DEFAULT_ARENA, 'default')
+
+
 def substitute(value, subs):
     if isinstance(value, str) and value.startswith('$'):
         key = value[1:]

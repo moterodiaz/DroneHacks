@@ -92,14 +92,32 @@ course_to_ned = ned_to_course
 
 
 class Course:
-    def __init__(self, step_path, cache_dir):
+    def __init__(self, step_path, cache_dir, edits_path=None):
+        """``edits_path``: a course-edits/1 file (``world.arena``) applied on top of the STEP
+        solids, e.g. the course as the team taped it; None is the STEP as exported."""
         self.step_path = os.path.abspath(step_path)
         os.makedirs(cache_dir, exist_ok=True)
         self.cache_dir = cache_dir
         with open(self.step_path, 'rb') as fh:
             self.sha256 = hashlib.sha256(fh.read()).hexdigest()
         self.solids = load_step_cached(self.step_path, cache_dir)
-        self.kinds = [classify_solid(s) for s in self.solids]
+        self.edits = None
+        self.edits_path = None
+        self.edits_sha256 = None
+        self.edit_notes = []
+        self.arena = 'STEP as exported'
+        edit_kinds = {}
+        if edits_path:
+            from .arena import ArenaError, apply_edits, load_edits
+            self.edits_path = os.path.abspath(edits_path)
+            self.edits, self.edits_sha256 = load_edits(self.edits_path)
+            want = (self.edits.get('applies_to') or {}).get('step_sha256')
+            if want and want != self.sha256:
+                raise ArenaError(f'{os.path.basename(edits_path)} was written for STEP sha256 {want[:12]}..., '
+                                 f'not {os.path.basename(self.step_path)} ({self.sha256[:12]}...)')
+            self.solids, edit_kinds, self.edit_notes = apply_edits(self.solids, self.edits)
+            self.arena = self.edits.get('name') or os.path.basename(edits_path)
+        self.kinds = [edit_kinds.get(s.name) or classify_solid(s) for s in self.solids]
         self.by_name = {s.name: s for s in self.solids}
         self.kind_by_name = {s.name: k for s, k in zip(self.solids, self.kinds)}
         self.index = MeshIndex(self.solids)
@@ -137,7 +155,9 @@ class Course:
 
     # -- caches -----------------------------------------------------------------------------------
     def _cache_path(self):
-        return os.path.join(self.cache_dir, f'course_{self.sha256[:16]}_v{CACHE_VERSION}m{MESH_VERSION}.npz')
+        from .arena import ARENA_MESH_VERSION
+        arena = f'_e{self.edits_sha256[:16]}a{ARENA_MESH_VERSION}' if self.edits_sha256 else ''
+        return os.path.join(self.cache_dir, f'course_{self.sha256[:16]}{arena}_v{CACHE_VERSION}m{MESH_VERSION}.npz')
 
     def _load_or_build_caches(self):
         path = self._cache_path()
@@ -264,7 +284,9 @@ class Course:
             counts[k] = counts.get(k, 0) + 1
         return {'step': os.path.basename(self.step_path), 'sha256': self.sha256, 'solids': len(self.solids),
                 'triangles': int(self.index.triangles.shape[0]), 'kinds': counts,
-                'net_top_m': round(float(self.net_hi[2]), 4)}
+                'net_top_m': round(float(self.net_hi[2]), 4), 'arena': self.arena,
+                'edits': os.path.basename(self.edits_path) if self.edits_path else None,
+                'edits_sha256': self.edits_sha256}
 
 
 def closest_points_on_triangles(p, a, b, c):

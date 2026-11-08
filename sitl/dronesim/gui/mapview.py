@@ -53,6 +53,7 @@ class MapView:
         self.scale = 80.0
         self.cx, self.cy = 0.0, 0.0           # course point at the canvas centre
         self.trail = []
+        self.plan = None              # the version's planned path (course frame), when observed
         self.items = {}
         self.show_lidar = tk.BooleanVar(value=True)
         self.show_est = tk.BooleanVar(value=True)
@@ -124,6 +125,7 @@ class MapView:
         x0, y0 = 14, (self.canvas.winfo_height() or 600) - 14
         c.create_line(x0, y0, x0 + self.scale, y0, width=3, fill='#37474f')
         c.create_text(x0 + self.scale / 2, y0 - 9, text='1 m', fill='#37474f', font=('Segoe UI', 8))
+        self._draw_plan()
         self.items['trail'] = c.create_line(0, 0, 0, 0, fill='#1e88e5', width=2)
         self.items['lidar'] = []
         self.items['drone'] = []
@@ -134,7 +136,29 @@ class MapView:
 
     def reset(self):
         self.trail = []
+        self.plan = None
         self.redraw_static()
+
+    def set_plan(self, plan):
+        """The version's planned path ({'xy': [[x, y]...], 'waypoints', 'goals', ...}) or None."""
+        self.plan = plan if plan and plan.get('xy') else None
+        self.redraw_static()
+
+    def _draw_plan(self):
+        p = self.plan
+        if not p or len(p['xy']) < 2:
+            return
+        c = self.canvas
+        pts = [v for q in p['xy'] for v in self.w2c(*q)]
+        c.create_line(*pts, fill='#fb8c00', width=2, dash=(7, 4))
+        for q in p.get('waypoints') or []:
+            x, y = self.w2c(*q)
+            c.create_oval(x - 3, y - 3, x + 3, y + 3, outline='#e65100', width=1)
+        x, y = self.w2c(*p['xy'][-1])
+        label = f"plan: {' > '.join(p.get('goals') or [])}"
+        if p.get('duration_s') is not None:
+            label += f", {p['length_m']:.1f} m, {p['duration_s']:.1f} s"
+        c.create_text(x + 8, y + 12, text=label, fill='#e65100', anchor='w', font=('Segoe UI', 8, 'bold'))
 
     def _draw_trail(self):
         if len(self.trail) >= 2:

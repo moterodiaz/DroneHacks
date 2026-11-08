@@ -1,7 +1,9 @@
 """Referee: DRONEHACKS.md section 4 scored against ground truth.
 
 Gates come from ``sitl/course/course_v3_rules.json`` (``course-rules/1``, the
-team's ground-truth checkpoint file) and are built from the STEP solids by name:
+team's ground-truth checkpoint file), with an arena's own gates in its place where
+the course's edits file has them (``world.arena``), and are built from the course's
+solids by name:
 
 * ``segment``  -- an explicit line;
 * ``between``  -- the clear gap between two solids (closest points of their
@@ -129,6 +131,9 @@ class Referee:
         self.course = course
         with open(rules_path, 'r', encoding='utf-8') as fh:
             self.rules = json.load(fh)
+        # an arena's own checkpoint gates (world.arena: the course as taped) replace the STEP's
+        from ..world.arena import apply_rule_edits
+        self.rules = apply_rule_edits(self.rules, getattr(course, 'edits', None))
         self.cfg = airframe_cfg
         self.time_limit_s = time_limit_s
         self.outline = [(p[0], p[1]) for p in airframe_cfg.footprint_points(16)]   # body FRD xy
