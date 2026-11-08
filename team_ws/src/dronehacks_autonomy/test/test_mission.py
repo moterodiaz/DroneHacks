@@ -274,6 +274,59 @@ class WholeFlightTest(unittest.TestCase):
         self.assertTrue(checks["on_pad"])
 
 
+class CoastSafetyTest(unittest.TestCase):
+    """A coast driven by hand: the follower's safety stops and the heading the dead reckoning uses."""
+
+    def coasting(self, px4_yaw=0.0, odom_yaw=0.0):
+        m = prep(l_course(), COAST).mission
+        m._was_offboard = True
+        m.state = FOLLOW
+        m.follower = Follower(m.plan.trajectory, m.field, m.limits, m.follower_config)
+        x, y = m.start_odom
+        m.update(1.0, True, OdomPose(t=1.0, x=x, y=y, z=m.z_fly, yaw=odom_yaw, received=1.0), None, px4_yaw)
+        return m
+
+    def doctored(self, m, **fields):
+        """Make the follower's next setpoints report *fields* (a wall ahead, off the path)."""
+        real = m.follower.update
+        m.follower.update = lambda *a, **k: dataclasses.replace(real(*a, **k), **fields)
+
+    def test_no_safe_target_stops_the_coast_by_zero_velocity(self):
+        m = self.coasting()
+        self.doctored(m, flags=("no_safe_target",))
+        for t in (1.3, 1.4, 1.5):
+            cmd = m.update(t, True, None, None, 0.0)
+            self.assertEqual((cmd.kind, cmd.vx, cmd.vy), ("twist", 0.0, 0.0))
+        self.assertIn("no safe target", m.reason)
+        self.assertEqual(m.state, FOLLOW)              # the pose coming back resumes the flight
+
+    def test_off_the_path_while_coasting_holds_for_the_pilot(self):
+        m = self.coasting()
+        self.doctored(m, cross_track_m=m.config.abort_cross_track_m + 0.1)
+        cmd = m.update(1.3, True, None, None, 0.0)
+        self.assertEqual(m.state, HELD)
+        self.assertEqual((cmd.kind, cmd.vx, cmd.vy), ("twist", 0.0, 0.0))
+        x, y = m.start_odom                            # even with the pose back: held for the pilot
+        cmd = m.update(1.4, True, OdomPose(t=1.4, x=x, y=y, z=m.z_fly, yaw=0.0, received=1.4), None, 0.0)
+        self.assertEqual((m.state, cmd.kind), (HELD, "twist"))
+
+    def test_the_dead_reckoning_turns_with_px4s_heading(self):
+        # Vision froze while the drone was turning: PX4 now heads 90 deg left of where vision last
+        # saw it. Its forward velocity is the odom frame's +y, not the frozen heading's +x. The
+        # vision-PX4 gap measured at the last good pose (0.1 rad here) is kept.
+        m = self.coasting(px4_yaw=0.0, odom_yaw=0.1)
+        m.update(1.3, True, None, None, math.pi / 2, px4_velocity=(1.3, 1.0, 0.0))
+        vx, vy = m._dr.vx, m._dr.vy
+        self.assertAlmostEqual(vx, math.cos(math.pi / 2 + 0.1), places=9)
+        self.assertAlmostEqual(vy, math.sin(math.pi / 2 + 0.1), places=9)
+
+    def test_without_px4s_heading_the_last_odometry_heading_stands(self):
+        m = self.coasting(px4_yaw=None, odom_yaw=0.0)
+        m.update(1.3, True, None, None, None, px4_velocity=(1.3, 1.0, 0.0))
+        self.assertAlmostEqual(m._dr.vx, 1.0, places=9)
+        self.assertAlmostEqual(m._dr.vy, 0.0, places=9)
+
+
 class TrackingGapTest(unittest.TestCase):
     def test_a_gap_on_the_route_does_not_throw_the_reference_ahead(self):
         cmap = load_contract_map(_paths.CONTRACT_MAP)

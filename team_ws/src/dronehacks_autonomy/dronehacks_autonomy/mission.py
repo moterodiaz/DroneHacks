@@ -60,6 +60,10 @@ that. So in FOLLOW the mission flies on along the trajectory for up to ``coast_m
 * The Follower keeps running on it, and the command is a **velocity**, which needs no position frame:
   the reference's, times the Follower's clock rate, plus ``coast_gain`` times the dead reckoning's
   offset from the reference, capped at ``v_max_mps``.
+* The Follower's safety stops still apply. ``no_safe_target`` ends the coast (zero velocity until the
+  pose is back); over ``abort_cross_track_m`` it is HELD for the pilot, by zero velocity.
+* PX4's velocity is turned into the odom frame by PX4's current heading, plus the vision-PX4 heading
+  gap measured at the last good pose: the frozen odometry heading would lag a turn.
 * After ``coast_max_s``, or at the trajectory's end, it holds still by zero velocity. Sending nothing
   would let the interface expire the twist into the last pose setpoint, behind the drone.
 * **The frame after a coast.** cuVSLAM resumes from the pose where it lost tracking, so its frame jumps
@@ -203,6 +207,7 @@ class _DeadReckoning:
         self.cmd = (pose.vx, pose.vy)          # until the first command: carrying on as it was
         self.since = since                     # when the coast started (the mission's clock)
         self.travelled = 0.0
+        self.halted: Optional[str] = None      # a safety stop ended this coast: hold still until the pose is back
 
     def step(self, t: float, response_s: float, measured: Optional[Tuple[float, float]] = None) -> None:
         """Advance to *t*: on *measured* (PX4's velocity estimate) when given, else on the
@@ -287,6 +292,8 @@ class Mission:
         self._dr: Optional[_DeadReckoning] = None        # from a coast's start to the resume
         self._frame_lost: Optional[float] = None         # an unexplained jump (m): never fly on
         self._px4_velocity: Optional[Tuple[float, float, float]] = None   # (t, forward, left)
+        self._px4_yaw: Optional[float] = None            # PX4's heading this tick (ENU), if known
+        self._yaw_gap: Optional[float] = None            # odometry yaw - PX4 yaw, at the last good pose
 
     @property
     def started(self) -> bool:
@@ -305,6 +312,7 @@ class Mission:
         Poses are shifted into the internal frame by :attr:`offset` (zero until a coast's stitch),
         and pose setpoints shifted back out of it, so callers see only their own frame."""
         self._px4_velocity = px4_velocity
+        self._px4_yaw = px4_yaw
         if pose is not None and self.offset != (0.0, 0.0):
             pose = dataclasses.replace(pose, x=pose.x + self.offset[0], y=pose.y + self.offset[1])
         cmd = self._update(t, offboard_active, pose, landed, px4_yaw)
@@ -348,6 +356,7 @@ class Mission:
                 return self._hold_still(t, f"odometry resumed {self._frame_lost:.2f} m from the dead reckoning, "
                                            "more than the coast explains: holding for the pilot")
             self._last_good = pose
+            self._yaw_gap = None if px4_yaw is None else wrap(pose.yaw - px4_yaw)
             self._still_since = None
         if not fresh:
             if self.follower is not None:
@@ -539,15 +548,25 @@ class Mission:
         dr = self._dr
         dr.step(t, cfg.coast_response_s, self._measured_velocity(t))
         coasted = t - dr.since
-        if coasted < cfg.coast_max_s:
+        if coasted < cfg.coast_max_s and dr.halted is None:
             here = self.frame.to_course(dr.x, dr.y)
             sp = self.follower.update(t, here, self.frame.rotate_to_course(dr.vx, dr.vy))
             self.last_setpoint = sp
-            if not sp.done:
+            # The same safety stops as _follow. Either one ends the coast: the correction would
+            # otherwise keep pulling toward a reference behind a wall, or further off the path.
+            if sp.cross_track_m > cfg.abort_cross_track_m:
+                dr.cmd = (0.0, 0.0)
+                self.state = HELD
+                self.reason = (f"{sp.cross_track_m:.2f} m off the path while coasting (limit "
+                               f"{cfg.abort_cross_track_m:.2f} m): holding still for the pilot")
+                self._hold_cmd = Command("twist")    # refreshed every tick: it never expires into a pose
+                return self._hold_cmd
+            if "no_safe_target" in sp.flags:
+                dr.halted = "no safe target ahead"
+            elif not sp.done:
                 ref = self.plan.trajectory.at(sp.ref_time)
-                ff = 0.0 if "no_safe_target" in sp.flags else sp.clock_rate
-                ve = ff * ref.velocity[0] + cfg.coast_gain * (ref.position[0] - here[0])
-                vn = ff * ref.velocity[1] + cfg.coast_gain * (ref.position[1] - here[1])
+                ve = sp.clock_rate * ref.velocity[0] + cfg.coast_gain * (ref.position[0] - here[0])
+                vn = sp.clock_rate * ref.velocity[1] + cfg.coast_gain * (ref.position[1] - here[1])
                 speed = math.hypot(ve, vn)
                 if speed > self.limits.v_max_mps:
                     ve, vn = ve * self.limits.v_max_mps / speed, vn * self.limits.v_max_mps / speed
@@ -558,11 +577,14 @@ class Mission:
                                f"({coasted:.1f} s, {dr.travelled:.2f} m)")
                 return Command("twist", vx=vx, vy=vy)
         dr.cmd = (0.0, 0.0)
-        return self._hold_still(t, f"no fresh pose; coasted {dr.travelled:.2f} m")
+        why = f"; coast stopped: {dr.halted}" if dr.halted else ""
+        return self._hold_still(t, f"no fresh pose; coasted {dr.travelled:.2f} m{why}")
 
     def _measured_velocity(self, t: float) -> Optional[Tuple[float, float]]:
         """PX4's velocity estimate in the odom frame, if fresh: its (forward, left) turned by the
-        heading of the last odometry flown on (the yaw changes little in a few seconds)."""
+        drone's heading now. That is PX4's current heading plus the gap between vision's and PX4's
+        measured at the last good pose; without PX4's heading, the last odometry's (frozen, so it
+        lags a turn)."""
         sample = self._px4_velocity
         if (sample is None or self._last_good is None
                 or not 0.0 <= t - sample[0] <= self.config.px4_velocity_timeout_s):
@@ -570,7 +592,10 @@ class Mission:
         _t, forward, left = sample
         if not (math.isfinite(forward) and math.isfinite(left)):
             return None
-        c, s = math.cos(self._last_good.yaw), math.sin(self._last_good.yaw)
+        yaw = self._last_good.yaw
+        if self._px4_yaw is not None and self._yaw_gap is not None:
+            yaw = self._px4_yaw + self._yaw_gap
+        c, s = math.cos(yaw), math.sin(yaw)
         return c * forward - s * left, s * forward + c * left
 
     def _hold_still(self, t: float, why: str) -> Command:
