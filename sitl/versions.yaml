@@ -45,6 +45,13 @@ versions:
           course_to_odom_y: $traj_y
           v_max_mps: $v_max
     options:
+      line:
+        label: Flight line
+        default: shipped
+        choices:
+          shipped: {label: "shipped competitor launch (traj_nav_competitor.launch.py)"}
+          window_2mps: {label: "window at 2 m/s (traj_nav_competitor_window_2mps.launch.py: overrides route + speeds)",
+                        launch: traj_nav_competitor_window_2mps.launch.py}
       route:
         label: CP4 route
         default: auto

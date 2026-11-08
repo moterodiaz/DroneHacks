@@ -18,7 +18,7 @@ setup(
         ("share/ament_index/resource_index/packages", ["resource/" + PACKAGE]),
         ("share/" + PACKAGE, ["package.xml", "README.md"]),
         ("share/" + PACKAGE + "/launch", glob("launch/*.launch.py")),
-        ("share/" + PACKAGE + "/config", ["config/traj_nav.example.yaml"]),
+        ("share/" + PACKAGE + "/config", ["config/traj_nav.example.yaml", "config/flight_line_window_2mps.yaml"]),
         ("share/" + PACKAGE + "/docs", ["docs/deploy.md"]),
         ("share/" + PACKAGE + "/maps", ["maps/course_v3_step.yaml", "maps/README.md"]),
     ],

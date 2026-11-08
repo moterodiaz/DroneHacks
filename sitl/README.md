@@ -347,6 +347,13 @@ through CP2 Gate A as a gate goal) with `land=land`, dark tunnel, dropout coast:
 | gate_b | 0.8 m/s | 1 | 31 | 38.9 s | 1 (C1) | 43.9 s |
 | gate_b | 1.0 m/s | 1 | 31 | 38.3 s | 2 (C1) | 48.3 s |
 
+The **window-at-2-m/s flight line** (`--option line=window_2mps`: the real
+`traj_nav_competitor_window_2mps.launch.py`, everything at 2.0 m/s, the kit interface's twist clamp
+2.0) with `land=land`: PX4 `MPC_XY_VEL_MAX` 2.0 (`--speed-cap 2.0`), seeds 1/2/3: 31 + window bonus,
+33.7 / 31.7 / 30.9 s, 0 touches. At the organisers' 1.0 (the profile default): 34.9 s, 0 touches.
+The drone peaks at 1.40 m/s: the planner's unvalidated cornering limit (`a_lat_mps2` 1.0) binds
+before the 2.0 caps on this course.
+
 The Gate B touches are on C1 in the turn after the tunnel; the chicane did not change. The lidar
 builds, `vo_nolidar` and `manual_full` still fly the 2026-11-06 layout's routes and hit the new
 walls.

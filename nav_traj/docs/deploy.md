@@ -72,7 +72,19 @@ In `/etc/skybeta/drone.env` (sudo):
 COMPETITOR_PKG=dronehacks_traj
 COMPETITOR_LAUNCH=traj_nav_competitor.launch.py        # raw cuVSLAM, the default (no Guard)
 # COMPETITOR_LAUNCH=traj_nav_competitor_raw.launch.py  # also raw cuVSLAM
+# COMPETITOR_LAUNCH=traj_nav_competitor_window_2mps.launch.py  # the window at 2 m/s (below)
 ```
+
+**The window-at-2-m/s flight line** (`traj_nav_competitor_window_2mps.launch.py`) is the
+default launch plus `config/flight_line_window_2mps.yaml` over the mission's parameters: CP4
+through the window, track speed, the plan's speed limit and the twist cap all 2.0 m/s, and the
+kit interface's documented `max_speed_mps` launch argument 2.0 (default 1.5). Before flying it:
+* **PX4 still caps the speed.** `contracts/px4.md` records the organisers' `MPC_XY_VEL_MAX` as
+  1.0 m/s and forbids writing it. Read the live value; at 1.0 the drone flies at 1.0.
+* **The window is not cleared** by `contracts/course.md` (no reviewed clearance budget). The
+  planner's window pass keeps 0.049 m over its inscribed radius.
+* On this course the speed profile peaks near 1.4 m/s even at 2.0: the unvalidated cornering
+  limit (`a_lat_mps2` 1.0) binds before the speed caps. SITL results: `sitl/README.md`.
 
 The kit passes only its own drone.env keys into the container, so don't put
 `DRONEHACKS_*` settings there; they never arrive. Restart the stack on the
