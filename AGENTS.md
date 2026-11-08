@@ -10,9 +10,13 @@ DroneHacks is a drone simulation/hacking hackathon project.
 
 Area ownership is not yet assigned — see docs/BOARD.md owners table. This file's area list grows as code lands; do not add areas here speculatively.
 
-**Our drone is drone 1.** Its hostname should be `skybeta-01`, and its `/etc/skybeta/drone.env` has `DRONE_ID=1` and `ROS_DOMAIN_ID=1`. Run `hostname` after logging in. Never SSH into any other drone: the organizers disqualify teams for it, even if the login fails.
+**Our drone is drone 11.** The team switched from drone 1 to drone 11 on 2026-11-07 (set by @jsun4231). Drone 1, `skybeta-01`, is no longer ours.
+- Drone 11's hostname should be `skybeta-11`, and its `/etc/skybeta/drone.env` should have `DRONE_ID=11` and `ROS_DOMAIN_ID=11`.
+- Its flight controller (Pixhawk 6C) reports `MAV_SYS_ID` 11 and `UXRCE_DDS_DOM_ID` 11 and runs the organizers' patched PX4 `v1.16.2-1-g7a39c59` (read over USB, 2026-11-07).
+- Run `hostname` after logging in. Never SSH into any other drone, drone 1 included: the organizers disqualify teams for it, even if the login fails.
+- Anything in this repo that names drone 1, `skybeta-01`, domain 1 or `SN0001` as our drone is out of date until it is updated.
 
-**Code preloaded on the drone:** [`drone-snapshot/`](drone-snapshot/) holds the existing code that came preloaded on the drone's Jetson, from `drone-snapshot.zip` (captured 2026-11-06, SHA-256 `f44b5788f9e99615837e8cce65d363153789f82bdb36be8131c77a03702e175e`). Treat it as the reference for what is already on the drone, and don't edit it. [`drone-snapshot/README.md`](drone-snapshot/README.md) lists its contents and the changes from the zip. Main parts:
+**Code preloaded on the drone:** [`drone-snapshot/`](drone-snapshot/) holds the code that came preloaded on drone 1's Jetson, from `drone-snapshot.zip` (captured 2026-11-06, SHA-256 `f44b5788f9e99615837e8cce65d363153789f82bdb36be8131c77a03702e175e`). That was before the switch to drone 11, so its `etc/skybeta/drone.env` says `DRONE_ID=1`. Drone 11 has not been snapshotted. Treat the snapshot as the reference for the fleet's preloaded code, check anything drone-specific on drone 11 itself, and don't edit it. [`drone-snapshot/README.md`](drone-snapshot/README.md) lists its contents and the changes from the zip. Main parts:
 
 - `home/dronehacks/skybeta/`: the organizer-supplied stack, `skybeta` `VERSION` 0.3.2, from upstream `Artash-N/skybeta`, branch `fleet-ready`. Its `README.md` and `docs/competitor_guide.md` describe the interfaces and on-drone rules.
 - `home/dronehacks/team_ws/src/`: empty when captured. Team code goes here on the drone.

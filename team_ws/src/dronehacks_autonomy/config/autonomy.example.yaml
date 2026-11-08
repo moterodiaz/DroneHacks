@@ -8,7 +8,7 @@
 
 mission:
   ros__parameters:
-    # MUST MEASURE on drone 1. No defaults: the node refuses to start, and publishes nothing,
+    # MUST MEASURE on drone 11. No defaults: the node refuses to start, and publishes nothing,
     # while any of these is .nan.
     rest_height_m: .nan              # body centre above the floor when landed, tape-measured
     # p_odom = o_odom + R_odom_course * p_course (contracts/frames.md). Written by

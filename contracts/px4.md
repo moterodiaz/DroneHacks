@@ -27,15 +27,20 @@ reference — do not set them.
 
 ## Failsafe behaviour (reference only — organisers' values, do not write)
 
+Values as set on our drone, skybeta-11, read from its FC over USB on 2026-11-07
+(they match [`skybeta-11-2026-11-07.params`](px4-baselines/skybeta-11-2026-11-07.params)).
+Until that day the team flew drone 1, whose 2026-10-15 dump (`SN0001`) had
+`NAV_RCL_ACT` `6` and `MPC_XY_VEL_MAX` `1.0`. Those values are not ours any more.
+
 | trigger | parameter | behaviour | source |
 |---|---|---|---|
 | Setpoints stop | `COM_OF_LOSS_T` | `1 s`; Position mode holds where it is, on vision | `organisers` |
 | Vision lost too | `COM_POSCTL_NAVL` | `0`; falls to Altitude mode, holds height, drifts sideways | `organisers` |
-| Transmitter link lost | `NAV_RCL_ACT` | `6`; **disarms and falls**, even in Offboard | `organisers` |
+| Transmitter link lost | `NAV_RCL_ACT` | `2`; requests Return. Return needs a global position, which this indoor drone never has, so PX4 falls back to Land, or to Descend without a local position | `organisers` |
 | Failsafe triggers | `COM_FAIL_ACT_T` | `5 s`; holds before acting | `organisers` |
 | Takeoff mode | `MIS_TAKEOFF_ALT` | `2.5 m`; climbs over the walls — our start must command its own height | `organisers` |
 | Kill switch | `COM_KILL_DISARM` | `5 s`; motors stop at once, reversible within window | `organisers` |
-| Speed cap | `MPC_XY_VEL_MAX` | `1.0` m/s | `organisers` |
+| Speed cap | `MPC_XY_VEL_MAX` | `12` m/s, so the FC itself does not cap speed indoors; our code must | `organisers` |
 | Estimator fusion | `EKF2_EV_CTRL` | `9`; vision gives horizontal position and yaw | `organisers` |
 | Height reference | `EKF2_HGT_REF` | `2`; rangefinder gives height | `organisers` |
 
@@ -43,10 +48,10 @@ reference — do not set them.
 
 | item | value | source |
 |---|---|---|
-| PX4 firmware | `v1.16.1` (`ver all` on the MAVLink console) | `organisers` |
+| PX4 firmware | `v1.16.2-1-g7a39c59`, git `7a39c5954139c917d21e0c5cdf6cc10449b1c011`, built Oct 20 2026 23:49:18. This is the organisers' v1.16.2 plus the NuttX TX-DMA fix, vendored in `drone-snapshot/home/dronehacks/skybeta/px4/firmware/`. skybeta-11's `ver all`, 2026-11-07; drone 1 ran `v1.16.1` | `organisers` |
 | ROS 2 | Humble | `organisers` |
 | `px4_msgs` | the kit's copy for v1.16, never ours — some 1.16 topics carry `_v1` | `organisers` |
-| DDS domain | `ROS_DOMAIN_ID` must equal PX4's `UXRCE_DDS_DOM_ID` (their file sets `1`) | `organisers` |
+| DDS domain | `ROS_DOMAIN_ID` must equal PX4's `UXRCE_DDS_DOM_ID`. On skybeta-11 both are `11` (the FC's value, 2026-11-07; convention: drone number). Drone 1's were `1` | `organisers` |
 
 ## Prohibition
 
