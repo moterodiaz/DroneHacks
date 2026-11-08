@@ -3,10 +3,14 @@ path-flight node.
 
     ros2 launch dronehacks_pathfly pathfly.launch.py              # full mission
     ros2 launch dronehacks_pathfly pathfly.launch.py stage:=1     # staged test
+    ros2 launch dronehacks_pathfly pathfly.launch.py speed:=fast  # same path, faster
     ros2 launch dronehacks_pathfly pathfly.launch.py params_file:=/root/team_ws/my.yaml
 
-Mission settings are in config/pathfly.yaml (or params_file). A stage adds
-config/stage<N>.yaml on top of it (see BRINGUP.md). The stack's autostart
+Mission settings are in config/pathfly.yaml (or params_file). The FAST speed
+profile adds config/fast.yaml on top of it; a stage adds config/stage<N>.yaml
+last (see BRINGUP.md). With no speed argument the profile comes from
+~/team_ws/pathfly_speed on the drone host ("safe" or "fast"; missing = safe),
+which scripts/speed.sh sets. The stack's autostart
 cannot pass arguments, so stage<N>.launch.py exist for COMPETITOR_LAUNCH.
 
 odom_to_ned_yaw_offset_rad is read from the params file's dronehacks_pathfly
@@ -46,8 +50,35 @@ ARGUMENTS = [
      'when stage is empty, a file holding 1, 2, 3 or full (missing = full). '
      'This is ~/team_ws/pathfly_stage on the drone host: switching stages '
      'needs no sudo and no drone.env edit'),
+    ('speed', '', 'speed profile: "safe" (config/pathfly.yaml only) or '
+                  '"fast" (adds config/fast.yaml). Empty: read speed_file'),
+    ('speed_file', '/root/team_ws/pathfly_speed',
+     'when speed is empty, a file holding safe or fast (missing = safe). '
+     'This is ~/team_ws/pathfly_speed on the drone host; scripts/speed.sh '
+     'sets it'),
     ('competitor', 'true', 'also start the path-flight node'),
 ]
+
+
+def _speed_profile(context):
+    """'safe' or 'fast', from the speed argument or else the speed file.
+    Anything unrecognised fails the launch rather than guessing."""
+    speed = LaunchConfiguration('speed').perform(context).strip().lower()
+    source = 'speed:='
+    if not speed:
+        speed_file = LaunchConfiguration('speed_file').perform(context)
+        source = speed_file
+        try:
+            with open(speed_file, encoding='utf-8') as f:
+                speed = f.read().strip().lower()
+        except OSError:
+            speed, source = 'safe', f'{speed_file} missing'
+    if speed in ('', 'safe', 'slow', 'default'):
+        speed = 'safe'
+    if speed not in ('safe', 'fast'):
+        raise RuntimeError(f'speed profile "{speed}" from {source}: '
+                           f'use safe or fast')
+    return speed, source
 
 
 def _nodes(context):
@@ -71,7 +102,15 @@ def _nodes(context):
     mine = (doc.get('dronehacks_pathfly') or {}).get('ros__parameters') or {}
     yaw_offset = float(mine.get('odom_to_ned_yaw_offset_rad', 0.0))
 
+    speed, speed_source = _speed_profile(context)
+    print(f'[pathfly] SPEED {speed.upper()} ({speed_source})', flush=True)
+
     pathfly_params = [params_file]
+    if speed == 'fast':
+        fast_file = os.path.join(SHARE, 'config', 'fast.yaml')
+        if not os.path.exists(fast_file):
+            raise RuntimeError(f'speed fast, but no {fast_file}')
+        pathfly_params.append(fast_file)
     if stage:
         stage_file = os.path.join(SHARE, 'config', f'stage{stage}.yaml')
         if not os.path.exists(stage_file):

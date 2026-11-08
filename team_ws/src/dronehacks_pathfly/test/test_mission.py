@@ -259,6 +259,138 @@ class TestFullMission(unittest.TestCase):
         self.assertLess(math.hypot(g1[2] - end[0], g1[3] - end[1]), 0.10)
 
 
+CONFIG_DIR = os.path.join(os.path.dirname(DEFAULT_PATH), '..', 'config')
+
+
+def flat_yaml_params(name):
+    """The `key: number` lines of a config file (no PyYAML in the CI image)."""
+    import re
+    out = {}
+    with open(os.path.join(CONFIG_DIR, name), encoding='utf-8') as f:
+        for line in f:
+            m = re.match(r'^\s{4}(\w+):\s*([-+0-9.eE]+)\s*(#.*)?$', line)
+            if m:
+                out[m.group(1)] = float(m.group(2))
+    return out
+
+
+def goal_time(phases):
+    """Seconds from Offboard (TAKEOFF) to touchdown 1 at the GOAL."""
+    t0 = next(t for t, p in phases if p == 'TAKEOFF')
+    return next(t for t, p in phases if p == 'GROUND_1') - t0
+
+
+class TestFastProfile(unittest.TestCase):
+    """config/fast.yaml: the same path, faster; touch the GOAL within 60 s."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.pts, cls.margins = load_path_csv(DEFAULT_PATH)
+        cls.fast = flat_yaml_params('fast.yaml')
+        cls.safe = flat_yaml_params('pathfly.yaml')
+
+    def cfg(self, **kw):
+        c = Config(**{k: v for k, v in self.safe.items()
+                      if k in Config.field_names()})
+        for k, v in self.fast.items():
+            setattr(c, k, v)
+        for k, v in kw.items():
+            setattr(c, k, v)
+        return c
+
+    def test_profile_has_the_expected_fields(self):
+        self.assertEqual(self.fast['path_speed_mps'], 1.0)
+        self.assertGreater(self.fast['ki_cross_xy'], 0.0)
+        for k in self.fast:
+            self.assertIn(k, Config.field_names(), k)
+        self.cfg().validate()
+
+    def test_same_path_and_nose(self):
+        m = Mission(self.pts, self.margins, self.cfg())
+        self.assertEqual(m.arena_points, Mission(self.pts, self.margins,
+                                                 Config()).arena_points)
+        self.assertEqual(m.start_yaw_deg, 0.0)
+        self.assertIsNone(m.heading_warning)
+
+    def test_goal_within_a_minute_and_faster_than_safe(self):
+        _, _, phases, track = run(self.cfg(), quiet=True)
+        _, _, safe_phases, _ = run(self.cfg(**{k: getattr(Config(), k)
+                                               for k in self.fast}), quiet=True)
+        self.assertEqual([p for _, p in phases], EXPECTED_PHASES)
+        self.assertLess(goal_time(phases), 42.0)
+        self.assertLess(goal_time(phases), goal_time(safe_phases) - 10.0)
+        g1 = next(r for r in track if r[1] == 'GROUND_1')
+        end = self.pts[-1]
+        self.assertLess(math.hypot(g1[2] - end[0], g1[3] - end[1]), 0.05)
+
+    def test_goal_within_a_minute_with_lag_noise_and_push(self):
+        """PX4 lag 0.7 s (measured in flight), 2 cm noise, 5 cm/s push: the
+        drone never strays further from the path than the planner's wall
+        margin there (less 5 mm)."""
+        import dronehacks_pathfly.sim as sim
+        line = Polyline(self.pts, self.margins)
+        saved = sim.Vehicle.__init__.__defaults__
+        sim.Vehicle.__init__.__defaults__ = (0.7,) + saved[1:]
+        try:
+            for wind in ((0.05, 0.0), (0.0, 0.05), (0.0, -0.05), (-0.05, 0.0)):
+                _, _, phases, track = run(self.cfg(stop_after_landing_1=True),
+                                          noise=0.02, wind=wind, quiet=True)
+                self.assertNotIn('HOLD', [p for _, p in phases], wind)
+                self.assertLess(goal_time(phases), 50.0, wind)
+                s = 0.0
+                for r in track:
+                    if r[1] in ('PATH', 'PATH_END', 'LAND_1') and r[4] > 0.15:
+                        s = line.project((r[2], r[3]), s, window=0.5)
+                        dev = math.dist(line.at(s), (r[2], r[3]))
+                        self.assertLess(dev, line.margin_at(s) - 0.005,
+                                        (wind, r[:4], s))
+        finally:
+            sim.Vehicle.__init__.__defaults__ = saved
+
+    def test_slow_where_the_margin_is_thin(self):
+        m = Mission(self.pts, self.margins, self.cfg())
+        line, prof = m.arena_line, m.profile
+        for i, s in enumerate(line.s):
+            if line.margin_at(s) <= 0.09:
+                self.assertLessEqual(prof[i], 0.17, s)
+        self.assertAlmostEqual(max(prof), 1.0, delta=1e-6)
+
+    def test_cross_track_integral_cancels_a_steady_push(self):
+        def worst(ki):
+            _, _, _, track = run(self.cfg(ki_cross_xy=ki, stop_after_landing_1=True),
+                                 wind=(0.0, 0.08), quiet=True)
+            return max(dist_to_polyline((r[2], r[3]), self.pts)
+                       for r in track if r[1] == 'PATH' and r[4] > 0.15)
+        self.assertLess(worst(0.5), worst(0.0) - 0.01)
+
+    def test_safe_defaults_unchanged(self):
+        """The new options are off unless fast.yaml turns them on."""
+        c = Config()
+        self.assertEqual((c.ki_cross_xy, c.slow_margin_m, c.end_decel_mps2),
+                         (0.0, 0.0, 0.0))
+        for k in ('path_speed_mps', 'path_min_speed_mps', 'full_speed_margin_m',
+                  'descent_speed_mps', 'final_descent_speed_mps'):
+            self.assertEqual(self.safe[k], getattr(c, k), k)
+
+
+class TestSpeedProfile(unittest.TestCase):
+    def test_slow_margin_and_end_decel(self):
+        from dronehacks_pathfly.path import speed_profile
+        pts = [(0.0, 0.0), (10.0, 0.0)]
+        line = Polyline(pts, [0.1, 0.1])
+        v = speed_profile(line, 1.0, 0.2, 0.5, 0.5, 0.6, slow_margin=0.1)
+        self.assertAlmostEqual(max(v), 0.2, delta=1e-6)
+        line = Polyline(pts, [1.0, 1.0])
+        hard = speed_profile(line, 1.0, 0.2, 0.5, 0.5, 0.6)
+        soft = speed_profile(line, 1.0, 0.2, 0.5, 0.5, 0.6, end_decel=0.25,
+                             end_decel_length=2.0)
+        i = line.s.index(min(line.s, key=lambda s: abs(s - 9.5)))
+        self.assertAlmostEqual(soft[i], math.sqrt(2 * 0.25 * 0.5), delta=0.01)
+        self.assertGreater(hard[i], soft[i])
+        j = line.s.index(min(line.s, key=lambda s: abs(s - 5.0)))
+        self.assertEqual(hard[j], soft[j])
+
+
 class TestBringUp(unittest.TestCase):
     """Staged tests, the heading-offset correction and the stage files."""
 
@@ -274,7 +406,8 @@ class TestBringUp(unittest.TestCase):
         cfg_dir = os.path.join(os.path.dirname(DEFAULT_PATH), '..', 'config')
         names = set(Config.field_names()) | {
             'path_csv', 'odom_to_ned_yaw_offset_rad', 'rate_hz'}
-        for f in ('pathfly.yaml', 'stage1.yaml', 'stage2.yaml', 'stage3.yaml'):
+        for f in ('pathfly.yaml', 'fast.yaml', 'stage1.yaml', 'stage2.yaml',
+                  'stage3.yaml'):
             with open(os.path.join(cfg_dir, f), encoding='utf-8') as fh:
                 params = yaml.safe_load(fh)['dronehacks_pathfly']['ros__parameters']
             for k, v in params.items():
@@ -429,7 +562,8 @@ class TestFaults(unittest.TestCase):
         pts, margins = load_path_csv(DEFAULT_PATH)
         for bad in (dict(touchdown_dwell_s=4.0), dict(max_height_m=3.5),
                     dict(hop_height_m=2.6), dict(liftoff_height_m=1.5),
-                    dict(max_cmd_speed_mps=2.0), dict(start_x_m=2.0, start_y_m=2.0)):
+                    dict(max_cmd_speed_mps=2.0), dict(start_x_m=2.0, start_y_m=2.0),
+                    dict(slow_margin_m=0.5), dict(ki_cross_xy=-0.1)):
             with self.assertRaises(ValueError, msg=bad):
                 Mission(pts, margins, Config(**bad))
 

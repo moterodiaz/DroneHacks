@@ -80,6 +80,11 @@ class Config:
     path_speed_mps: float = 0.4
     path_min_speed_mps: float = 0.10
     full_speed_margin_m: float = 0.40   # planner margin at which full speed is allowed
+    slow_margin_m: float = 0.0          # planner margin at/below which min speed applies
+    # Gentler braking over the last end_decel_length_m of the path (0 = use
+    # accel_mps2): PX4's lag otherwise carries the drone past the goal point.
+    end_decel_mps2: float = 0.0
+    end_decel_length_m: float = 0.0
     accel_mps2: float = 0.5
     lateral_accel_mps2: float = 0.6
     climb_speed_mps: float = 0.5
@@ -97,6 +102,15 @@ class Config:
     ff_lead_s: float = 0.3              # ~PX4's velocity-tracking lag
     ki_xy: float = 0.5
     i_xy_limit_mps: float = 0.15
+    # Cross-track integral while following the path (1/s; 0 = off, the
+    # default). Learns only the error perpendicular to the path, so the
+    # ordinary along-track lag cannot wind it up; it cancels a steady
+    # sideways push (draft, a frame offset) that P alone leaves as
+    # push / kp_xy of offset towards a wall. Shares i_xy and its limit.
+    ki_cross_xy: float = 0.0
+    # ... learning only where the path bends less than this (rad/m): in a
+    # bend the lagging vehicle swings wide, which is not a push.
+    cross_track_max_curv: float = 0.3
 
     # --- tolerances, timeouts, safety ------------------------------------
     track_slow_error_m: float = 0.08    # carrot starts slowing beyond this
@@ -157,6 +171,11 @@ class Config:
                 problems.append(f'{name} must be > 0')
         if self.path_min_speed_mps > self.path_speed_mps:
             problems.append('path_min_speed_mps > path_speed_mps')
+        if not 0.0 <= self.slow_margin_m < self.full_speed_margin_m:
+            problems.append('need 0 <= slow_margin_m < full_speed_margin_m')
+        for name in ('end_decel_mps2', 'end_decel_length_m', 'ki_cross_xy'):
+            if getattr(self, name) < 0.0:
+                problems.append(f'{name} must be >= 0')
         if problems:
             raise ValueError('; '.join(problems))
 
@@ -202,7 +221,8 @@ class Mission:
         self.arena_line = Polyline(self.arena_points, margins)
         self.profile = speed_profile(
             self.arena_line, cfg.path_speed_mps, cfg.path_min_speed_mps,
-            cfg.full_speed_margin_m, cfg.accel_mps2, cfg.lateral_accel_mps2)
+            cfg.full_speed_margin_m, cfg.accel_mps2, cfg.lateral_accel_mps2,
+            cfg.slow_margin_m, cfg.end_decel_mps2, cfg.end_decel_length_m)
         sx = cfg.start_x_m if math.isfinite(cfg.start_x_m) else self.arena_points[0][0]
         sy = cfg.start_y_m if math.isfinite(cfg.start_y_m) else self.arena_points[0][1]
         self.arena_start = (sx, sy)
@@ -383,6 +403,22 @@ class Mission:
              ff[2] + cfg.kp_z * (ref[2] - p[2])]
         return self._cap(v) + (self._yaw_rate(obs),)
 
+    def _integrate_cross_track(self, ref_xy, p, tan, dt):
+        """Add the cross-track part of the x/y error to i_xy (norm-clamped).
+
+        _track then applies i_xy (frozen) on top of the P term while the
+        reference moves."""
+        cfg = self.cfg
+        n = (-tan[1], tan[0])
+        e_n = (ref_xy[0] - p[0]) * n[0] + (ref_xy[1] - p[1]) * n[1]
+        ix = self.i_xy[0] + cfg.ki_cross_xy * e_n * n[0] * dt
+        iy = self.i_xy[1] + cfg.ki_cross_xy * e_n * n[1] * dt
+        norm = math.hypot(ix, iy)
+        lim = cfg.i_xy_limit_mps
+        if norm > lim:
+            ix, iy = ix * lim / norm, iy * lim / norm
+        self.i_xy = [ix, iy]
+
     def _cap(self, v):
         n = math.sqrt(sum(c * c for c in v))
         if n > self.cfg.max_cmd_speed_mps:
@@ -545,6 +581,9 @@ class Mission:
         h, _ = self._height_ref(self.s)
         _, dh = self._height_ref(s_lead)
         ref = (ref_xy[0], ref_xy[1], self.ground_z + h)
+        if cfg.ki_cross_xy > 0.0 and (self.line.curvature(self.s)
+                                      < cfg.cross_track_max_curv):
+            self._integrate_cross_track(ref_xy, p, self.line.tangent(self.s), dt)
         cmd = self._track(obs, ref, (ff_speed * tan[0], ff_speed * tan[1],
                                      ff_speed * dh), integrate=False)
         if self.s >= L:

@@ -48,6 +48,43 @@ is thin (full speed only from 0.40 m of margin). This is slow on purpose: the
 path is planned for maximum margin, and speed is what eats it. The flight from
 arming to final disarm takes about 80 s.
 
+## Speed profiles: safe and fast
+
+Both profiles fly **the same planned path** with the nose east. They differ
+only in speeds and in one tracking option.
+
+| | `safe` (default) | `fast` |
+|---|---|---|
+| Config | `config/pathfly.yaml` | `config/pathfly.yaml` + [`config/fast.yaml`](config/fast.yaml) |
+| Path speed | 0.10–0.4 m/s | 0.15 m/s at the 8 cm spots, up to 1.0 m/s where the planner's margin is ≥ 0.55 m |
+| Take-off / descent | 0.3 / 0.4 → 0.2 m/s | 0.5 / 0.7 → 0.3 m/s |
+| Braking into the goal | 0.5 m/s² | 0.25 m/s² over the last 1 m (less overshoot into the pocket) |
+| Cross-track integral | off | on (`ki_cross_xy` 0.5): cancels a steady sideways push |
+| Offboard → touchdown at GOAL (sim) | 53 s; ≤ 61 s with 0.7 s lag, noise and 5 cm/s push | **38 s; ≤ 48 s** with the same disturbances |
+| Worst wall margin in those sim cases | −10 mm | +10 mm |
+
+The fast profile is the goal-within-a-minute version. The return hop to START
+is not counted. Its sim weak spots are a pure 1.0 s PX4 lag (17 mm, against
+29 mm for safe) and an uncorrected 5° heading offset (22–34 mm, against
+47–64 mm): it flies the open stretches at up to 1 m/s, so heading errors cost
+more there. With a 1.0 s lag plus noise and a push, it still reaches the goal
+in 54 s.
+
+**Switching:** the file `~/team_ws/pathfly_speed` on the drone holds `safe` or
+`fast`; with no file, the profile is `safe`. `pathfly.launch.py` reads it once
+at start-up:
+
+```bash
+bash ~/team_ws/src/dronehacks_pathfly/scripts/speed.sh fast   # or: safe; no argument shows it
+```
+
+Then restart the stack with the drone on START: power-cycle it, or run
+`docker rm -f skybeta-stack`. The `competitor` window prints
+`[pathfly] SPEED FAST` (or `SAFE`), and `scripts/preflight.sh` checks that the
+running profile matches the file. By hand, use
+`ros2 launch dronehacks_pathfly pathfly.launch.py speed:=fast`. The speed
+profile combines with a stage: `stage<N>.yaml` is applied last.
+
 ## Load it onto the drone
 
 1. Copy the package to drone 11. Run `hostname` first: it must say

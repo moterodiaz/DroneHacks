@@ -22,6 +22,8 @@ lch=$(grep -E '^COMPETITOR_LAUNCH=' /etc/skybeta/drone.env | cut -d= -f2)
 case "$lch" in pathfly.launch.py|stage[123].launch.py) pass "COMPETITOR_LAUNCH=$lch";; *) fail "COMPETITOR_LAUNCH=$lch";; esac
 stage=$(cat ~/team_ws/pathfly_stage 2>/dev/null || echo "(no file = full)")
 info "stage file: $stage"
+speed=$(cat ~/team_ws/pathfly_speed 2>/dev/null || echo "safe (no file)")
+info "speed file: $speed  (scripts/speed.sh fast|safe; takes effect at the next stack start)"
 timedatectl 2>/dev/null | grep -q 'synchronized: yes' && pass "clock synchronized" || fail "clock not synchronized (stack may still restart once)"
 
 echo "== stack"
@@ -37,6 +39,15 @@ pane=$(docker exec skybeta-stack tmux capture-pane -p -J -t skybeta:competitor -
 echo "$pane" | grep -q '\[pathfly\] \(FULL MISSION\|STAGED TEST\)' \
   && pass "competitor: $(echo "$pane" | grep -o '\[pathfly\] \(FULL MISSION\|STAGED TEST [0-9]\)' | tail -1)" \
   || fail "competitor window is not running pathfly.launch.py (old stack? power-cycle)"
+loaded=$(echo "$pane" | grep -o '\[pathfly\] SPEED [A-Z]*' | tail -1)
+want=$(echo "${speed%% *}" | tr a-z A-Z)
+if [ -z "$loaded" ]; then
+  fail "competitor window shows no [pathfly] SPEED line (pathfly older than the fast profile? redeploy)"
+elif [ "$loaded" = "[pathfly] SPEED $want" ]; then
+  pass "running speed profile: ${loaded#\[pathfly\] SPEED }"
+else
+  fail "running ${loaded#\[pathfly\] }, but the speed file says $want - power-cycle on START to load it"
+fi
 flat=$(echo "$pane" | tr -d '\n')   # tmux wraps long log lines: search them joined
 echo "$flat" | grep -q 'NOSE AT LIFT-OFF: *0.0 deg' && pass "node summary: nose east" || fail "node summary line not found (scroll the competitor window)"
 echo "$pane" | grep -q 'WARNING: the path was planned' && fail "heading WARNING in summary (start_yaw_deg / hold_heading changed)"

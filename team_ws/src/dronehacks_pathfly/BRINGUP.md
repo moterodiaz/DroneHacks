@@ -357,7 +357,9 @@ for drift, do this before every flight:
    recording.
 
 To switch stage, write the new stage to `~/team_ws/pathfly_stage` before
-step 1.
+step 1. To switch speed profile (same path; see README "Speed profiles"), run
+`bash ~/team_ws/src/dronehacks_pathfly/scripts/speed.sh fast` (or `safe`)
+before step 1.
 
 A quicker reset is `docker rm -f skybeta-stack`, with the drone in the jig;
 the stack is back in about 10 s. Then wait 60 s untouched. If `px4_link` does
@@ -426,6 +428,8 @@ START.
       says `full` (or is deleted). The `competitor` window shows
       `[pathfly] FULL MISSION`, and the summary shows no `STAGED TEST` and no
       `WARNING`.
+- [ ] Speed profile chosen: `scripts/speed.sh` shows `fast` or `safe`, and
+      the `competitor` window shows the same `[pathfly] SPEED ...` line.
 - [ ] North wall position confirmed (open item). Tunnel carry check done
       (4.3). Map checked (3.1).
 - [ ] Jig on START, drone centred, nose east, battery plugged in **after**

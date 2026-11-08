@@ -194,18 +194,25 @@ def _interp_scalar(values, cum, s):
     return values[-1]
 
 
-def speed_profile(line, v_max, v_min, full_speed_margin, accel, lateral_accel):
+def speed_profile(line, v_max, v_min, full_speed_margin, accel, lateral_accel,
+                  slow_margin=0.0, end_decel=0.0, end_decel_length=0.0):
     """Speed limit at every sample of ``line``, starting and ending at rest.
 
     Slows where the planner's wall margin is thin and where the path bends,
     then applies accel/decel limits forwards and backwards.
+
+    The margin limit rises linearly from v_min at ``slow_margin`` (and
+    below) to v_max at ``full_speed_margin``. ``end_decel`` > 0 brakes
+    more gently than ``accel`` over the last ``end_decel_length`` metres,
+    so a lagging vehicle overshoots the end less.
     """
     v = []
+    span = full_speed_margin - slow_margin
     for s in line.s:
         lim = v_max
         m = line.margin_at(s)
-        if m is not None and full_speed_margin > 0:
-            frac = min(max(m / full_speed_margin, 0.0), 1.0)
+        if m is not None and span > 0:
+            frac = min(max((m - slow_margin) / span, 0.0), 1.0)
             lim = min(lim, v_min + (v_max - v_min) * frac)
         k = line.curvature(s)
         if k > 1e-6:
@@ -215,7 +222,10 @@ def speed_profile(line, v_max, v_min, full_speed_margin, accel, lateral_accel):
     v[-1] = 0.0
     ds = line.step
     for i in range(len(v) - 2, -1, -1):
-        v[i] = min(v[i], math.sqrt(v[i + 1] ** 2 + 2.0 * accel * ds))
+        a = accel
+        if end_decel > 0.0 and line.s[i] >= line.length - end_decel_length:
+            a = min(accel, end_decel)
+        v[i] = min(v[i], math.sqrt(v[i + 1] ** 2 + 2.0 * a * ds))
     for i in range(1, len(v)):
         v[i] = min(v[i], math.sqrt(v[i - 1] ** 2 + 2.0 * accel * ds))
     return v
