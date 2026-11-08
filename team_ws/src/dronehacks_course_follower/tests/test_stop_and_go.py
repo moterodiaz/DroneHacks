@@ -129,6 +129,20 @@ def test_no_two_stop_and_go_holds_on_the_packaged_map_crowd_each_other(course_ma
             >= STOP_HOLD_SPACING_M
 
 
+def test_the_tunnel_is_flown_on_its_axis_out_past_both_mouths(course_map: dict[str, Any]) -> None:
+    # A run-out point pushed sideways off a rock's ring leans the whole tunnel leg: skybeta-11
+    # flew the tunnel 0.1-0.24 m west of its axis that way
+    tunnel = course_map["goals"]["tunnel"]
+    axis_east = tunnel["at"][0]
+    south, north = sorted(end[1] for end in tunnel["ends"])
+    for allow_window in (True, False):
+        planned = plan_flight(course_map, allow_window=allow_window, tunnel_lead_m=0.75)
+        run_outs = [point for point in planned.stop_route
+                    if abs(point[0] - axis_east) < 0.5 and not south <= point[1] <= north]
+        assert {point[1] > north for point in run_outs} == {True, False}
+        assert all(abs(point[0] - axis_east) <= 0.03 for point in run_outs)
+
+
 def test_every_stop_and_go_leg_on_the_packaged_map_is_clear(planned: Any, course_map: dict[str, Any]) -> None:
     points = [tuple(course_map["launch"][:2]), *planned.stop_route]
     grid = course_grid(course_map, boulder_margin_m=0.0)
