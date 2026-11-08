@@ -113,6 +113,22 @@ How a run picks its arena (`Scenario.arena`, CLI `--arena`, GUI **Arena**):
 A new arena builds its own heightmap and distance-field cache once, keyed by the STEP's and the
 edits file's SHA-256: about 40 s, like the STEP's. `result.json` records the arena.
 
+**The window lines as shipped: landing, and the fast line with no speed cap** (2026-11-08,
+traj @ 46e8a80). These are the runs in `runs/taped-2026-11-08_land_nocap/`, with no SITL `land` option:
+the lines' own `land: true` lands them. The setup and the route are as below.
+
+| Line | Plan | Seeds 1 / 2 / 3: clock to the pad disarm | Score |
+|---|---|---|---|
+| `window_max` (no speed cap) | 16.4 s, planned to 12 m/s | 21.5 / 22.3 / 22.7 s | 31 + window bonus, 0 touches |
+| `window_0p5mps` | 27.2 s at 0.5 m/s | 33.7 / 33.9 / 37.1 s | 31 + window bonus, 0 touches |
+
+* With no speed cap the plan and the flight are the same as at 2 m/s. On this course the
+  planner's dynamic limits hold the plan near 1.5 m/s: stopping room before the wall ahead, and
+  jerk. The drone peaked at 1.23-1.34 m/s.
+* The drone starts moving 1.7-1.8 s after it leaves the mark, at about 0.7 m up (it used to start
+  10.7 s in, at 1.19 m). It reaches full height 4-5.6 s in. It disarmed 0.07-0.29 m from the
+  taped pad's centre.
+
 **The window lines in the taped arena, with the rolling take-off and early descent** (2026-11-08,
 traj @ 4148468). These are the runs in `runs/taped-2026-11-08_rolling-takeoff_early-descent/`, if
 you have that local folder: `py -m dronesim gui --load` it. Every run: dark tunnel, PX4
