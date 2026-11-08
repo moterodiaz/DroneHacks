@@ -9,7 +9,9 @@ is the normative statement; where they disagree, this file wins
 Rule 8.5: never touch the organisers' PX4 safety settings. Everything not
 listed here — failsafes, kill switch, geofence, battery limits — is theirs
 and frozen. Save their `.params` baseline (QGroundControl › Parameters ›
-Tools › Save to file) before any change.
+Tools › Save to file) before any change, into `contracts/px4-baselines/`.
+skybeta-11's, saved 2026-11-07 before `COM_DISARM_LAND` went to 5, is
+[`skybeta-11-2026-11-07.params`](px4-baselines/skybeta-11-2026-11-07.params).
 
 | parameter | value | why | source |
 |---|---|---|---|
