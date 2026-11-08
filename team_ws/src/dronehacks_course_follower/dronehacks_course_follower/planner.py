@@ -517,6 +517,11 @@ def _astar(grid: CourseGrid, start: tuple[int, int], goal: tuple[int, int]) -> l
             if not (0 <= row < rows and 0 <= column < columns) or not np.isfinite(grid.cost[row, column]):
                 continue
 
+            # No diagonal step past a lethal corner: a straight leg's cell check counts the cells
+            # either side of a diagonal, so a path cutting the corner would fail its own leg check
+            if not (np.isfinite(grid.cost[cell[0], column]) and np.isfinite(grid.cost[row, cell[1]])):
+                continue
+
             cost = best[cell] + math.hypot(row_step, column_step) * CELL_M * float(weight[row, column])
             if cost < best.get((row, column), math.inf):
                 best[(row, column)] = cost
