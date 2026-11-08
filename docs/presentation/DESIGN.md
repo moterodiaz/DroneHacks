@@ -6,7 +6,8 @@ These are the standing rules for Team 08's judging deck. `build_deck.js` follows
 
 - Audience: two judging panels on 8 Nov, run as a technical interview. The talk is 5–7 min and the questions take 5–6 min.
 - Points: 25 for the presentation (autonomy design, technical execution, originality, evidence of testing) and 15 for generality. An AI review of the repository flags hard-coding to the judges.
-- Structure: 7 slides covering the autonomy stack, the approach and the results.
+- Structure: a title slide, then 7 slides covering the autonomy stack, the approach and the results.
+  0. Title: team, drone, flown package and its SITL result, route figure from `route_fig.py`.
   1. Problem: task, platform, constraints.
   2. Autonomy stack.
   3. Approach 1: first principles and the iteration timeline.
@@ -14,7 +15,7 @@ These are the standing rules for Team 08's judging deck. `build_deck.js` follows
   5. Approach 3: safety, localization, tools and contracts.
   6. Results 1: flight, SITL and bench results.
   7. Results 2: generality, course-specific items, open items and credits.
-- Content: every slide carries technical facts from `technical-corpus/TECHNICAL_CORPUS.md`. Nothing goes on a slide that has no fact in it: no slogans, no taglines and no closing slide.
+- Content: every slide carries technical facts from `technical-corpus/TECHNICAL_CORPUS.md`. Nothing goes on a slide that has no fact in it: no slogans, no taglines and no closing slide. Rehearsal questions and the do-not-claim list go in the speaker notes.
 
 ## Text: ASD-STE100 (Simplified Technical English)
 
@@ -35,7 +36,7 @@ These are the standing rules for Team 08's judging deck. `build_deck.js` follows
 - Two accents only:
   - red `B42318` for failures and contacts;
   - dark blue `1F3A5F` for diagram topic labels, the best SITL result and step numbers.
-- Each slide has a grey `n/7 SECTION` label, a 22 pt title stating the content (not a slogan), and numbered sub-headings `n.m`.
+- Each content slide has a grey `SECTION n/m` label, a 22 pt title stating the content (not a slogan), and numbered sub-headings `n.m`.
 - Tables are booktabs style: a bold header between black rules, grey hairlines between rows, no vertical lines and no fills.
 - Diagrams use square boxes with thin black lines and plain arrows labelled with topic names and rates. Do not use icons, rounded cards, pills, shadows, gradients or decorative stripes.
 - Charts are drawn as shapes, because Keynote's PPTX import drops pptxgenjs charts.
@@ -44,9 +45,10 @@ These are the standing rules for Team 08's judging deck. `build_deck.js` follows
 ## Process
 
 1. Build: `NODE_PATH=<dir with pptxgenjs> APPLY_THEME=<pptx skill>/scripts/apply_theme.js node docs/presentation/build_deck.js`.
-2. Validate with the pptx skill's `validate.py`.
-3. Render to PDF through Keynote (`osascript`: open, export as PDF) and look at every page.
-4. Do a visual review of each render for four things:
+2. Route figure: `python docs/presentation/route_fig.py <follower package dir> docs/presentation/assets/route-<sha>.png` plots the planner's own route on the map file.
+3. Validate with the pptx skill's `validate.py`.
+4. Render to PDF through Keynote (`osascript`: open, export as PDF) and look at every page.
+5. Do a visual review of each render for four things:
    - **hierarchy**: the title, then the sub-headings, then the body;
    - **contrast**;
    - **alignment**: columns share left edges and tops;

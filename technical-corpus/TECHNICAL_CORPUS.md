@@ -1182,13 +1182,16 @@ Source: `Drone 11 Flight Stack.html` (team explainer, as of Sun 8 Nov morning PT
 |---|---|---|
 | First square test climbed but never moved sideways | Bag vs PX4 log: the two height zeros differed, so "0.74 m" became 1.33 m (measured) | Measure the PX4-minus-camera gap and add it to every setpoint |
 | Run 1 hit the north wall | The log put the hit 24 in inside the net; the team taped the wall there. **Localization was right to inches; the map was wrong** (measured) | Map corrected from tape: north wall, diagonal wall, window height, rocks |
-| Run 2 turned early after the tunnel | Yaw began when the setpoint reached the corner while the drone trailed 0.25 m (measured) | Turns wait for the drone itself to arrive |
+| Run 2 (flight 082135) turned early after the tunnel | Yaw began when the setpoint reached the corner while the drone trailed 0.25 m; pilot kill at **79.57 s**, **no contact** (measured) | Turns wait for the drone itself to arrive |
 | A run clipped the wall beside the tunnel's south mouth | Turn after the tunnel too close to the mouth (team report) | Tunnel flown straight from 0.75 m outside its mouths |
 | **Every flight in the first scored session ended early** | Bags' stick and mode records: each ended when a stick moved and PX4 handed control to the pilot (measured) | Pilot procedure: hands off in Offboard unless a collision is imminent |
-| A crash into the north wall in that session | Until the pilot's input at **66.2 s** the drone was **3–8 cm** from its setpoint with no contact; then full throttle with yaw (measured) | Route moved: a corridor point keeps the drone 0.61 m off the north wall |
+| A crash into the north wall in that session | Until the pilot's input at **66.2 s** the drone was **3–8 cm** from its setpoint with no contact; then full throttle with yaw (measured) | Pilot procedure (hands off). The corridor point added after this crash was later removed (5391e34) |
 | Tracker jumped by metres after a manual landing | Pose logs (measured) | New LOST phase; restart the stack after any handling |
 | **Idea: never yaw, to avoid turn drift** | SITL holding north: by the north wall the camera stared at the wall from 0.4 m and cuVSLAM lost track | **Rejected** for the course follower: face along the route; stop-and-go waits out each turn's drift |
+| Heading drift, measured against PX4's gyro | Under 1° over four turns (013018); about 2.5° by the tunnel on the real tunnel run (measured) | Stop-and-go waits out each turn; pathfly holds one heading for 8 cm margins |
 | The new route, before flying it | SITL on the taped map: **stop-and-go 109 s, smooth 0.5 m/s 79 s**, no touches, window crossed within 7 cm of centre, landed within 7 cm of the pad | What flies today, ladder step 0 first |
+
+Flown package at **5391e34** (`core/flight-iteration`, straight leg past the diagonal wall, no corridor goal): SITL on the taped map **stop-and-go 102 s, smooth 0.5 m/s 76 s**, window crossed within **8 cm** of centre, landed within **11 cm** of the pad centre. The 109 s / 79 s row above is the earlier route.
 
 Earlier SITL findings on the published course: PX4 1.16.1 boots with a wrong yaw-rate bias for its first seconds (wait 30 s on the mark before arming); with boulders moved at random the planned route stayed clear in **20/20** layouts against **6/20** for the hand route; the return home landed within 23 cm of the mark in 5/5 runs.
 
@@ -1206,7 +1209,7 @@ Earlier SITL findings on the published course: PX4 1.16.1 boots with a wrong yaw
 - **Execution:** stop-and-go first, faster rungs only after a clean landing; tunnel straight from outside; window at its measured centre height; every flight recorded and analysed the same day.
 - **Originality:** correcting the published map with tape and logs (the drone's own log located the wall to inches); descend rather than steer on a pose that cannot be real.
 - **Testing:** the table above; ideas rejected with data (holding one heading); the simulator runs the real PX4 and the kit's real code.
-- **Generality:** no route, waypoint or timing in code; a new course is a new map file; clearances from the drone's measured size. **Say upfront what is course-specific: the map file itself, and the corridor goal added after the crash.**
+- **Generality:** no route, waypoint or timing in code; a new course is a new map file; clearances from the drone's measured size. **Say upfront what is course-specific: the map file itself (with the 8 Nov tape corrections), the flight height 1.23 m read from the map's window opening, pathfly's precomputed route, and the taped launch mark.**
 
 | They may ask | Short answer |
 |---|---|
@@ -1217,6 +1220,15 @@ Earlier SITL findings on the published course: PX4 1.16.1 boots with a wrong yaw
 | What went wrong? | The map was wrong, not the localization; the pilot's sticks, not our code, ended every flight of the first session |
 | What is hard-coded? | The course lives in one map file; constants are the drone's size, rates and margins, each named with its unit |
 | Another course? | New map and launch mark; planner, tunnel and window handling and every safety check carry over |
+
+**Do not claim** (rehearsal list, 8 Nov):
+
+- a 60/40 split: the split is **65/35**;
+- that cuVSLAM uses the IMU: it runs **stereo-only**; EKF2 fuses the IMU;
+- that the tunnel run was a collision: it was a **pilot kill at 79.57 s with no contact**;
+- real-flight course completion before it has happened.
+
+Pitch credits (rule 9.1): skybeta starter stack, NVIDIA Isaac ROS cuVSLAM, Luxonis DepthAI and depthai-ros, PX4, QGroundControl, ROS 2, rosbag2, MCAP, Gazebo, Nav2 inflation cost, Pham & Pham TOPP, NumPy, PyYAML, AI coding tools (rule 9.2).
 
 ---
 
