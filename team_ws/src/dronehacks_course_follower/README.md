@@ -92,12 +92,15 @@ launch mark (it needs a re-arm the interface cannot give).
 
 **`maps/course_map.json` is the course as changed on 2026-11-07 evening** [measured by tape, by the
 team]: the organisers replaced the maze's three dividers (M1-M3) with one diagonal wall and
-moved the north net 30 cm in along its whole width. The diagonal runs from the barrier's north
+put a wall 24 in (0.61 m) inside the north net, where skybeta-11's first follower run hit it on
+2026-11-08 at the position its log gives [measured by tape]. The map takes that wall along the
+whole north side (assumed: measured only at the hit, near the diagonal's top end). The diagonal runs from the barrier's north
 face, 1.25 m east of where the barrier meets the west net, to 1.40 m short of the original north
 net at the old M2 divider's east-west position: (-1.798, 0.508) to (-0.813, 1.648), drawn
-0.10 m thick (assumed). The team's SolidWorks export of the new layout (`navigation/new-course-layout`,
-`course_v3_layout.yaml`) draws the same wall longer at both ends, (-2.133, 0.471) to (-0.693, 1.811);
-until the two are reconciled on the course, the map carries both, so the route clears either.
+0.10 m thick (assumed). The gap from its top end to the north wall was taped at about 3 ft
+on 2026-11-08, wider than this map's, so the map errs narrow there. The team's SolidWorks export
+(`navigation/new-course-layout`, `course_v3_layout.yaml`) draws the wall longer, to (-0.693, 1.811),
+which would leave under 0.6 m against the north wall: the taped gap rules it out, so it is not in the map.
 Everything else is the published v3 map below, unchanged. The route goes
 from the launch mark along the diagonal's north-west side, around its top end, to the tunnel.
 The boulders are still avoided; whether to plan over them (smoother, faster, but under the
