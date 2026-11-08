@@ -33,7 +33,7 @@ landing with the pilot pending an organiser-supported procedure; the organisers 
 | wait | pose over the drone at the map's flight height, heading not commanded | `/skybeta/state` reports Offboard; the drone must be within 0.5 m of the map's launch mark, or the run is refused |
 | climb | the same pose, held over the start | odometry within 0.1 m of the flight height |
 | fly | the led pose sliding along the rounded route, heading on the look-ahead point | the setpoint reaches the route's end and the drone is within 0.15 m of it, or 2 s later |
-| descend | twist: 0.5 m/s down, steered back over the pad at 1/s, capped 0.3 m/s | PX4 disarms (`armed` false); with `return_home`, PX4 reports `landed` |
+| descend | twist: 0.5 m/s down, steered back over the pad at 1/s, capped 0.3 m/s; 1.0 m/s down once on the floor (odometry height steady 0.3 s within 0.3 m of its height at Offboard) | PX4 disarms (`armed` false); with `return_home`, PX4 reports `landed` |
 | return_rest | twist 0.15 m/s down, pressing on the pad | `return_rest_s` later; a disarm here ends the run, landed on the pad |
 | return_climb | pose straight over the pad at `return_height_m` | odometry within 0.15 m of it, or settled above 90 % of it |
 | return_fly | pose sliding straight to over the launch mark at `return_speed_mps`, heading held | over the mark, as the route's end |
@@ -41,6 +41,12 @@ landing with the pilot pending an organiser-supported procedure; the organisers 
 
 The pilot taking the drone back (Offboard ends) stops it at once; it sends nothing until a disarm.
 PX4's offset from the odometry stays frozen from the pad descent on.
+
+The firmer press on the floor is for PX4's land detector (v1.16.1 `MulticopterLandDetector`):
+ground contact needs the thrust setpoint under its low-throttle threshold, and on the floor the
+vertical velocity loop gets there only as fast as the setpoint's error and its integrator push it.
+At 0.3 m/s skybeta-11 sat on the floor about 4 s before `has_low_throttle` (`035510`); a 1 m/s
+error times `MPC_Z_VEL_P_ACC` (4) asks for 4 m/s² down at once. No PX4 parameter is changed.
 
 - **Planner** (`planner.py`): A* on a 5 cm grid, lethal within 0.32 m of a wall (prop reach
   0.28 m + 0.04 m), Nav2-style inflation cost beyond, boulders widened by the rangefinder's
