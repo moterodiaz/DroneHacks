@@ -1,0 +1,251 @@
+# Course map for the planner (contracts/course.md format), generated from the STEP model and measured edits.
+# STEP: dronehacks-course-v3.step sha256 2194664e852e341f86fb63a19ecc4f8f0ef34da6a51867e49beb3157cb90b876 (extracted 2026-11-07)
+# via course_v3_map.json sha256 c8233aafc1460218c9446dd68c7037ba8821e78a12435b025d0d9bf91d596308 and course_v3_rules.json sha256 3795d517f6d3ed14ccaca93a905a269e44f9e73da6716df48fa4ed60f56ef565
+# edited by arena_2026-11-08_edits.json sha256 3911b4f69228b52bb9d9980f69264cd38d359d7fc26cf3388b6df0d215f4f8ac: The course as the team taped it, 2026-11-08 (Michael Bar On's course map)
+# by: python -m dronehacks_planner.convert course_v3_map.json course_v3_rules.json --edits arena_2026-11-08_edits.json --launch-heading 0 1 --slice-height 1.23 --route-gate gate_b ends "C2b chicane wall" "A1 approach wall" --out course_arena_2026-11-08.yaml
+# Sliced at 1.23 m over the drone's band +-0.1 m. Not surveyed: the real
+# course may sit a few cm off its model (contracts/course.md, Layout tolerance).
+# Fields not in contracts/course.md yet (launch, depth, gate, group, boulder height)
+# are PROPOSED; see planner/README.md.
+origin: [0.0, 0.0]
+slice_height: 1.23
+launch:
+  position: [-2.5146, 0.9144]
+  heading: [0.0, 1.0]
+segments:
+- start: [3.04927, -3.048]
+  end: [3.04927, 3.048]
+  thickness: 0.0
+- start: [3.04927, 3.048]
+  end: [3.048, 3.048]
+  thickness: 0.0
+- start: [3.048, 3.048]
+  end: [3.048, -3.048]
+  thickness: 0.0
+- start: [3.048, -3.048]
+  end: [3.04927, -3.048]
+  thickness: 0.0
+- start: [-3.04927, 3.048]
+  end: [3.04927, 3.048]
+  thickness: 0.0
+- start: [3.04927, 3.048]
+  end: [3.04927, 3.04927]
+  thickness: 0.0
+- start: [3.04927, 3.04927]
+  end: [-3.04927, 3.04927]
+  thickness: 0.0
+- start: [-3.04927, 3.04927]
+  end: [-3.04927, 3.048]
+  thickness: 0.0
+- start: [-3.04927, -3.04927]
+  end: [3.04927, -3.04927]
+  thickness: 0.0
+- start: [3.04927, -3.04927]
+  end: [3.04927, -3.048]
+  thickness: 0.0
+- start: [3.04927, -3.048]
+  end: [-3.04927, -3.048]
+  thickness: 0.0
+- start: [-3.04927, -3.048]
+  end: [-3.04927, -3.04927]
+  thickness: 0.0
+- start: [-3.048, -3.048]
+  end: [-3.048, 3.048]
+  thickness: 0.0
+- start: [-3.048, 3.048]
+  end: [-3.04927, 3.048]
+  thickness: 0.0
+- start: [-3.04927, 3.048]
+  end: [-3.04927, -3.048]
+  thickness: 0.0
+- start: [-3.04927, -3.048]
+  end: [-3.048, -3.048]
+  thickness: 0.0
+- start: [1.65201, -0.3048]
+  end: [1.65201, 1.2192]
+  thickness: 0.0
+- start: [1.65201, 1.2192]
+  end: [1.59091, 1.2192]
+  thickness: 0.0
+- start: [1.59091, 1.2192]
+  end: [1.59091, -0.3048]
+  thickness: 0.0
+- start: [1.59091, -0.3048]
+  end: [1.65201, -0.3048]
+  thickness: 0.0
+- start: [2.97079, -0.3048]
+  end: [2.97079, 1.2192]
+  thickness: 0.0
+- start: [2.97079, 1.2192]
+  end: [3.03189, 1.2192]
+  thickness: 0.0
+- start: [3.03189, 1.2192]
+  end: [3.03189, -0.3048]
+  thickness: 0.0
+- start: [3.03189, -0.3048]
+  end: [2.97079, -0.3048]
+  thickness: 0.0
+- start: [-1.02616, -0.6223]
+  end: [-1.02616, 0.4064]
+  thickness: 0.0
+- start: [-1.02616, 0.4064]
+  end: [-0.92456, 0.4064]
+  thickness: 0.0
+- start: [-0.92456, 0.4064]
+  end: [-0.92456, -0.6223]
+  thickness: 0.0
+- start: [-0.92456, -0.6223]
+  end: [-1.02616, -0.6223]
+  thickness: 0.0
+- start: [-3.048, 0.508]
+  end: [-1.4351, 0.508]
+  thickness: 0.0
+- start: [-1.4351, 0.508]
+  end: [-1.4351, 0.4064]
+  thickness: 0.0
+- start: [-1.4351, 0.4064]
+  end: [-3.048, 0.4064]
+  thickness: 0.0
+- start: [-3.048, 0.4064]
+  end: [-3.048, 0.508]
+  thickness: 0.0
+- start: [-1.4351, 0.508]
+  end: [0.1778, 0.508]
+  thickness: 0.0
+- start: [0.1778, 0.508]
+  end: [0.1778, 0.4064]
+  thickness: 0.0
+- start: [0.1778, 0.4064]
+  end: [-1.4351, 0.4064]
+  thickness: 0.0
+- start: [-1.4351, 0.4064]
+  end: [-1.4351, 0.508]
+  thickness: 0.0
+- start: [0.1778, 0.508]
+  end: [1.5748, 0.508]
+  thickness: 0.0
+- start: [1.5748, 0.508]
+  end: [1.5748, 0.4064]
+  thickness: 0.0
+- start: [1.5748, 0.4064]
+  end: [0.1778, 0.4064]
+  thickness: 0.0
+- start: [0.1778, 0.4064]
+  end: [0.1778, 0.508]
+  thickness: 0.0
+- start: [0.92564, -1.11115]
+  end: [1.47728, 0.40448]
+  thickness: 0.0
+- start: [1.47728, 0.40448]
+  end: [1.57276, 0.36974]
+  thickness: 0.0
+- start: [1.57276, 0.36974]
+  end: [1.02112, -1.14589]
+  thickness: 0.0
+- start: [1.02112, -1.14589]
+  end: [0.92564, -1.11115]
+  thickness: 0.0
+- start: [-0.7945, -3.01234]
+  end: [-0.67505, -2.68415]
+  thickness: 0.0
+- start: [-0.67505, -2.68415]
+  end: [-0.57957, -2.7189]
+  thickness: 0.0
+- start: [-0.57957, -2.7189]
+  end: [-0.69902, -3.04708]
+  thickness: 0.0
+- start: [-0.69902, -3.04708]
+  end: [-0.7945, -3.01234]
+  thickness: 0.0
+- start: [-0.36231, -1.82489]
+  end: [-0.24286, -1.49671]
+  thickness: 0.0
+- start: [-0.24286, -1.49671]
+  end: [-0.14738, -1.53145]
+  thickness: 0.0
+- start: [-0.14738, -1.53145]
+  end: [-0.26683, -1.85964]
+  thickness: 0.0
+- start: [-0.26683, -1.85964]
+  end: [-0.36231, -1.82489]
+  thickness: 0.0
+- start: [-0.24277, -1.4965]
+  end: [0.10907, -0.52984]
+  thickness: 0.0
+- start: [0.10907, -0.52984]
+  end: [0.20455, -0.56458]
+  thickness: 0.0
+- start: [0.20455, -0.56458]
+  end: [-0.14729, -1.53124]
+  thickness: 0.0
+- start: [-0.14729, -1.53124]
+  end: [-0.24277, -1.4965]
+  thickness: 0.0
+- start: [-3.048, 2.54]
+  end: [3.048, 2.54]
+  thickness: 0.0
+- start: [3.048, 2.54]
+  end: [3.048, 2.4384]
+  thickness: 0.0
+- start: [3.048, 2.4384]
+  end: [-3.048, 2.4384]
+  thickness: 0.0
+- start: [-3.048, 2.4384]
+  end: [-3.048, 2.54]
+  thickness: 0.0
+- start: [-1.83583, 0.54069]
+  end: [-0.85083, 1.68069]
+  thickness: 0.0
+- start: [-0.85083, 1.68069]
+  end: [-0.77517, 1.61531]
+  thickness: 0.0
+- start: [-0.77517, 1.61531]
+  end: [-1.76017, 0.47531]
+  thickness: 0.0
+- start: [-1.76017, 0.47531]
+  end: [-1.83583, 0.54069]
+  thickness: 0.0
+boulders:
+- centre: [2.8194, -1.07]
+  radius: 0.2286
+  height: 0.5334
+- centre: [0.79248, -2.8194]
+  radius: 0.2286
+  height: 0.5334
+- centre: [-2.56032, -2.49936]
+  radius: 0.2286
+  height: 0.5334
+- centre: [-1.34112, -2.7432]
+  radius: 0.2286
+  height: 0.5334
+goals:
+- name: tunnel
+  shape: oval
+  centre: [2.3114, 0.4572]
+  params:
+    axis: [0.0, -1.0]
+    length: 1.524
+    width: 1.31878
+    height: 1.8161
+- name: window
+  shape: rect
+  centre: [-0.47094, -2.27189]
+  params:
+    axis: [-0.939693, 0.342018]
+    width: 0.9144
+    depth: 0.1016
+    bottom: 0.9144
+    top: 1.5494
+  group: cp4_landing_area
+- name: gate_b
+  shape: gate
+  centre: [-0.40927, -0.58475]
+  params:
+    axis: [0.066179, -0.997808]
+    width: 1.13466
+    depth: 0.1016
+  group: cp4_landing_area
+- name: pad
+  shape: disc
+  centre: [-2.1336, -1.82837]
+  params: {radius: 0.7366}

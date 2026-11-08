@@ -297,49 +297,56 @@ class WholeFlightTest(unittest.TestCase):
         self.assertLess(times[0.8], 0.8 * times[0.0], times)
         self.assertTrue(any("following by velocity" in r for r in log.reasons))
 
-    def test_the_window_2mps_line_flies_the_step_map_through_the_window(self):
-        # config/flight_line_window_2mps.yaml, as the node applies it over the shipped config
+    @staticmethod
+    def prep_line(name):
+        """A flight line (config/flight_line_<name>.yaml) on the map its launch flies, prepared as the
+        node prepares it over the shipped config: boulders dropped when avoid_boulders is false."""
         import yaml
         from dronehacks_planner.limits import VehicleLimits
         from dronehacks_planner.route import PlannerConfig
-        line = yaml.safe_load((_paths.PACKAGE_ROOT / "config" / "flight_line_window_2mps.yaml")
+        line = yaml.safe_load((_paths.PACKAGE_ROOT / "config" / f"flight_line_{name}.yaml")
                               .read_text(encoding="utf-8"))["mission"]["ros__parameters"]
+        cmap = load_map(_paths.PACKAGE_ROOT / "maps" / "course_arena_2026-11-08.yaml")
+        if not line["avoid_boulders"]:
+            cmap = dataclasses.replace(cmap, boulders=())
         cfg = dataclasses.replace(CONFIG, twist_speed_max_mps=line["twist_speed_max_mps"])
-        prepared = prep(_paths.PACKAGE_ROOT / "maps" / "course_v3_step.yaml", cfg,
-                        limits=dataclasses.replace(VehicleLimits(), v_max_mps=line["v_max_mps"]),
-                        planner=dataclasses.replace(PlannerConfig(), prefer=tuple(line["prefer"])),
-                        track_speed_mps=line["track_speed_mps"])
-        self.assertEqual(prepared.plan.route.goals, ["cp2_gate_a", "tunnel", "window", "pad"])
-        self.assertEqual(prepared.v_max_mps, 2.0)       # verified at 2 m/s, not planned slower
+        return prep(cmap, cfg, limits=dataclasses.replace(VehicleLimits(), v_max_mps=line["v_max_mps"]),
+                    planner=dataclasses.replace(PlannerConfig(), prefer=tuple(line["prefer"])),
+                    track_speed_mps=line["track_speed_mps"])
+
+    def test_the_window_2mps_line_flies_the_taped_map_through_the_window(self):
+        from dronehacks_planner.limits import VehicleLimits
+        prepared = self.prep_line("window_2mps")
+        self.assertEqual(prepared.plan.route.goals, ["tunnel", "window", "pad"])
+        # the taped map's window route breaks the along-path jerk limit at 2.0 m/s, so the plan is
+        # retried 10 % slower (factory.plan_fastest_verified) and says why
+        self.assertEqual(prepared.v_max_mps, 1.8)
+        self.assertIn("planned at 1.8 m/s", prepared.speed_note)
         # PX4 at MPC_XY_VEL_MAX 2.0 and the interface at max_speed_mps 2.0 (the line needs both)
         log = fly(prepared.mission, dataclasses.replace(VehicleLimits(), v_max_mps=2.0),
                   VehicleSimConfig(twist_speed_cap_mps=2.0))
         checks = flight_checks(prepared, log.pos)
         self.assertIn("disarm", log.events)
         self.assertEqual(checks["wall_touches"], 0)
-        self.assertEqual(checks["openings"], {"cp2_gate_a": True, "tunnel": True, "window": True})
+        self.assertEqual(checks["openings"], {"tunnel": True, "window": True})
         self.assertTrue(checks["on_pad"])
 
     def test_the_window_0p5mps_slow_line_flies_the_same_route_at_half_a_metre_per_second(self):
         # config/flight_line_window_0p5mps.yaml: the 2 m/s line's route, every speed 0.5 m/s
-        import yaml
         from dronehacks_planner.limits import VehicleLimits
-        from dronehacks_planner.route import PlannerConfig
-        line = yaml.safe_load((_paths.PACKAGE_ROOT / "config" / "flight_line_window_0p5mps.yaml")
-                              .read_text(encoding="utf-8"))["mission"]["ros__parameters"]
-        cfg = dataclasses.replace(CONFIG, twist_speed_max_mps=line["twist_speed_max_mps"])
-        prepared = prep(_paths.PACKAGE_ROOT / "maps" / "course_v3_step.yaml", cfg,
-                        limits=dataclasses.replace(VehicleLimits(), v_max_mps=line["v_max_mps"]),
-                        planner=dataclasses.replace(PlannerConfig(), prefer=tuple(line["prefer"])),
-                        track_speed_mps=line["track_speed_mps"])
-        self.assertEqual(prepared.plan.route.goals, ["cp2_gate_a", "tunnel", "window", "pad"])
+        prepared = self.prep_line("window_0p5mps")
+        self.assertEqual(prepared.plan.route.goals, ["tunnel", "window", "pad"])
         self.assertEqual(prepared.v_max_mps, 0.5)
+        self.assertIsNone(prepared.speed_note)
+        fast = self.prep_line("window_2mps")
+        np.testing.assert_allclose([w.position for w in prepared.plan.route.waypoints],
+                                   [w.position for w in fast.plan.route.waypoints])   # the same route
         # PX4 at the organisers' MPC_XY_VEL_MAX 1.0 (above the line) and the interface at 0.5
         log = fly(prepared.mission, VehicleLimits(), VehicleSimConfig(twist_speed_cap_mps=0.5))
         checks = flight_checks(prepared, log.pos)
         self.assertIn("disarm", log.events)
         self.assertEqual(checks["wall_touches"], 0)
-        self.assertEqual(checks["openings"], {"cp2_gate_a": True, "tunnel": True, "window": True})
+        self.assertEqual(checks["openings"], {"tunnel": True, "window": True})
         self.assertTrue(checks["on_pad"])
         follow = np.array([s == FOLLOW for s in log.state])
         speed = np.hypot(*np.diff(log.pos[follow, :2], axis=0).T) / np.diff(log.t[follow])

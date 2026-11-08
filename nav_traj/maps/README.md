@@ -1,6 +1,8 @@
 # Course maps
 
 `course_v3_step.yaml` is the map the drone flies when no other map is given.
+The window flight lines fly `course_arena_2026-11-08.yaml` instead: the course as
+the team taped it (below).
 It's in `contracts/course.md`'s format, generated from the course STEP
 model. **It isn't surveyed:** the real course may sit a few centimetres off
 its model (`course.md`, "Layout tolerance"). A surveyed map placed at
@@ -60,3 +62,49 @@ The previous map (2026-10-27, Onshape export `b0e52800…4d4500`) is kept as
 byte for byte. It also checks the map plans and flies in the dry run.
 `.gitattributes` keeps the bytes as generated, so the SHA-256s in the header
 stay true.
+
+## The taped arena (2026-11-08)
+
+`course_arena_2026-11-08.yaml` is the course as the team measured it on
+2026-11-07/08. It is Michael Bar On's map from `core/flight-iteration`
+(`team_ws/src/dronehacks_course_follower/maps/course_map.json` at b5d640e,
+copied byte-exact as `source/course_map_flight-iteration_b5d640e.json`), and
+the team (@jsun4231) takes it as the real arena wherever it differs from the
+STEP. The two window flight lines (`launch/traj_nav_competitor_window_*.launch.py`)
+fly it. The default launches still fly the STEP map.
+
+It differs from the STEP in the following ways. `source/arena_2026-11-08_edits.json`
+lists each change with its source and whether it was taped, estimated or assumed.
+
+* **North wall:** a wall 24 in (0.61 m) inside the north net, where skybeta-11 hit
+  it. The map assumes it runs the whole north side, south face at y = 2.4384.
+* **Diagonal wall:** the taped one, (−1.798, 0.508) to (−0.813, 1.648), 0.10 m
+  thick. The CAD's longer diagonal and its north-west block are gone.
+* **Window:** open 0.914–1.549 m above the floor (taped), not 0.305–1.219 m. The
+  map is sliced at its middle, **1.23 m**, so the whole course is flown at that
+  height.
+* **Pad:** centred at (−2.1336, −1.8288), about a metre south of the STEP's.
+* **Rocks:** the one south of the tunnel's mouth is gone. One sits against the
+  east net, one against the south net east of the window, and the one west of the
+  window sits a foot from the south net. The flight lines ignore them
+  (`avoid_boulders: false`).
+* **CP2 Gate A (assumed):** only 0.32 m of the published line is south of the new
+  north wall, so no drone fits. The edits keep the line where it was (x = 0.3048,
+  where the maze guideline ends) and run it across the whole corridor, from
+  Barrier 3's face to the north wall. Every route to the tunnel crosses it, so
+  it is no goal (`planner_goal: false`). `test/test_maps.py` checks that the
+  whole drone crosses it. **Ask the organisers how Gate A is scored now.**
+
+The route is `tunnel > window > pad`, 13.31 m: north-east along the diagonal,
+round its top end, east to the tunnel, south through it, west through the window,
+then onto the pad. The closest it comes is 0.341 m at the diagonal's top end,
+and the window pass keeps 0.137 m over the inscribed radius.
+
+Made from this directory with:
+
+```sh
+PYTHONPATH=../../planner python -m dronehacks_planner.convert source/course_v3_map.json source/course_v3_rules.json     --edits source/arena_2026-11-08_edits.json --launch-heading 0 1 --slice-height 1.23     --route-gate gate_b ends "C2b chicane wall" "A1 approach wall" --out course_arena_2026-11-08.yaml
+```
+
+`test/test_maps.py` regenerates it, and checks that every taped number in the
+edits matches Michael's map.

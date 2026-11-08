@@ -263,9 +263,12 @@ class LaunchTest(unittest.TestCase):
         with open(line, encoding="utf-8") as fh:
             doc = yaml.safe_load(fh)
         mission = doc["mission"]["ros__parameters"]
-        self.assertEqual(mission, {"prefer": ["window"], "track_speed_mps": 2.0, "v_max_mps": 2.0,
-                                   "twist_speed_max_mps": 2.0})
-        self.assertTrue(all(isinstance(v, float) for k, v in mission.items() if k != "prefer"))
+        self.assertEqual(mission, {"prefer": ["window"], "avoid_boulders": False, "track_speed_mps": 2.0,
+                                   "v_max_mps": 2.0, "twist_speed_max_mps": 2.0})
+        self.assertTrue(all(isinstance(v, float) for k, v in mission.items() if k not in ("prefer", "avoid_boulders")))
+        # the line flies the taped map (maps/README.md), not the default launch's STEP map
+        if not os.path.isfile("/root/team_ws/course_map.yaml"):
+            self.assertTrue(inc.launch_arguments["map_file"].endswith(os.path.join("maps", "course_arena_2026-11-08.yaml")))
         # the mission's twist cap and the interface's clamp agree
         self.assertEqual(mission["twist_speed_max_mps"], doc["flight_interface"]["ros__parameters"]["max_speed_mps"])
         # traj_nav.launch.py applies the line between the installed config and the map/topic
@@ -288,7 +291,8 @@ class LaunchTest(unittest.TestCase):
         self.assertEqual(inc.launch_arguments["mission_overrides"], line)
         self.assertEqual(inc.launch_arguments["max_speed_mps"], "0.5")
         self.assertEqual(inc.launch_arguments["guard_package"], "none")
-        self.assertTrue(inc.launch_arguments["map_file"].endswith(os.path.join("maps", "course_v3_step.yaml")))
+        if not os.path.isfile("/root/team_ws/course_map.yaml"):
+            self.assertTrue(inc.launch_arguments["map_file"].endswith(os.path.join("maps", "course_arena_2026-11-08.yaml")))
         self.assertTrue(inc.source.path.endswith("traj_nav.launch.py"))
         with open(line, encoding="utf-8") as fh:
             slow = yaml.safe_load(fh)

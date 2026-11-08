@@ -1,21 +1,28 @@
-# Flight line "window at 2 m/s" (2026-11-07 course layout), chosen by the team (@jsun4231).
-# launch/traj_nav_competitor_window_2mps.launch.py applies this file OVER the installed
-# config/traj_nav.example.yaml, so the measured values there (rest height, course->odom
-# transform) still apply. Numbers are floats: ROS 2 refuses an int for a float parameter.
+# Flight line "window at 2 m/s", chosen by the team (@jsun4231). Since 2026-11-08 it flies the course
+# as the team taped it: launch/traj_nav_competitor_window_2mps.launch.py loads
+# maps/course_arena_2026-11-08.yaml (Michael Bar On's map from core/flight-iteration, see
+# maps/README.md), unless a team map or $DRONEHACKS_MAP is given. It flies at the window's taped
+# middle, 1.23 m above the floor, and plans straight over the boulders.
+# The launch file applies this file OVER the installed config/traj_nav.example.yaml, so the measured
+# values there (rest height, course->odom transform) still apply. Numbers are floats: ROS 2 refuses
+# an int for a float parameter.
 #
 # Before flying it:
 # * PX4's MPC_XY_VEL_MAX caps horizontal speed whatever is asked here. contracts/px4.md records
 #   the organisers' value as 1.0 m/s and forbids writing it. Read the live value
-#   (QGroundControl > Parameters): at 1.0 the drone flies at 1.0 while the plan expects 2.0.
+#   (QGroundControl > Parameters): at 1.0 the drone flies at 1.0 while the plan expects more.
 # * The window is not cleared by contracts/course.md: its clearance budget is unreviewed and
-#   unvalidated on the kit. The planner's window pass keeps 0.049 m over its inscribed radius.
-# * Speeds peak near 1.4 m/s on this course: the unvalidated cornering limit (a_lat_mps2 1.0)
-#   binds first. SITL (dark tunnel, land): 31 points + window bonus, 30.9-33.7 s, no touch with
-#   PX4 at 2.0 (3 seeds); 34.9 s, no touch with the organisers' 1.0. See sitl/README.md.
+#   unvalidated on the kit. On the taped map the window pass keeps 0.137 m over the inscribed radius.
+# * Over the boulders, the downward rangefinder reads each rock's top as a floor step; the planner
+#   no longer keeps the rangefinder's footprint off them (avoid_boulders false).
+# * On the taped map no plan verifies at 2.0 m/s (along-path jerk at a turn), so the planner plans
+#   at 1.8 m/s and the node logs why. Speeds peak near 1.4 m/s anyway: the unvalidated cornering
+#   limit (a_lat_mps2 1.0) binds first. Planned 13.31 m in 25.7 s. SITL results: sitl/README.md.
 
 mission:
   ros__parameters:
     prefer: ["window"]          # CP4 through the window (+5 for a finished window run)
+    avoid_boulders: false       # plan straight over the boulders
     track_speed_mps: 2.0        # fly the whole course at this speed (the plan is capped at it)
     v_max_mps: 2.0              # the speed the plan assumes PX4 allows (MPC_XY_VEL_MAX, see above)
     twist_speed_max_mps: 2.0    # must match flight_interface's max_speed_mps below
