@@ -16,9 +16,11 @@ Tools › Save to file) before any change.
 | `EKF2_EVA_NOISE` | `0.01` | PX4 1.16 uses this noise unsquared, weighting vision yaw 5× weaker than 1.18 | `measured` |
 | `EKF2_EV_DELAY` | `0` | Simulator-only candidate (vision innovations at 0 against 70 in sim); capture timestamps do not eliminate pipeline latency. Measure kit latency and confirm in an approved first-hover log before relying on this value | `measured` |
 | `EKF2_EV_QMIN` | `0` (keep, do not raise) | Their bridge sends quality 0; a higher QMIN refuses every sample | `measured` |
+| `COM_DISARM_LAND` | `5` (skybeta-11 only; organisers' default `2`) | Auto-disarm 5 s after PX4 reports landed, so a touch-and-go can rest on the ground and lift off before the motors stop: lift-off took over 0.8 s in flight 20261108-013018, which a 2 s window left no room for. Set by hand in QGroundControl after saving their baseline, never by code | `organisers` (permission reported by the team, 2026-11-07) |
 
 Nothing else under `EKF2_*`, `COM_*`, `NAV_*`, `MIS_*`, or `MPC_*` may be
-written by our code. The failsafe table below documents their values for
+written by our code. `COM_DISARM_LAND` above is a hand-set, organiser-approved
+exception for skybeta-11; it does not open the rest of `COM_*`. The failsafe table below documents their values for
 reference — do not set them.
 
 ## Failsafe behaviour (reference only — organisers' values, do not write)
