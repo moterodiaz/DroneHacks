@@ -18,7 +18,8 @@
 #
 # Tunables: the GUI's / CLI's "track speed" and "landing descent" set the node parameter named here
 # (versions without one ignore them). An option choice may also set `launch_suffix` (inserted before
-# .launch.py, e.g. _over_rocks) and `requires` ({other option: choice}).
+# .launch.py, e.g. _over_rocks), `requires` ({other option: choice}) and `arena` (the course it is
+# planned on, dronesim/world/arena.py ARENAS: a run with the scenario's arena on auto flies there).
 #
 # Substitutions: $rest_height_m  $v_max  $traj_yaw $traj_x $traj_y (contracts/frames.md
 # p_odom = o + R p_course, yaw CCW from east)  $odom_yaw_deg (bearing of odom +x, clockwise from
@@ -27,11 +28,13 @@
 versions:
 
   traj:
-    label: "dronehacks_traj: trajectory Follower, no lidar (PR #26 + dropout coast, local)"
+    label: "dronehacks_traj: trajectory Follower, no lidar (2026-11-07 layout + the taped course, navigation/traj-taped-arena)"
     description: >-
       Mission state machine + dronehacks_planner's minimum-time trajectory and Follower, raw cuVSLAM.
-      Local branch navigation/vo-traj-follower: PR #26's head plus the dropout coast (c557199).
-    source: {git: navigation/vo-traj-follower}
+      Branch navigation/traj-taped-arena: the 2026-11-07 course map, routed through CP2 Gate A
+      (gate goal cp2_gate_a), with the dropout coast and track speed. Its window lines fly the taped
+      course instead: the fastest route to the pad, a rolling take-off and an early descent.
+    source: {git: navigation/traj-taped-arena}
     packages: [planner, nav_traj]
     launch: {package: dronehacks_traj, file: traj_nav_competitor.launch.py}
     install_config:
@@ -44,6 +47,15 @@ versions:
           course_to_odom_y: $traj_y
           v_max_mps: $v_max
     options:
+      line:
+        label: Flight line
+        default: shipped
+        choices:
+          shipped: {label: "shipped competitor launch (traj_nav_competitor.launch.py)"}
+          window_max: {label: "window, no speed cap, lands, on the taped course (traj_nav_competitor_window_max.launch.py: map course_arena_2026-11-08, window, boulders ignored; arena taped-2026-11-08)",
+                       launch: traj_nav_competitor_window_max.launch.py, arena: taped-2026-11-08}
+          window_0p5mps: {label: "window at 0.5 m/s on the taped course, slow test (traj_nav_competitor_window_0p5mps.launch.py: the max line, speeds 0.5, lands; arena taped-2026-11-08)",
+                          launch: traj_nav_competitor_window_0p5mps.launch.py, arena: taped-2026-11-08}
       route:
         label: CP4 route
         default: auto

@@ -1,0 +1,66 @@
+{
+ "format": "course-edits/1",
+ "name": "The course as the team taped it, 2026-11-08 (Michael Bar On's course map)",
+ "applies_to": {
+  "step_sha256": "2194664e852e341f86fb63a19ecc4f8f0ef34da6a51867e49beb3157cb90b876",
+  "map": "course_v3_map.json",
+  "map_sha256": "c8233aafc1460218c9446dd68c7037ba8821e78a12435b025d0d9bf91d596308"
+ },
+ "source": {
+  "branch": "core/flight-iteration",
+  "commit": "b5d640ee439d65b9a733e1ad9950d62a06bce3d2",
+  "file": "team_ws/src/dronehacks_course_follower/maps/course_map.json",
+  "file_sha256": "dc7ebe6f816eb9fe765f4ee32b524da3c0f46194d9a804c566cce4aae97a46f1",
+  "copy": "course_map_flight-iteration_b5d640e.json",
+  "readme": "team_ws/src/dronehacks_course_follower/README.md, section The map"
+ },
+ "notes": [
+  "The team (@jsun4231, 2026-11-08) takes this map as the real arena wherever it differs from the STEP export. Every number below is from the source map or its README; anything it marks assumed or estimated stays so here.",
+  "Edits apply in order: remove, move, replace, add. Positions are course frame (x east, y north, metres, origin at the floor centre). A move gives the feature's centre in the STEP (from) and in the taped map (to); applying it translates the named features by to - from, after checking each named feature's centre is within 0.01 m of from.",
+  "Unchanged from the STEP: the barriers, A1, C1, C2a's position and width, C2b, the tube and its cradles, the launch mark and the nets. The source map's tube (open 0.03-1.85 m) and walls (1.73 m) agree with the STEP to 2 cm.",
+  "The flight height the source map flies is the window's middle, 1.23 m above the floor: a planning choice, passed to the converter as --slice-height."
+ ],
+ "remove": [
+  {"name": "Part67 / Boss-Extrude1[2]",
+   "why": "The CAD export's diagonal wall, longer than the taped one: it would leave under 0.6 m to the north wall, which the taped gap (about 3 ft) rules out (source README)."},
+  {"name": "Part67 / Boss-Extrude1[1]",
+   "why": "The CAD's north-west block lies north of the taped north wall, outside the arena. It is not in the source map."},
+  {"name": "Boulder 2",
+   "why": "The course has no rock south of the tunnel's south mouth (source commit 6d8e140)."}
+ ],
+ "move": [
+  {"names": ["Boulder 1"], "from": [2.01168, -2.46888], "to": [2.8194, -1.07],
+   "why": "Against the east net, level with the turn south of the tunnel. Estimated from the team's photos, not taped (source commit e39f109)."},
+  {"names": ["Boulder 3"], "from": [0.79248, -2.34696], "to": [0.79248, -2.8194],
+   "why": "Against the south net, east of the window. Estimated, not taped (source commit e39f109)."},
+  {"names": ["Boulder 5"], "from": [-1.34112, -2.37744], "to": [-1.34112, -2.7432],
+   "why": "The rock west of the window, about a foot from the south net. Taped roughly (source commit b5d640e)."},
+  {"names": ["Landing pad cross", "Landing pad 5 ft", "Landing pad ring r9", "Landing pad ring r20", "Landing pad ring r30",
+             "Approach ring (stage 4 line)"],
+   "from": [-2.04216, -0.79248], "to": [-2.1336, -1.8288],
+   "why": "The pad's centre is 36 in from the west net and 48 in from the south net, about a metre south of the published pad. Taped roughly (source commit b5d640e). The approach ring is concentric with the pad and moves with it (assumed)."}
+ ],
+ "replace": [
+  {"name": "C2a chicane wall (window)", "kind": "wall",
+   "p0": [-0.74676, -3.02971], "p1": [-0.19512, -1.51408], "thickness": 0.1016, "z": [0.0, 1.7272],
+   "openings": [{"s": [0.34925, 1.26365], "z": [0.9144, 1.5494]}],
+   "why": "The window opening was taped at 36-61 in above the floor (0.914-1.549 m), not the published 12-48 in (source commit 22c65e1). Its width and place along the wall are unchanged; the wall itself is the STEP's."}
+ ],
+ "add": [
+  {"name": "North wall (taped)", "kind": "wall",
+   "p0": [-3.048, 2.4892], "p1": [3.048, 2.4892], "thickness": 0.1016, "z": [0.0, 1.7272], "openings": [],
+   "why": "A wall 24 in (0.61 m) inside the north net, where skybeta-11's first follower run hit it on 2026-11-08 (taped at the hit). Its south face is the source map's north bound, 2.4384. Assumed: it runs the whole north side (measured only at the hit), 4 in thick, as tall as the other walls."},
+  {"name": "Diagonal wall (taped)", "kind": "wall",
+   "p0": [-1.798, 0.508], "p1": [-0.813, 1.648], "thickness": 0.1, "z": [0.0, 1.7272], "openings": [],
+   "why": "The organisers' new diagonal wall, taped: from Barrier 1's north face, 1.25 m east of the west net, to 1.40 m short of the original north net. Assumed: 0.10 m thick, as tall as the other walls. The taped gap from its top end to the north wall (about 3 ft) is wider than this, so the map errs narrow there (source README)."}
+ ],
+ "rules": {
+  "checkpoints": {
+   "CP2 Gate A": {
+    "gate": {"segment": [[0.3048, 0.508], [0.3048, 2.4384]]},
+    "planner_goal": false,
+    "why": "The team (@jsun4231, 2026-11-08): on this map the route is the fastest way to the pad, and no checkpoint is a goal of its own. The published Gate A runs north from (0.3048, 2.1209), but only 0.32 m of it is south of the taped north wall, so no drone fits; the source map has no Gate A either. Scoring only (the SITL referee), and assumed: Gate A stays on its line, where the maze guideline ends, across the whole corridor from Barrier 3's north face to the north wall, which every route to the tunnel crosses (nav_traj/test/test_maps.py checks the whole drone does). Ask the organisers how Gate A is scored now."
+   }
+  }
+ }
+}

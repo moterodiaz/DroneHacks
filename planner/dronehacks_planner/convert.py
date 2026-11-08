@@ -18,6 +18,8 @@ slices at the flight height across the drone's whole vertical band
   wall at the widest in the band, so paths beside the tube are not credited
   with clearance the obstacle does not have.
 * **Rocks** become boulders, with their height.
+* **Blocks** (solids too thick to be a wall, e.g. a 0.35 m deep wall block)
+  become their footprint edges.
 * **Supports and markings** below the band are left out. The start and
   finish markings give the launch position and the pad.
 
@@ -27,12 +29,26 @@ Goals come from the rules' checkpoints, in order:
   ``rect`` (window) goal. A ``gate`` goal comes from ``between`` two
   features (across their closest points at flight height) or from the
   ``ends`` of two walls (between their facing end points);
-* ``land`` gives the pad.
+* a plain ``gate`` (a ``segment`` line, or ``between`` / ``ends``) gives a
+  ``gate`` goal of its own, named after the checkpoint, so the route flies
+  through every checkpoint line: a checkpoint counts only once the whole
+  drone has crossed its line, in order;
+* ``land`` gives the pad;
+* a checkpoint with ``"planner_goal": false`` gives no goal: every route
+  crosses its line anyway (e.g. a line across the only corridor), and a goal at
+  its middle would only bend the route. Whoever sets it must check the planned
+  route does cross it.
 
-Openings in a group are flown towards the pad. Segment and between gates
-before the tunnel are written as ``checkpoints``, which the planner does not
-read yet (PROPOSED). ``--route-gate`` replaces a route's gate, e.g. to follow
-``contracts/course.md`` where the rules file disagrees with it.
+``--edits`` applies a ``course-edits/1`` file to the extraction and the rules
+before converting (``apply_edits``): measured changes to the course (features
+removed, moved, replaced or added; checkpoint gates restated). The file names
+the extraction it was written for by SHA-256, and every move and replacement is
+checked against the feature it edits.
+
+Openings in a group are flown towards the pad. A checkpoint's own gate is
+flown towards the goal after it (for a maze gate, the tunnel), so the course's
+order sets the direction. ``--route-gate`` replaces a route's gate, e.g. to
+follow ``contracts/course.md`` where the rules file disagrees with it.
 
 The launch heading is not in the STEP: pass it (``contracts/frames.md``: facing
 north up the first corridor, ``0 1``). No course coordinate is written in this
@@ -89,6 +105,8 @@ def convert(cmap: dict, rules: dict, launch_heading: Sequence[float], slice_heig
         elif kind == "support" and overlaps(f["z"]):
             for rect in _wall_pieces(f, covers):
                 segments += _edges(rect, f["name"])
+        elif kind == "block" and overlaps(f["z"]):
+            segments += _edges(f["footprint"], f["name"])
 
     start = _marking(features, rules["start"]["marking"])
     finish = _marking(features, rules["finish"]["marking"])
@@ -96,11 +114,13 @@ def convert(cmap: dict, rules: dict, launch_heading: Sequence[float], slice_heig
     pad = {"name": "pad", "shape": "disc", "centre": _r(finish["centre"]), "params": {"radius": round(pad_radius, 5)}}
 
     goals: List[dict] = []
-    checkpoints: List[dict] = []
+    toward_next: List[int] = []  # checkpoint gates, flown towards the goal after them
     route_gates = route_gates or {}
     for cp in rules["checkpoints"]:
         if cp.get("land"):
             goals.append(pad)
+        elif cp.get("planner_goal", True) is False:
+            continue  # every route crosses this line anyway (the rules or edits say why)
         elif "gate" in cp and "tube_end" in cp["gate"]:
             goals.append(_tunnel(features[cp["gate"]["tube_end"]], cp["gate"]["end"], lo, hi))
         elif "routes" in cp:
@@ -110,12 +130,16 @@ def convert(cmap: dict, rules: dict, launch_heading: Sequence[float], slice_heig
                 goal = _gate_goal(name, gate, features, finish["centre"], covers, lo, hi)
                 goal["group"] = group
                 goals.append(goal)
-        elif "gate" in cp:
-            checkpoints.append({"name": cp["name"], "line": [_r(p) for p in _gate_line(cp["gate"], features, covers)]})
+        elif "gate" in cp and any(k in cp["gate"] for k in ("segment", "between", "ends")):
+            toward_next.append(len(goals))
+            goals.append(_gate_goal(_slug(cp["name"]), cp["gate"], features, finish["centre"], covers, lo, hi))
         else:
             raise ConvertError(f"checkpoint {cp.get('name')!r} has no gate this converter understands")
     if not any(g["shape"] == "disc" for g in goals):
         goals.append(pad)
+    for i in toward_next:
+        goal, nxt = goals[i], goals[i + 1]
+        goal["params"]["axis"] = _r(_toward(tuple(goal["params"]["axis"]), tuple(goal["centre"]), nxt["centre"]), 6)
 
     hx, hy = float(launch_heading[0]), float(launch_heading[1])
     n = math.hypot(hx, hy)
@@ -128,8 +152,97 @@ def convert(cmap: dict, rules: dict, launch_heading: Sequence[float], slice_heig
         "segments": segments,
         "boulders": [{k: v for k, v in b.items() if k != "name"} for b in boulders],
         "goals": goals,
-        "checkpoints": checkpoints,
     }
+
+
+# -- edits -------------------------------------------------------------------------------
+
+#: How far a feature may sit from where an edit says it is (a move's ``from``).
+EDIT_FROM_TOL_M = 0.01
+#: How far a replacement wall's ends may sit from the wall it replaces.
+EDIT_REPLACE_TOL_M = 0.001
+#: Feature keys holding course-frame points, translated by a move.
+_POINT_KEYS = ("centre", "p0", "p1", "footprint", "polygons")
+
+
+def apply_edits(cmap: dict, rules: dict, edits: dict) -> Tuple[dict, dict]:
+    """``cmap`` and ``rules`` with a ``course-edits/1`` file applied: remove, move, replace,
+    add, then the checkpoint overrides. The inputs are not changed. Every edit names
+    features that must exist (or, for ``add``, must not)."""
+    if edits.get("format") != "course-edits/1":
+        raise ConvertError("expected a course-edits/1 edits file")
+    cmap, rules = json.loads(json.dumps(cmap)), json.loads(json.dumps(rules))
+    features: List[dict] = cmap["features"]
+
+    def find(name: str) -> dict:
+        for f in features:
+            if f["name"] == name:
+                return f
+        raise ConvertError(f"edits: no feature {name!r} in the map")
+
+    for e in edits.get("remove", []):
+        features.remove(find(e["name"]))
+    for e in edits.get("move", []):
+        frm, to = e["from"], e["to"]
+        dx, dy = to[0] - frm[0], to[1] - frm[1]
+        for name in e["names"]:
+            f = find(name)
+            c = _feature_centre(f)
+            if math.dist(c, frm[:2]) > EDIT_FROM_TOL_M:
+                raise ConvertError(f"edits: {name!r} is at {_r(c)}, not at the move's from {frm}")
+            for key in _POINT_KEYS:
+                if key in f:
+                    f[key] = _translated(f[key], dx, dy)
+    for e in edits.get("replace", []):
+        f = find(e["name"])
+        for end in ("p0", "p1"):
+            if end not in f or math.dist(f[end][:2], e[end][:2]) > EDIT_REPLACE_TOL_M:
+                raise ConvertError(f"edits: replacement for {e['name']!r} moves its {end}; use move or remove + add")
+        f.update(_edit_wall(e))
+    for e in edits.get("add", []):
+        if any(f["name"] == e["name"] for f in features):
+            raise ConvertError(f"edits: {e['name']!r} is already in the map")
+        features.append(dict(name=e["name"], **_edit_wall(e)))
+    overrides = (edits.get("rules") or {}).get("checkpoints", {})
+    by_name = {cp["name"]: cp for cp in rules["checkpoints"]}
+    for name, o in overrides.items():
+        if name not in by_name:
+            raise ConvertError(f"edits: no checkpoint {name!r} in the rules")
+        cp = by_name[name]
+        if "gate" in o:
+            cp["gate"] = o["gate"]
+        if "planner_goal" in o:
+            cp["planner_goal"] = bool(o["planner_goal"])
+    return cmap, rules
+
+
+def _edit_wall(e: dict) -> dict:
+    if e.get("kind") != "wall":
+        raise ConvertError(f"edits: {e['name']!r}: only walls can be added or replaced")
+    return {"kind": "wall", "z": list(e["z"]), "p0": list(e["p0"]), "p1": list(e["p1"]),
+            "thickness": float(e["thickness"]), "openings": [dict(o) for o in e.get("openings", [])]}
+
+
+def _feature_centre(f: dict) -> Pt:
+    if "centre" in f:
+        return (float(f["centre"][0]), float(f["centre"][1]))
+    if "p0" in f and "p1" in f:
+        return ((f["p0"][0] + f["p1"][0]) / 2.0, (f["p0"][1] + f["p1"][1]) / 2.0)
+    if "footprint" in f:
+        pts = f["footprint"]
+        return (sum(p[0] for p in pts) / len(pts), sum(p[1] for p in pts) / len(pts))
+    raise ConvertError(f"edits: {f['name']!r} has no position to move")
+
+
+def _translated(v, dx: float, dy: float):
+    """``v`` (a point, or lists/dicts of points) moved by (dx, dy); z kept."""
+    if isinstance(v, dict):
+        return {k: _translated(x, dx, dy) for k, x in v.items()}
+    if isinstance(v, list) and v and all(isinstance(x, (int, float)) for x in v):
+        return [round(v[0] + dx, 5) + 0.0, round(v[1] + dy, 5) + 0.0] + list(v[2:])
+    if isinstance(v, list):
+        return [_translated(x, dx, dy) for x in v]
+    return v
 
 
 # -- geometry ----------------------------------------------------------------------------
@@ -309,7 +422,7 @@ def _marking(features: dict, name: str) -> dict:
 
 
 def _r(p, nd: int = 5) -> List[float]:
-    return [round(float(p[0]), nd), round(float(p[1]), nd)]
+    return [round(float(p[0]), nd) + 0.0, round(float(p[1]), nd) + 0.0]  # + 0.0: no "-0.0"
 
 
 def _slug(s: str) -> str:
@@ -337,6 +450,7 @@ def main(argv=None) -> int:
     ap.add_argument("--half-height", type=float, default=0.10, help="half the drone's height, m")
     ap.add_argument("--route-gate", nargs="+", action="append", default=[], metavar="ROUTE",
                     help="ROUTE {between|ends} FEATURE FEATURE: replace a route's gate")
+    ap.add_argument("--edits", help="a course-edits/1 file applied to the map and rules first")
     ap.add_argument("--out", required=True)
     args = ap.parse_args(argv)
 
@@ -348,28 +462,40 @@ def main(argv=None) -> int:
     map_path, rules_path = Path(args.map_json), Path(args.rules_json)
     cmap = json.loads(map_path.read_text(encoding="utf-8"))
     rules = json.loads(rules_path.read_text(encoding="utf-8"))
+    edits_path = Path(args.edits) if args.edits else None
     try:
+        if edits_path is not None:
+            edits = json.loads(edits_path.read_text(encoding="utf-8"))
+            want = (edits.get("applies_to") or {}).get("map_sha256")
+            if want and want != _sha(map_path):
+                raise ConvertError(f"{edits_path.name} was written for a map with sha256 {want}, "
+                                   f"not {map_path.name} ({_sha(map_path)})")
+            cmap, rules = apply_edits(cmap, rules, edits)
         doc = convert(cmap, rules, args.launch_heading, args.slice_height, args.half_height, route_gates)
     except (ConvertError, KeyError) as exc:
         print(f"convert: {exc}", file=sys.stderr)
         return 2
     src = cmap.get("source", {})
     header = [
-        "# Course map for the planner (contracts/course.md format), generated from the STEP model.",
+        "# Course map for the planner (contracts/course.md format), generated from the STEP model"
+        + (" and measured edits." if edits_path else "."),
         f"# STEP: {src.get('step')} sha256 {src.get('sha256')} (extracted {src.get('extracted')})",
         f"# via {map_path.name} sha256 {_sha(map_path)} and {rules_path.name} sha256 {_sha(rules_path)}",
+    ]
+    if edits_path is not None:
+        header.append(f"# edited by {edits_path.name} sha256 {_sha(edits_path)}: {edits.get('name')}")
+    header += [
         "# by: python -m dronehacks_planner.convert " + " ".join(
             f'"{a}"' if " " in a else a for a in _portable(argv if argv is not None else sys.argv[1:])),
         f"# Sliced at {args.slice_height} m over the drone's band +-{args.half_height} m. Not surveyed: the real",
         "# course may sit a few cm off its model (contracts/course.md, Layout tolerance).",
-        "# Fields not in contracts/course.md yet (launch, depth, gate, group, boulder height,",
-        "# checkpoints) are PROPOSED; see planner/README.md.",
+        "# Fields not in contracts/course.md yet (launch, depth, gate, group, boulder height)",
+        "# are PROPOSED; see planner/README.md.",
     ]
     body = yaml.safe_dump(doc, sort_keys=False, default_flow_style=None, width=120)
     Path(args.out).write_text("\n".join(header) + "\n" + body, encoding="utf-8", newline="\n")
     print(f"wrote {args.out}: {len(doc['segments'])} edges, {len(doc['boulders'])} boulders, goals "
-          + " > ".join(g["name"] + (f"[{g['group']}]" if "group" in g else "") for g in doc["goals"])
-          + f", {len(doc['checkpoints'])} checkpoint lines")
+          + " > ".join(g["name"] + (f"[{g['group']}]" if "group" in g else "") for g in doc["goals"]))
     return 0
 
 

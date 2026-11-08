@@ -1,0 +1,50 @@
+# Flight line "window, no speed cap", chosen by the team (@jsun4231). It flies the course as the
+# team taped it on 2026-11-08: launch/traj_nav_competitor_window_max.launch.py loads
+# maps/course_arena_2026-11-08.yaml (Michael Bar On's map from core/flight-iteration, see
+# maps/README.md), unless a team map or $DRONEHACKS_MAP is given. It flies at the window's taped
+# middle, 1.23 m above the floor, plans straight over the boulders, and lands on the pad.
+# The launch file applies this file OVER the installed config/traj_nav.example.yaml, so the measured
+# values there (rest height, course->odom transform) still apply. Numbers are floats: ROS 2 refuses
+# an int for a float parameter.
+#
+# No speed cap of our own: the plan's speed limit, the track speed, the mission's twist cap and the
+# kit interface's twist clamp all sit at PX4's own MPC_XY_VEL_MAX on skybeta-11, 12 m/s
+# (contracts/px4.md, the organisers' value, not ours to write). What bounds the speed is the planner's
+# dynamic model (dronehacks_planner.limits.VehicleLimits): stopping room before the wall ahead
+# (a_brake_mps2 2.0 after latency_s 0.17), along-path jerk (j_max_mps3 4.0) and cornering
+# (a_lat_mps2 1.0, unvalidated). On this course that is about 1.5 m/s at most: the plan is the same
+# as at 2 or 3 m/s (13.08 m in 16.4 s).
+#
+# It takes off rolling (rolling_takeoff_m: FOLLOW starts 0.3 m up and finishes the climb on the
+# first leg, held in place only where the path ahead needs the flight height), descends early
+# (early_descent: from the moment the whole drone clears the window, down to descent_floor_m 0.45 m
+# above the floor), and lands with no pause (land: true, hold_before_land_s 0): a twist descent until
+# PX4's land detector and COM_DISARM_LAND disarm, contracts/px4.md "Scoped exception: autonomous
+# landing on the pad".
+#
+# Before flying it:
+# * The window is not cleared by contracts/course.md: its clearance budget is unreviewed and
+#   unvalidated on the kit. On the taped map the window pass keeps 0.137 m over the inscribed radius.
+# * Over the boulders, the downward rangefinder reads each rock's top as a floor step; the planner
+#   no longer keeps the rangefinder's footprint off them (avoid_boulders false).
+# * The landing exception rests on the organisers' support as the team reported it; record their
+#   confirmation in contracts/px4.md before the first flight. SITL results: sitl/README.md.
+
+mission:
+  ros__parameters:
+    prefer: ["window"]          # CP4 through the window (+5 for a finished window run)
+    avoid_boulders: false       # plan straight over the boulders
+    rolling_takeoff_m: 0.3      # start the route 0.3 m up and finish the climb on the first leg
+    early_descent: true         # descend from the moment the whole drone clears the window
+    land: true                  # land on the pad and let PX4 disarm (contracts/px4.md exception)
+    hold_before_land_s: 0.0     # no pause over the pad
+    track_speed_mps: 12.0       # no cap of our own: PX4's MPC_XY_VEL_MAX on skybeta-11
+    v_max_mps: 12.0             # the plan's speed limit: PX4's own (the dynamic limits bind first)
+    twist_speed_max_mps: 12.0   # must match flight_interface's max_speed_mps below
+
+# The kit's flight interface clamps the norm of every twist setpoint to max_speed_mps
+# (competitor_guide.md section 2, default 1.5; any value above 0 is accepted). The launch file passes
+# this value as the kit's documented max_speed_mps launch argument; the interface itself is unchanged.
+flight_interface:
+  ros__parameters:
+    max_speed_mps: 12.0

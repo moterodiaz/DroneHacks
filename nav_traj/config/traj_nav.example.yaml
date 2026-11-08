@@ -1,0 +1,56 @@
+# Parameters for the mission node of dronehacks_traj (ROS 2 Humble): no lidar, this repo's Follower.
+# Installed as share/dronehacks_traj/config/traj_nav.example.yaml. launch/traj_nav.launch.py uses
+# it, and sets map_file and odometry_topic itself.
+#
+# From a source checkout:
+#   ros2 run dronehacks_traj mission --ros-args --params-file <this>.yaml -p map_file:=<map.yaml>
+#
+# No course coordinate is written here (AGENTS.md section 3.7): the route, the launch mark and the
+# launch heading all come from the map file. The course->odom transform is measured, never derived
+# from the launch heading (contracts/frames.md). Numbers are floats (write 2.0, not 2): ROS 2
+# refuses an int for a float parameter.
+
+mission:
+  ros__parameters:
+    # MUST MEASURE on drone 1 -- required parameters, no defaults; the node refuses to start
+    # (and publishes nothing) while any of them is .nan. frames.md's lab values are stand-ins,
+    # not this kit's numbers.
+    # Body centre above the floor when landed, tape-measured (contracts/frames.md
+    # body_resting_height). Setpoint z = slice_height - this.
+    rest_height_m: .nan
+    # The measured course->odom transform, contracts/frames.md:
+    #   p_odom = o_odom + R_odom_course * p_course
+    # Measure it at each tracking initialisation; do NOT assume an identity rotation from the
+    # launch heading (a measured identity is written out explicitly as 0.0, 0.0, 0.0).
+    # course_to_odom_yaw: the rotation of R_odom_course, radians CCW from east
+    # (0.0 = odom +x is course east; -1.5708 = odom +x is course north).
+    # course_to_odom_{x,y}: o_odom, the odom reading of the course origin, metres.
+    course_to_odom_yaw: .nan
+    course_to_odom_x: .nan
+    course_to_odom_y: .nan
+    # MPC_XY_VEL_MAX on the drone. fleet/SN0001 params say 1.0, 00_baseline says 12. Read the live
+    # value (QGroundControl > Parameters) and set it here: the speed profile plans to it.
+    v_max_mps: 1.0
+    prefer: [""]                     # e.g. ["gate_b"] to force an alternative; [""] = fastest verified
+    state_topic: "/skybeta/state"
+    land_detected_topic: "auto"      # /fmu/out/vehicle_land_detected[_vN], read only
+    attitude_topic: "auto"           # /fmu/out/vehicle_attitude[_vN], read only: the heading gate
+    setpoint_pose_out: "/skybeta/setpoint/pose"     # the kit's flight interface (competitor_guide.md section 1)
+    setpoint_twist_out: "/skybeta/setpoint/twist"
+    frame_id: "odom"
+    rate_hz: 50.0
+    state_timeout_s: 1.0
+    # dronehacks_traj.mission.MissionConfig: starting points, none flight-tested
+    start_tolerance_m: 0.15          # prechecks: still where the tracker started...
+    heading_tolerance_deg: 5.0       # ...facing the launch heading...
+    px4_heading_gate_deg: 2.0        # ...and PX4's heading within this of vision's (field guide). 0.0 = off
+    takeoff_tolerance_m: 0.10
+    hold_before_land_s: 2.0
+    land_tolerance_m: 0.10
+    descent_mps: 0.3
+    land_xy_gain: 1.0
+    land_xy_max_mps: 0.2
+    pose_timeout_s: 0.5
+    max_prediction_s: 0.2
+    abort_cross_track_m: 0.35        # off the path by more than this: hold and wait for the pilot
+    land: false                      # hold over the pad for the pilot; only the window lines land (px4.md exception)

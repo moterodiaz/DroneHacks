@@ -1,0 +1,38 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>dronehacks_traj</name>
+  <version>0.1.0</version>
+  <description>
+    DroneHacks flight stack without the 360 lidar, flown by the trajectory Follower of dronehacks_planner:
+    plan from the course map, take off, follow, hold over the pad, land. PX4 flies on the kit's cuVSLAM
+    through the organisers' bridge; this package reads /fmu/out/* only and sends setpoints to the kit's
+    flight interface. See README.md.
+  </description>
+  <maintainer email="noreply@example.com">DroneHacks team</maintainer>
+  <license>Proprietary</license>
+
+  <exec_depend>rclpy</exec_depend>
+  <exec_depend>std_msgs</exec_depend>
+  <exec_depend>geometry_msgs</exec_depend>
+  <exec_depend>nav_msgs</exec_depend>
+  <exec_depend>px4_msgs</exec_depend>
+  <exec_depend>ament_index_python</exec_depend>
+  <exec_depend>launch</exec_depend>
+  <exec_depend>launch_ros</exec_depend>
+  <!-- The kit's flight interface, started by launch/traj_nav.launch.py exactly as competitor.launch.py does,
+       and its topic-name resolver -->
+  <exec_depend>skybeta_flight_interface</exec_depend>
+  <!-- The planner, smoother, speed profile and Follower (planner/ in this repo) -->
+  <exec_depend>dronehacks_planner</exec_depend>
+  <exec_depend>python3-numpy</exec_depend>
+  <exec_depend>python3-yaml</exec_depend>
+  <!-- The Guard (vo_guard) comes from guard_package at launch, by default dronehacks_vo (branch
+       core/vo-nav-no-lidar). It is not a build dependency: guard_package:=none runs without it. -->
+
+  <test_depend>python3-pytest</test_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>

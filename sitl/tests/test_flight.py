@@ -1,7 +1,7 @@
 """End-to-end flights: the organizer procedure on the real kit code and team code.
 
 These run the full simulation (tens of seconds of CPU each).  The traj and
-landing flights need navigation/vo-traj-follower (on origin) and the return
+landing flights need navigation/traj-taped-arena and the return
 flight needs localization/return-flight (a local branch); each is skipped if
 its ref is missing.
 """
@@ -53,7 +53,7 @@ class KitProcedureTest(unittest.TestCase):
         self.assertTrue(all(p['alive'] for p in r['procs']))
 
 
-@unittest.skipUnless(_have_ref('navigation/vo-traj-follower'), 'traj ref not present')
+@unittest.skipUnless(_have_ref('navigation/traj-taped-arena'), 'traj ref not present')
 class TrajFlightTest(unittest.TestCase):
     def test_traj_reaches_the_tunnel_exit_when_the_tunnel_is_lit(self):
         # with the default dark tunnel cuVSLAM drops out inside the tube (see README "Known results")
@@ -64,7 +64,7 @@ class TrajFlightTest(unittest.TestCase):
         self.assertEqual(r['ref']['touches'], 0)
 
 
-@unittest.skipUnless(_have_ref('navigation/vo-traj-follower'), 'traj ref not present')
+@unittest.skipUnless(_have_ref('navigation/traj-taped-arena'), 'traj ref not present')
 class LandingTest(unittest.TestCase):
     def test_px4_disarms_within_a_few_seconds_of_touchdown_on_the_pad(self):
         # mc_pos_control's flying-but-ground-contact thrust cut lets the land detector finish within

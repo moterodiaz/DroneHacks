@@ -23,9 +23,13 @@ REPO_ROOT = os.path.dirname(SITL_ROOT)
 if SITL_ROOT not in sys.path:
     sys.path.insert(0, SITL_ROOT)
 
-from dronesim.autonomy.catalog import load_catalog  # noqa: E402
+from dronesim.autonomy.catalog import VersionError, load_catalog, resolve_arena  # noqa: E402
 from dronesim.gui.mapview import MapView, StripChart, course_shapes  # noqa: E402
 from dronesim.px4.params import DEFAULT_PROFILE, PROFILES  # noqa: E402
+from dronesim.world.arena import ARENAS, DEFAULT_ARENA, arena_label  # noqa: E402
+
+#: the Arena box: (scenario value, label); None = auto
+ARENA_CHOICES = [(None, "auto (the flight line's own arena, else the STEP)")] + [(k, v[0]) for k, v in ARENAS.items()]
 
 NAV_COLORS = {'OFFBOARD': '#2e7d32', 'POSCTL': '#1565c0', 'ALTCTL': '#ef6c00', 'MANUAL': '#c62828',
               'STAB': '#c62828', 'AUTO_LOITER': '#6a1b9a', 'AUTO_LAND': '#6a1b9a', 'DESCEND': '#6a1b9a',
@@ -35,9 +39,10 @@ SPEEDS = [('0.5x', 0.5), ('1x real time', 1.0), ('2x', 2.0), ('4x', 4.0), ('max'
 
 
 class App:
-    def __init__(self, root):
+    def __init__(self, root, load=()):
+        """``load``: saved run folders (or folders of them) to draw over the map at start."""
         self.root = root
-        root.title('DroneHacks SITL - drone 1 (skybeta-01), PX4 v1.16 + skybeta 0.3.2 kit, STEP course')
+        root.title('DroneHacks SITL - drone 1 (skybeta-01), PX4 v1.16 + skybeta 0.3.2 kit, STEP course + arena edits')
         root.geometry('1600x980')
         try:
             root.tk.call('tk', 'scaling', 1.25)
@@ -53,8 +58,14 @@ class App:
         self.result = None
         self.last_snap = None
         self.log_lines = 0
+        self._map_arena = None          # the arena the map shows
+        self._loading_arena = None      # the arena being loaded for it
+        self._course_ready = None
+        self.overlays = []              # saved runs drawn over the map (gui/saved.py)
         self._build_layout()
-        self._load_course_async()
+        if load:
+            self._add_saved(list(load))
+        self._refresh_arena()
         self.root.after(50, self._poll)
         root.protocol('WM_DELETE_WINDOW', self._on_close)
 
@@ -139,6 +150,13 @@ class App:
         self.options_frame = ttk.LabelFrame(f, text='Version options', padding=4)
         self.options_frame.pack(fill='x', pady=4)
         self.option_vars = {}
+        ttk.Label(f, text='Arena (the course flown in)', font=('Segoe UI', 10, 'bold')).pack(anchor='w', pady=(4, 0))
+        self.arena_box = ttk.Combobox(f, values=[lab for _k, lab in ARENA_CHOICES], state='readonly', width=52)
+        self.arena_box.current(0)
+        self.arena_box.pack(fill='x')
+        self.arena_box.bind('<<ComboboxSelected>>', lambda e: self._refresh_arena())
+        self.arena_note = ttk.Label(f, text='', foreground='#455a64', wraplength=340, font=('Segoe UI', 8))
+        self.arena_note.pack(anchor='w')
         ttk.Label(f, text='PX4 parameter profile', font=('Segoe UI', 10, 'bold')).pack(anchor='w', pady=(6, 0))
         self.profile_names = list(PROFILES)
         self.profile_box = ttk.Combobox(f, values=self.profile_names, state='readonly', width=52)
@@ -347,14 +365,38 @@ class App:
             {'action': 'kill_node', 'name': self.kill_node_box.get()})).grid(row=2, column=2, sticky='we')
         legend = ttk.Label(f, text='Map: black/green = true drone (props green when armed), blue o = EKF2, '
                                    'green o = cuVSLAM, red x = setpoint, purple = lidar returns, magenta dashes = '
-                                   'checkpoint gates. Wheel = zoom, right-drag = pan, double-click = fit.',
+                                   'checkpoint gates, orange dashes = the version\'s planned path (dronehacks_traj, '
+                                   'observed in the simulator), blue line = the flown path. '
+                                   'Wheel = zoom, right-drag = pan, double-click = fit.',
                            wraplength=340, font=('Segoe UI', 8), foreground='#546e7a')
         legend.pack(anchor='w', pady=4)
 
     # ------------------------------------------------------------------------------------------
     # course
     # ------------------------------------------------------------------------------------------
-    def _load_course_async(self):
+    def _arena_choice(self):
+        return ARENA_CHOICES[max(0, self.arena_box.current())][0]
+
+    def _resolved_arena(self):
+        """``(arena, why)`` the run would fly in, as the simulator resolves it."""
+        v = self.catalog[self._current_version()]
+        options = {name: keys[box.current()] for name, (box, keys) in self.option_vars.items()}
+        try:
+            return resolve_arena(v, options, self._arena_choice())
+        except VersionError as exc:
+            return DEFAULT_ARENA, f'error: {exc}'
+
+    def _refresh_arena(self):
+        """Show the arena the current choices fly in; reload the map when it changes."""
+        arena, why = self._resolved_arena()
+        self.arena_note.configure(text=f'Flies in: {arena_label(arena)} ({why})')
+        running = hasattr(self, 'start_btn') and str(self.start_btn.cget('state')) == 'disabled'
+        if running:
+            return          # keep the running flight's map; Start loads the new arena
+        if arena not in (self._map_arena, self._loading_arena):
+            self._load_course_async(arena)
+
+    def _load_course_async(self, arena=DEFAULT_ARENA):
         import threading
 
         def work():
@@ -362,30 +404,52 @@ class App:
                 from dronesim.px4.params import load_profile
                 from dronesim.scoring.referee import Referee
                 from dronesim.vehicle.physics import AirframeConfig
+                from dronesim.world.arena import edits_path
                 from dronesim.world.course import Course
                 cache = os.path.join(os.environ.get('LOCALAPPDATA') or os.path.expanduser('~'), 'dronesim', 'cache')
-                course = Course(os.path.join(REPO_ROOT, 'dronehacks-course-v3.step'), cache)
+                course = Course(os.path.join(REPO_ROOT, 'dronehacks-course-v3.step'), cache, edits_path(arena))
                 params = load_profile(REPO_ROOT, DEFAULT_PROFILE)
                 af = AirframeConfig.from_params(params)
                 ref = Referee(course, os.path.join(SITL_ROOT, 'course', 'course_v3_rules.json'), af)
-                self._course_ready = (course_shapes(course), ref.gates_for_display(), af.rotors, af.prop_radius_m,
-                                      course.describe())
+                result = (course_shapes(course), ref.gates_for_display(), af.rotors, af.prop_radius_m,
+                          course.describe())
             except Exception as exc:  # noqa: BLE001
-                self._course_ready = exc
+                result = exc
+            self._course_ready = (arena, result)
         self._course_ready = None
+        self._loading_arena = arena
+        if hasattr(self, 'status_line'):
+            self.status_line.configure(text=f'Loading the course: {arena_label(arena)}... (a new arena builds its '
+                                            'cache once, about 40 s)')
         threading.Thread(target=work, daemon=True).start()
 
-    def _install_map(self, data):
+    def _install_map(self, arena, data):
         shapes, gates, rotors, prop_r, desc = data
+        old = self.map
+        if old is not None:
+            old.canvas.destroy()
+        for w in self._map_bar.winfo_children():
+            w.destroy()
         self.map = MapView(self.map_holder, shapes, gates, rotors, prop_r)
+        if old is not None:
+            self.map.show_lidar.set(old.show_lidar.get())
+            self.map.show_est.set(old.show_est.get())
+        self.map.overlays = list(self.overlays)
+        self._map_arena = arena
         self.map.canvas.pack(fill='both', expand=True)
         ttk.Checkbutton(self._map_bar, text='lidar', variable=self.map.show_lidar).pack(side='left')
         ttk.Checkbutton(self._map_bar, text='estimates', variable=self.map.show_est).pack(side='left')
         ttk.Button(self._map_bar, text='Fit', command=self.map.fit).pack(side='left')
-        ttk.Label(self._map_bar, text=f"  {desc['step']}  ({desc['solids']} solids, {desc['triangles']} triangles, "
-                                      f"sha256 {desc['sha256'][:12]})", foreground='#607d8b').pack(side='left')
-        self.root.after(100, self.map.fit)
-        self.status_line.configure(text='Ready. Choose a version and press Start.')
+        ttk.Button(self._map_bar, text='Load paths...', command=self.load_saved).pack(side='left')
+        ttk.Button(self._map_bar, text='Clear paths', command=self.clear_saved).pack(side='left')
+        edits = f", edits {desc['edits']}" if desc.get('edits') else ''
+        ttk.Label(self._map_bar, text=f"  arena: {arena}  |  {desc['step']}{edits}  ({desc['solids']} solids, "
+                                      f"{desc['triangles']} triangles, sha256 {desc['sha256'][:12]})",
+                  foreground='#607d8b').pack(side='left')
+        # fit this map only: a map replaced within the delay (a quick arena reload) is gone by then
+        self.root.after(100, lambda m=self.map: m.fit() if m is self.map else None)
+        if self.proc is None:
+            self.status_line.configure(text='Ready. Choose a version and press Start.')
 
     # ------------------------------------------------------------------------------------------
     # setup callbacks
@@ -415,9 +479,12 @@ class App:
                                state='readonly', width=34)
             box.current(keys.index(str(opt.get('default', keys[0]))))
             box.grid(row=i, column=1, sticky='we', padx=4)
+            box.bind('<<ComboboxSelected>>', lambda e: self._refresh_arena())
             self.option_vars[name] = (box, keys)
         if not v.get('options'):
             ttk.Label(self.options_frame, text='(none)').grid(row=0, column=0)
+        if hasattr(self, 'arena_box') and hasattr(self, 'status_line'):
+            self._refresh_arena()
 
     def _on_follower(self):
         v = self.catalog[self._current_version()]
@@ -471,6 +538,7 @@ class App:
             'pilot_arm_at_s': float(f['pilot_arm_at_s'].get()),
             'pilot_position_after_s': float(f['pilot_position_after_s'].get()),
             'pilot_script': bool(self.script_var.get()), 'wind_mps': self._pair(f['wind'].get()),
+            'arena': self._arena_choice(),
         }
         drift = float(f['vo_drift'].get())
         sc['vo'] = {'tunnel_lighting': f['tunnel_lighting'].get(), 'latency_mean_s': float(f['vo_latency'].get()),
@@ -508,8 +576,12 @@ class App:
         if self.proc is not None:
             self._send(('quit',))           # the last run, kept after Stop for Save
             self._finish_proc()
-        if self.map is None:
-            messagebox.showinfo('SITL', 'The course is still loading (first start builds the STEP cache, ~75 s).')
+        arena, _why = self._resolved_arena()
+        if self.map is None or self._map_arena != arena:
+            if arena not in (self._map_arena, self._loading_arena):
+                self._load_course_async(arena)
+            messagebox.showinfo('SITL', 'The course is still loading (a first start builds its cache: about 75 s '
+                                        'for the STEP, about 40 s more for a new arena).')
             return
         try:
             sc = self._scenario()
@@ -557,6 +629,39 @@ class App:
         self.stop_btn.configure(state='disabled')
         self.start_btn.configure(state='normal')
 
+    # -- saved runs over the map ----------------------------------------------------------------
+    def load_saved(self):
+        d = filedialog.askdirectory(title='Load the paths of a saved run, or of a folder of runs',
+                                    initialdir=os.path.join(SITL_ROOT, 'runs'))
+        if d:
+            self._add_saved([d])
+
+    def _add_saved(self, paths):
+        """Draw the saved runs under ``paths``; show their arena when they agree and nothing flies."""
+        from dronesim.gui.saved import common_arena, load_paths
+        new = load_paths(paths, start_index=len(self.overlays))
+        if not new:
+            if hasattr(self, 'status_line'):
+                self.status_line.configure(text=f'No saved run (trajectory.csv / plan.json) under {paths[0]}')
+            return
+        self.overlays += new
+        arena = common_arena(self.overlays)
+        if arena and self.proc is None:
+            keys = [k for k, _lab in ARENA_CHOICES]
+            if arena in keys:
+                self.arena_box.current(keys.index(arena))    # the runs' arena, so auto doesn't switch it back
+                self._refresh_arena()
+        if self.map is not None:
+            self.map.set_overlays(self.overlays)
+        if hasattr(self, 'status_line'):
+            self.status_line.configure(text=f'Drawing {len(self.overlays)} saved run(s)'
+                                            + (f' (arena {arena})' if arena else ''))
+
+    def clear_saved(self):
+        self.overlays = []
+        if self.map is not None:
+            self.map.set_overlays([])
+
     def save(self):
         d = filedialog.askdirectory(title='Save the run into a folder', initialdir=os.path.join(SITL_ROOT, 'runs'))
         if d:
@@ -601,12 +706,17 @@ class App:
     # polling + drawing
     # ------------------------------------------------------------------------------------------
     def _poll(self):
-        if self._course_ready is not None and self.map is None:
-            data, self._course_ready = self._course_ready, None
+        if self._course_ready is not None:
+            (arena, data), self._course_ready = self._course_ready, None
+            if self._loading_arena == arena:
+                self._loading_arena = None
             if isinstance(data, Exception):
-                self.status_line.configure(text=f'Could not load the course: {data}')
+                self.status_line.configure(text=f'Could not load the course ({arena}): {data}')
             else:
-                self._install_map(data)
+                self._install_map(arena, data)
+            want, _why = self._resolved_arena()
+            if want not in (self._map_arena, self._loading_arena):
+                self._load_course_async(want)      # the choice changed while it loaded
         snap = None
         try:
             while self.conn is not None and self.conn.poll():
@@ -624,6 +734,9 @@ class App:
                 elif kind == 'echo':
                     self.echo_text.delete('1.0', 'end')
                     self.echo_text.insert('1.0', f'{msg[1]}\n\n{msg[2]}')
+                elif kind == 'plan':
+                    if self.map is not None:
+                        self.map.set_plan(msg[1])
                 elif kind == 'done':
                     self.result = msg[1]
                     self._show_result()
@@ -792,10 +905,10 @@ class App:
         self.status_line.configure(text='Run finished: see Run info / result. Save it, or Stop to set up another run.')
 
 
-def main():
+def main(load=()):
     mp.freeze_support()
     root = tk.Tk()
-    App(root)
+    App(root, load=load)
     root.mainloop()
 
 
