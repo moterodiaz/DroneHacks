@@ -11,15 +11,11 @@ import numpy as np
 import pytest
 
 from dronehacks_course_follower.follower import flown_path
-from dronehacks_course_follower.planner import (BOULDER_MARGIN_M, MARGIN_M, MIN_BOULDER_OVERHEAD_M, RANGEFINDER_CONE_DEG,
-                                                REACH_M, PlannedCourse, boulder_lethal_m, clearance_m, load_course_map,
-                                                plan_flight, window_passable)
+from dronehacks_course_follower.planner import (REACH_M, PlannedCourse, clearance_m, load_course_map, plan_flight,
+                                                window_passable)
 
 # A route waypoint counts as passing a goal within one grid cell's diagonal
 _CELL_DIAGONAL_M = 0.05 * math.sqrt(2)
-
-# The rangefinder cone's footprint radius per metre below the sensor
-_HALF_CONE = math.tan(math.radians(RANGEFINDER_CONE_DEG / 2))
 
 
 def _path(course_map: dict[str, Any], planned: PlannedCourse) -> np.ndarray:
@@ -45,7 +41,7 @@ def _turned(course_map: dict[str, Any], turn_rad: float) -> dict[str, Any]:
     turned = copy.deepcopy(course_map)
     turned["segments"] = [[*_turn(segment[:2], turn_rad), *_turn(segment[2:], turn_rad)]
                           for segment in course_map["segments"]]
-    turned["boulders"] = [[*_turn(boulder[:2], turn_rad), *boulder[2:]] for boulder in course_map["boulders"]]
+    turned["boulders"] = [[*_turn(boulder[:2], turn_rad), boulder[2]] for boulder in course_map["boulders"]]
     turned["launch"] = [*_turn(course_map["launch"][:2], turn_rad), course_map["launch"][2] + math.degrees(turn_rad)]
     for goal in turned["goals"].values():
         goal["at"] = _turn(goal["at"], turn_rad)
@@ -83,34 +79,6 @@ def test_the_flown_path_keeps_the_props_off_every_wall(course_map: dict[str, Any
     launch = tuple(course_map["launch"][:2])
     path = flown_path(launch, planned.route, planned.walls)
     assert clearance_m(path, planned.walls).min() >= REACH_M
-
-
-def test_the_flown_path_keeps_the_rangefinder_cone_off_every_boulder_top(course_map: dict[str, Any],
-                                                                         planned: PlannedCourse) -> None:
-    path = _path(course_map, planned)
-    height_m = course_map["height_m"]
-    for east, north, radius_m, top_m in course_map["boulders"]:
-        # The cone's edge at the top's height must stay outside the top's disc
-        edge_m = np.linalg.norm(path - np.array([east, north]), axis=1).min() - radius_m
-        assert edge_m - (height_m - top_m) * _HALF_CONE > 0
-
-
-def test_a_boulder_with_its_height_is_cleared_by_the_cone_at_its_top() -> None:
-    # A boulder 0.3 m below the flight height: the cone's footprint at its top, not on the floor
-    with_top = boulder_lethal_m([0.0, 0.0, 0.2, 0.5], height_m=0.8)
-    assert with_top == pytest.approx(0.2 + 0.3 * _HALF_CONE + BOULDER_MARGIN_M)
-    assert with_top < boulder_lethal_m([0.0, 0.0, 0.2], height_m=0.8)
-
-
-def test_a_boulder_without_its_height_keeps_the_floor_footprint() -> None:
-    assert boulder_lethal_m([0.0, 0.0, 0.2], height_m=0.8) == pytest.approx(0.2 + 0.8 * _HALF_CONE + MARGIN_M)
-
-
-def test_a_boulder_too_near_the_flight_height_keeps_the_floor_footprint() -> None:
-    # Its top a cell under the minimum below the flight height: the props would pass too near it
-    too_high = 0.8 - MIN_BOULDER_OVERHEAD_M + 0.05
-    floor = boulder_lethal_m([0.0, 0.0, 0.2], height_m=0.8)
-    assert boulder_lethal_m([0.0, 0.0, 0.2, too_high], height_m=0.8) == pytest.approx(floor)
 
 
 def test_a_refused_window_is_walled_across_and_the_route_goes_round(course_map: dict[str, Any]) -> None:

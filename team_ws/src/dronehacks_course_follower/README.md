@@ -44,7 +44,7 @@ PX4's offset from the odometry stays frozen from the pad descent on.
 
 - **Planner** (`planner.py`): A* on a 5 cm grid, lethal within 0.32 m of a wall (prop reach
   0.28 m + 0.04 m), Nav2-style inflation cost beyond, boulders widened by the rangefinder's
-  footprint (below). Goals in the map's own `order`. The window is flown only when `allow_window` and the
+  footprint. Goals in the map's own `order`. The window is flown only when `allow_window` and the
   map says it is passable (the opening spans the flight height with 0.25 m either side and is
   wider than the lethal ring twice); otherwise its opening is walled across and A* finds Gate B.
   A flown window is one straight leg on its normal through the opening's middle, from up to
@@ -54,19 +54,6 @@ PX4's offset from the odometry stays frozen from the pad descent on.
   the turn into the opening, about 8.7 cm toward the frame. The route is planned once, before
   take-off, so no in-flight re-plan can shorten that lead-in. The ideal dry run takes about 31 s
   with the lead-in, against 27 s without it.
-- **Boulders** (`boulder_lethal_m`): the drone's centre keeps out of radius + the VL53L1X's 27°
-  cone footprint + a margin. With the boulder's height in the map and its top at least 0.20 m
-  (`MIN_BOULDER_OVERHEAD_M`) below the flight height, the footprint is the cone's at the top,
-  (0.8 - 0.533) tan 13.5° = 0.064 m, and the margin 0.10 m (`BOULDER_MARGIN_M`, for sideways
-  tracking error: skybeta-11 held its corners within about 5 cm when not yawing, SITL's tracker
-  strayed 5-15 cm): 0.39 m from the centre. The props (0.28 m) then pass over the boulder's edge,
-  0.27 m above its top. Without a height, or with the top nearer, the footprint is the cone's on
-  the floor, 0.8 tan 13.5° = 0.19 m, with the walls' 0.04 m: 0.46 m. Why the cone must stay off:
-  in SITL (2026-11-07) flying the rangefinder over a boulder moved the held height (a
-  terrain-following climb, or EKF2 falling back to the barometer). Offline on the packaged map
-  (`dry_run`, 2026-11-07): to the disarm 22.8 s at 1.0 m/s and 33.2 s at 0.5 m/s, against 25.4 s
-  and 35.4 s with the floor footprint; the nearest pass keeps the cone's edge 0.11 m off the top
-  of the boulder 1.3 m east of the window.
 - **Follower** (`follower.py`): corners as arcs from 0.4 m before, a speed profile within PX4's
   v1.16 default `MPC_ACC_HOR` 3, `MPC_JERK_AUTO` 4 and turn acceleration, an eased jerk-limited
   pace that slows when the drone strays toward a wall, falls behind or its heading lags, heading
@@ -95,8 +82,32 @@ face, 1.25 m east of where the barrier meets the west net, to 1.40 m short of th
 net at the old M2 divider's east-west position: (-1.798, 0.508) to (-0.813, 1.648), drawn
 0.10 m thick (assumed). Everything else is the published v3 map below, unchanged. The route goes
 from the launch mark along the diagonal's north-west side, around its top end, to the tunnel.
-The boulders carry their height, 0.5334 m (21 in, the organisers' CAD), so the route passes their
-edge with the props over them and the rangefinder's cone off their tops.
+The boulders keep the floor rule: lethal out to radius + 0.8 tan 13.5° + 0.04 = 0.46 m from
+the centre.
+
+Sizing the cone at the boulder's top instead (0.39 m, props over the edge) was rejected
+(2026-11-07) because the boulders are domes, not cylinders.
+
+- **Shape** [measured, the organisers' OBJ `dronehacks-course-v3-obj.zip`]: all five meshes are
+  the same rock, 0.229 m in radius at the floor, 0.20 m at 0.25 m up, 0.08 m at 0.50 m, top at
+  0.533 m. The cone's edge leans toward the rock as it descends, so it meets the flank low down.
+- **Cone against the mesh** [computed]: the sensor's smallest offset from the rock's axis with no
+  ray of the 27° cone striking above 5 cm is 0.408 m at 0.8 m and 0.432 m at 0.9 m. The floor rule
+  needs 0.421 m before its margin, so the gain is about 1 cm at 0.8 m and none at 0.9 m. A 5 cm
+  hit shifts the photon-averaged range by 5 cm at most, which is inside the 3-6 cm reading spread
+  over the floor, and stays far below EKF2's range consistency gate.
+- **Time** [`dry_run`]: on this map the top rule gave 22.8 s at 1.0 m/s and 33.2 s at 0.5 m/s, against
+  25.4 s and 35.4 s with the floor rule. The saving is not a gap opening. It comes from a corner
+  near the boulder east of the window that changes shape when the ring passes 0.45-0.455 m.
+- **SITL** (old v3 world, 4 flights, rangefinder as EKF2's height reference):
+  - The top rule flew the old route 3.7 s faster at 1.0 m/s and 2.7 s faster at 0.5 m/s, with no
+    touch.
+  - The sim's single ray never met a rock, and true height stayed within 1 cm at every boulder.
+  - The drone flew with its rangefinder about 1.0 m above the floor, not 0.8 m: the 0.8 m is
+    counted from the rest pose, 0.17 m up. It also passed 4-15 cm inside the planned ring at the
+    boulder east of the window.
+  - Replaying the true path against the mesh, a 27° cone met that boulder's flank 17-35 cm up in
+    every flight, on the floor rule as well.
 
 The published v3 map it was edited from is written by `sim/generate.py` in Michael Bar On's DroneDepthCamTesting
 repo (`write_course_map`, published variant, commit `52c8c27`), from the organisers' published
@@ -109,7 +120,7 @@ as an axis: the tube's side walls are not in it (the manual navigator rebuilds t
 Format (JSON, course frame: x east, y north, metres, origin at the floor centre):
 `height_m` (flight height above the floor), `launch` (`[east, north, heading_deg]`, heading
 counter-clockwise from east), `segments` (`[x1, y1, x2, y2]` wall cuts), `bounds`
-(`[west, east, south, north]`, the net), `boulders` (`[east, north, radius]`, or with a fourth value, the top's height above the floor), `goals` (by name:
+(`[west, east, south, north]`, the net), `boulders` (`[east, north, radius]`), `goals` (by name:
 `at`; the tunnel's two mouths `ends`; the window's `along`, `size_m` `[width, height]` and
 `span_m` `[bottom, top]`), and `order` (the goal names in the order a run passes them). A
 surveyed course goes in a new file passed as `course_map:=`; nothing in the code knows this course.

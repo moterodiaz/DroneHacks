@@ -30,17 +30,9 @@ CELL_M = 0.05
 REACH_M = 0.28
 MARGIN_M = 0.04
 
-# The kit's VL53L1X sees a cone this wide. A boulder is lethal out to its radius plus the cone's
-# footprint where it would first meet the boulder, so the drone never reads it as the floor rising
+# The kit's VL53L1X sees a cone this wide: a boulder is lethal out to its radius plus the cone's
+# footprint at flight height, so the drone never reads a boulder as the floor rising
 RANGEFINDER_CONE_DEG = 27.0
-
-# A boulder whose top is this far below the flight height has its props pass over its edge; the
-# cone then only has to miss its top. Nearer, or of unknown height, the cone's floor footprint holds
-MIN_BOULDER_OVERHEAD_M = 0.20
-
-# Past the cone's footprint at a boulder's top, room for the drone's sideways tracking error: twice
-# the 5 cm the real drone held its corners to, and within the 5-15 cm SITL's tracker strayed
-BOULDER_MARGIN_M = 0.10
 
 # A window is flown only with this much opening above and below the flight height: the airframe's
 # half-height plus the rangefinder-held height's error
@@ -160,8 +152,9 @@ def plan_course(course_map: Mapping[str, Any], tunnel_lead_m: float = 0.0) -> li
     leg on its axis, from that far outside one end to that far outside the other, each in
     whichever direction makes the shortest route.
     """
+    footprint_m = float(course_map["height_m"]) * math.tan(math.radians(RANGEFINDER_CONE_DEG / 2))
     grid = build_grid(np.array(course_map["segments"], dtype=float), course_map["boulders"],
-                      tuple(course_map["bounds"]), float(course_map["height_m"]))
+                      tuple(course_map["bounds"]), footprint_m)
 
     stops = [_stop(grid, course_map["goals"][name], tunnel_lead_m) for name in course_map["order"]]
     launch = (float(course_map["launch"][0]), float(course_map["launch"][1]))
@@ -286,24 +279,11 @@ def clearance_m(points: np.ndarray, segments: np.ndarray) -> np.ndarray:
     return np.linalg.norm(points[:, None, :] - feet, axis=2).min(axis=1)
 
 
-def boulder_lethal_m(boulder: list[float], height_m: float) -> float:
-    """How near a boulder's centre the drone's centre may not come at `height_m`: the boulder's
-    radius, the rangefinder cone's footprint at its top and `BOULDER_MARGIN_M`, for a boulder (east,
-    north, radius, height) whose top is `MIN_BOULDER_OVERHEAD_M` below; otherwise its radius, the
-    footprint on the floor and the walls' margin."""
-    half_cone = math.tan(math.radians(RANGEFINDER_CONE_DEG / 2))
-    radius_m = float(boulder[2])
-    if len(boulder) > 3 and height_m - float(boulder[3]) >= MIN_BOULDER_OVERHEAD_M:
-        return radius_m + (height_m - float(boulder[3])) * half_cone + BOULDER_MARGIN_M
-
-    return radius_m + height_m * half_cone + MARGIN_M
-
-
 def build_grid(segments: np.ndarray, boulders: list[list[float]], bounds_m: tuple[float, float, float, float],
-               height_m: float) -> CourseGrid:
-    """The cost grid at flight height `height_m` over `bounds_m` (west, east, south, north): walls
-    from `segments` (x1, y1, x2, y2), the bounds themselves as the net, and `boulders` (east, north,
-    radius, optional height), each lethal out to `boulder_lethal_m`."""
+               boulder_clearance_m: float) -> CourseGrid:
+    """The cost grid over `bounds_m` (west, east, south, north): walls from `segments` (x1, y1, x2,
+    y2), the bounds themselves as the net, and `boulders` (east, north, radius), each lethal out to
+    `boulder_clearance_m` past its edge."""
     lethal_m = REACH_M + MARGIN_M
     west, east, south, north = bounds_m
     xs = np.arange(west + CELL_M / 2, east, CELL_M)
@@ -318,9 +298,10 @@ def build_grid(segments: np.ndarray, boulders: list[list[float]], bounds_m: tupl
     cost = _MAX_COST * np.exp(-COST_SCALING_PER_M * (distance - lethal_m))
     cost[distance < lethal_m] = np.inf
 
-    # Boulders: lethal wherever the rangefinder's cone could meet one
-    for boulder in boulders:
-        cost[np.hypot(grid_x - boulder[0], grid_y - boulder[1]) < boulder_lethal_m(boulder, height_m)] = np.inf
+    # Boulders: lethal under the rangefinder's footprint, with the walls' margin
+    for boulder_x, boulder_y, radius_m in boulders:
+        lethal_boulder_m = radius_m + boulder_clearance_m + MARGIN_M
+        cost[np.hypot(grid_x - boulder_x, grid_y - boulder_y) < lethal_boulder_m] = np.inf
 
     return CourseGrid(origin_m=(float(xs[0]), float(ys[0])), cost=cost)
 
