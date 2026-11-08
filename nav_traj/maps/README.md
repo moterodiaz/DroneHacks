@@ -88,17 +88,24 @@ lists each change with its source and whether it was taped, estimated or assumed
   east net, one against the south net east of the window, and the one west of the
   window sits a foot from the south net. The flight lines ignore them
   (`avoid_boulders: false`).
-* **CP2 Gate A (assumed):** only 0.32 m of the published line is south of the new
-  north wall, so no drone fits. The edits keep the line where it was (x = 0.3048,
-  where the maze guideline ends) and run it across the whole corridor, from
-  Barrier 3's face to the north wall. Every route to the tunnel crosses it, so
-  it is no goal (`planner_goal: false`). `test/test_maps.py` checks that the
-  whole drone crosses it. **Ask the organisers how Gate A is scored now.**
+* **No checkpoint goals of their own:** the team (@jsun4231, 2026-11-08) flies this
+  map the fastest way to the pad, so CP2 Gate A is no goal (`planner_goal: false`).
+  Only 0.32 m of the published Gate A line is south of the new north wall, so no
+  drone fits through it anyway. This departs from `contracts/course.md`'s "route
+  through the line". For scoring in the SITL, Gate A is assumed to run along its
+  line (x = 0.3048, where the maze guideline ends) across the whole corridor, from
+  Barrier 3's face to the north wall. `test/test_maps.py` checks that the whole
+  drone crosses it. **Ask the organisers how Gate A is scored now.**
 
-The route is `tunnel > window > pad`, 13.31 m: north-east along the diagonal,
-round its top end, east to the tunnel, south through it, west through the window,
-then onto the pad. The closest it comes is 0.341 m at the diagonal's top end,
-and the window pass keeps 0.137 m over the inscribed radius.
+The route is `tunnel > window > pad`, 13.08 m, the fastest to the pad that keeps
+straight passes through the tube and the window: north-east along the diagonal,
+round its top end, east to the tunnel, south through it, west through the
+window, then onto the pad. A free route straight to the pad, without the two
+straight passes, is 0.4 s faster at 2 m/s, but it gives up the centred passes.
+The closest the planned route comes to a wall is 0.363 m, at the diagonal's top
+end, and the window pass keeps 0.137 m over the inscribed radius. Through the
+gap at the diagonal's top end, the smoother needs 22 repairs; at the old limit
+of 20, every corner fell back to sharp.
 
 Made from this directory with:
 

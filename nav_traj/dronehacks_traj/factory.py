@@ -82,7 +82,8 @@ def plan_fastest_verified(cmap, planner: PlannerConfig, limits: VehicleLimits):
 
 def prepare(map_source, mission_config: MissionConfig, limits: VehicleLimits = VehicleLimits(),
             planner: PlannerConfig = PlannerConfig(), follower: FollowerConfig = FollowerConfig(),
-            frame: Optional[OdomFrame] = None, track_speed_mps: float = 0.0) -> Prepared:
+            frame: Optional[OdomFrame] = None, track_speed_mps: float = 0.0,
+            low_obstacles=None) -> Prepared:
     """``map_source``: a path or a CourseMap. Raises on anything that can't be planned or verified.
 
     ``track_speed_mps`` > 0 flies the course at that speed (:func:`for_track_speed`); 0 keeps
@@ -90,7 +91,10 @@ def prepare(map_source, mission_config: MissionConfig, limits: VehicleLimits = V
 
     ``frame`` is the **measured** course->odom transform (contracts/frames.md), and it is
     required: it is never derived from the map's launch heading. The node passes it from its
-    required parameters; the offline model builds it with ``frames.model_odom_frame``."""
+    required parameters; the offline model builds it with ``frames.model_odom_frame``.
+
+    ``low_obstacles``: the boulders the mission keeps its height over on a rolling take-off or an
+    early descent. None: the map's own (pass the full map's when the plan dropped them)."""
     t0 = time.perf_counter()
     if track_speed_mps:
         limits, mission_config = for_track_speed(track_speed_mps, limits, mission_config)
@@ -104,7 +108,8 @@ def prepare(map_source, mission_config: MissionConfig, limits: VehicleLimits = V
         float(launch.heading[1]), float(launch.heading[0]))
     plan, alternatives, limits, note = plan_fastest_verified(cmap, planner, limits)
     mission = Mission(plan, frame, make_field(cmap, planner), cmap.slice_height, limits, mission_config,
-                      follower, launch_heading=launch_heading)
+                      follower, launch_heading=launch_heading,
+                      low_obstacles=cmap.boulders if low_obstacles is None else tuple(low_obstacles))
     return Prepared(cmap, plan, frame, mission, alternatives, time.perf_counter() - t0,
                     limits.v_max_mps, note)
 

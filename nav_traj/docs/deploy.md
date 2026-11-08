@@ -85,17 +85,21 @@ on 2026-11-08, `maps/README.md`), unless `~/team_ws/course_map.yaml` or `$DRONEH
 there. It flies at the window's taped middle, 1.23 m, and straight over the boulders
 (`avoid_boulders: false`). **The taped pad is about 1 m south of the STEP's.** Before flying it:
 * **Remove any older `~/team_ws/course_map.yaml`**: it would win over the taped map.
-* **PX4 still caps the speed.** `contracts/px4.md` records the organisers' `MPC_XY_VEL_MAX` as
-  1.0 m/s and forbids writing it. Read the live value; at 1.0 the drone flies at 1.0.
+* **It takes off rolling and descends early.** FOLLOW starts 0.3 m up and finishes the climb on
+  the first leg. It holds in place only where the path ahead needs the flight height. From the
+  moment the whole drone clears the window, it descends towards 0.45 m. With `land: false` (the
+  installed default; `contracts/px4.md` keeps autonomous landing blocked) it holds over the pad at
+  that height for the pilot.
+* **PX4 doesn't cap the speed on skybeta-11.** `MPC_XY_VEL_MAX` is 12 there (`contracts/px4.md`,
+  the organisers' value, not ours to write). The plan's `v_max_mps` and the interface's clamp do.
 * **The window is not cleared** by `contracts/course.md` (no reviewed clearance budget). The
   planner's window pass keeps 0.137 m over its inscribed radius on the taped map.
-* On the taped map no plan verifies at 2.0 m/s (along-path jerk at a turn), so the node plans
-  at 1.8 m/s and logs why. The speed profile peaks near 1.4 m/s either way: the unvalidated
-  cornering limit (`a_lat_mps2` 1.0) binds before the speed caps. SITL results: `sitl/README.md`.
+* On the taped map the plan is 13.08 m in 16.4 s at 2.0 m/s. The unvalidated cornering
+  limit (`a_lat_mps2` 1.0) binds before 2.0 at most corners. SITL results: `sitl/README.md`.
 
 **The slow test line** (`traj_nav_competitor_window_0p5mps.launch.py`) is the same line with
 `config/flight_line_window_0p5mps.yaml`, on the same taped map. That file differs only in its speeds: all four are
-0.5 m/s, below PX4's 1.0 cap, so the pilot has time to take over before a touch. The tube takes
+0.5 m/s, so the pilot has time to take over before a touch. The tube takes
 longer at this speed. In SITL, cuVSLAM was lost for 3.1-3.2 s, within the 4 s `coast_max_s`.
 If the real tube stays dark for more than 4 s, the drone stops inside it, and PX4 drops to
 Altitude 5 s after the loss (`EKF2_NOAID_TOUT`). Be ready to take over at the tube.

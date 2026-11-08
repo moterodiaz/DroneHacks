@@ -74,6 +74,21 @@ Added for safety:
   than the coast (+ ``stitch_margin_m``) can't be explained: it holds still
   by velocity for the pilot.
 
+Opt-in shortcuts (both off by default; the window flight lines turn them on):
+* **Rolling take-off** (``rolling_takeoff_m`` > 0). TAKEOFF hands over to FOLLOW as soon as the
+  drone is that far above its rest height, and FOLLOW finishes the climb while it flies the
+  first leg. The route is checked in plan only, at the flight height, so FOLLOW holds its
+  horizontal progress, still climbing, wherever the path ahead needs more height than the drone
+  has: the flight height from ``full_height_lead_m`` before the first opening (tunnel, window,
+  gate) to the end of the last; a boulder's top plus ``low_obstacle_clearance_m`` within
+  ``low_obstacle_reach_m`` of its edge (every boulder in the map, including any the plan ignored).
+  Walls stand on the floor, so a wall clear at the flight height is clear lower down.
+* **Early descent** (``early_descent``). From the end of the last opening's pass (the whole
+  drone ``crossing_margin_m`` past its far face), the height target drops to
+  ``descent_floor_m`` above the floor, never below what the path ahead needs (as above), so the
+  last leg is flown descending. Over the pad the mission holds at that height (``land`` false:
+  the pilot lands), or goes into LAND after ``hold_before_land_s``.
+
 ROS-free; ``mission_node.py`` wraps it.
 """
 
@@ -81,9 +96,12 @@ from __future__ import annotations
 
 import dataclasses
 import math
-from typing import Optional, Tuple
+from typing import Optional, Sequence, Tuple
+
+import numpy as np
 
 from dronehacks_planner.clearance import ObstacleField
+from dronehacks_planner.course_map import Boulder
 from dronehacks_planner.follower import Follower, FollowerConfig, Setpoint
 from dronehacks_planner.limits import VehicleLimits
 from dronehacks_planner.pipeline import FlightPlan
@@ -168,6 +186,26 @@ class MissionConfig:
     #: where the drone stopped. A pose hold set while moving fast would make PX4 fly back to it.
     held_brake_speed_mps: float = 0.15
     held_brake_s: float = 2.0
+    #: Rolling take-off: FOLLOW starts once the drone is this far above its rest height and climbs
+    #: the rest of the way while flying (module docstring). 0: climb to the flight height first,
+    #: within takeoff_tolerance_m (the shipped behaviour).
+    rolling_takeoff_m: float = 0.0
+    #: The flight height is needed from this far along the path before the first opening.
+    full_height_lead_m: float = 0.5
+    #: Early descent after the last opening (module docstring). False: the last leg is flown at
+    #: the flight height (the shipped behaviour).
+    early_descent: bool = False
+    #: The lowest the early descent goes before the pad: body centre above the floor. The kit
+    #: floors pose setpoints at 0.3 m (contracts/px4.md); this less the rest height stays above it.
+    descent_floor_m: float = 0.45
+    #: A boulder within its radius plus this of the path needs the drone above its top there:
+    #: the 0.28 m prop reach (contracts/course.md) + 0.10 m.
+    low_obstacle_reach_m: float = 0.38
+    #: ...by this much, body centre over the boulder's top: half the drone's height (0.10 m) plus
+    #: the planner's boulder_overhead_m (0.15 m).
+    low_obstacle_clearance_m: float = 0.25
+    #: How far ahead along the trajectory (its time) the height needed is looked up.
+    height_lookahead_s: float = 1.0
 
     def __post_init__(self) -> None:
         for f in dataclasses.fields(self):
@@ -248,10 +286,12 @@ class Mission:
 
     def __init__(self, plan: FlightPlan, frame: OdomFrame, field: ObstacleField, slice_height_m: float,
                  limits: VehicleLimits, config: MissionConfig, follower: FollowerConfig = FollowerConfig(),
-                 launch_heading: Optional[float] = None):
+                 launch_heading: Optional[float] = None, low_obstacles: Sequence[Boulder] = ()):
         """``frame``: the measured course->odom transform (frames.py). ``launch_heading``: the
         map's launch heading in course radians, the precheck's heading reference (None: no
-        heading precheck -- the frame itself is still measured, never derived from it)."""
+        heading precheck -- the frame itself is still measured, never derived from it).
+        ``low_obstacles``: the map's boulders, including any the plan ignored, for the height the
+        rolling take-off and the early descent keep over them."""
         self.plan = plan
         self.frame = frame
         self.field = field
@@ -267,6 +307,12 @@ class Mission:
         traj = plan.trajectory
         self.start_odom = frame.to_odom(*traj.xy[0])
         self.end_odom = frame.to_odom(*traj.xy[-1])
+        self.floor_odom = config.descent_floor_m - config.rest_height_m
+        if config.early_descent and not 0.0 < self.floor_odom <= self.z_fly:
+            raise ValueError(f"descent_floor_m {config.descent_floor_m:.2f} m must be above the rest height "
+                             f"{config.rest_height_m:.2f} m and at most the flight height {slice_height_m:.2f} m")
+        self._need, self.descent_from_t = self._height_profile(plan, low_obstacles)
+        self._climbing = False
         self.state = WAIT
         self.reason = "waiting for the prechecks"
         self.follower: Optional[Follower] = None
@@ -289,6 +335,43 @@ class Mission:
         self._px4_velocity: Optional[Tuple[float, float, float]] = None   # (t, forward, left)
         self._fallback_t = -math.inf                     # when a velocity FOLLOW last sent its hold pose
         self._held_since = 0.0                           # when HELD began (it brakes first)
+
+    # -- height along the path -----------------------------------------------------
+
+    def _height_profile(self, plan: FlightPlan, low_obstacles: Sequence[Boulder]):
+        """``(need, descent_from_t)``: the least odom height each trajectory sample needs (-inf:
+        none), and the trajectory time the early descent starts (inf: never)."""
+        cfg = self.config
+        traj = plan.trajectory
+        full = self.z_fly - cfg.takeoff_tolerance_m
+        need = np.full(len(traj.t), -np.inf)
+        inside = [i for i, name in enumerate(plan.path.pass_name) if name]
+        if inside:
+            # up to the last opening's end, where the whole drone is past it and the descent may start
+            span = (traj.s >= traj.s[inside[0]] - cfg.full_height_lead_m) & (traj.s < traj.s[inside[-1]])
+            need[span] = full
+        for b in low_obstacles:
+            reach = b.radius + cfg.low_obstacle_reach_m
+            near = np.hypot(traj.xy[:, 0] - b.centre[0], traj.xy[:, 1] - b.centre[1]) < reach
+            top = full if b.height is None else min(full, b.height + cfg.low_obstacle_clearance_m - cfg.rest_height_m)
+            need[near] = np.maximum(need[near], top)
+        descent_from_t = float(traj.t[inside[-1]]) if cfg.early_descent and inside else math.inf
+        return need, descent_from_t
+
+    def need_between(self, t0: float, t1: float) -> float:
+        """The most height any trajectory sample from time t0 to t1 needs (odom z; -inf: none)."""
+        t = self.plan.trajectory.t
+        i0 = max(int(np.searchsorted(t, t0, side="right")) - 1, 0)
+        i1 = max(int(np.searchsorted(t, t1, side="right")), i0 + 1)
+        return float(self._need[i0:i1].max())
+
+    def z_target(self, ref_time: float) -> float:
+        """The height FOLLOW flies at a reference time (odom z): the flight height, and once the
+        early descent has started the descent floor, kept above what the path ahead needs."""
+        if ref_time < self.descent_from_t:
+            return self.z_fly
+        need = self.need_between(ref_time, ref_time + self.config.height_lookahead_s)
+        return min(self.z_fly, max(self.floor_odom, need))
 
     # -- the tick ------------------------------------------------------------------
 
@@ -401,9 +484,13 @@ class Mission:
         return None
 
     def _takeoff(self, t: float, pose: OdomPose, landed: Optional[bool]) -> Command:
-        if abs(pose.z - self.z_fly) < self.config.takeoff_tolerance_m:
+        cfg = self.config
+        at_height = abs(pose.z - self.z_fly) < cfg.takeoff_tolerance_m
+        rolling = cfg.rolling_takeoff_m > 0.0 and pose.z >= min(cfg.rolling_takeoff_m, self.z_fly)
+        if at_height or rolling:
             self.state = FOLLOW
             self.reason = "following"
+            self._climbing = not at_height
             self.follower = Follower(self.plan.trajectory, self.field, self.limits, self.follower_config)
             return self._follow(t, pose, landed)
         return Command("pose", self._takeoff_xy[0], self._takeoff_xy[1], self.z_fly, self._takeoff_yaw)
@@ -427,15 +514,26 @@ class Mission:
             self._hold_since = None
             return self._hold(t, pose, landed)
         self._yaw_cmd = self.frame.yaw_to_odom(sp.yaw)
+        z_ref = self.z_target(sp.ref_time)
+        wait = False
+        if self._climbing:
+            if pose.z >= self.z_fly - self.config.takeoff_tolerance_m:
+                self._climbing = False
+            else:
+                wait = pose.z < self.need_between(sp.ref_time, sp.ref_time + self.config.height_lookahead_s)
         if self.config.velocity_follow and isinstance(self.follower, Follower):
-            return self._follow_by_velocity(t, sp, (x, y), pose)
+            return self._follow_by_velocity(t, sp, (x, y), pose, z_ref, wait)
+        if wait:
+            self.reason = "climbing in place: the path ahead needs more height"
+            return Command("pose", x, y, z_ref, self._yaw_cmd)
         sx, sy = self.frame.to_odom(*sp.position)
-        return Command("pose", sx, sy, self.z_fly, self._yaw_cmd)
+        return Command("pose", sx, sy, z_ref, self._yaw_cmd)
 
-    def _follow_by_velocity(self, t: float, sp: Setpoint, xy: Tuple[float, float], pose: OdomPose) -> Command:
+    def _follow_by_velocity(self, t: float, sp: Setpoint, xy: Tuple[float, float], pose: OdomPose,
+                            z_ref: float, wait: bool = False) -> Command:
         """The trajectory by velocity: the reference's ``follow_anticipation_s`` ahead (times the
-        governor's clock rate), plus a pull onto the reference, capped at ``v_max_mps``; height and
-        heading held by rate."""
+        governor's clock rate), plus a pull onto the reference, capped at ``v_max_mps``; height
+        (``z_ref``) and heading held by rate. ``wait``: no horizontal velocity (climbing in place)."""
         cfg = self.config
         ref = self.plan.trajectory.at(sp.ref_time)
         ahead = self.plan.trajectory.at(sp.ref_time + sp.clock_rate * cfg.follow_anticipation_s)
@@ -447,15 +545,16 @@ class Mission:
         cap = min(self.limits.v_max_mps, cfg.twist_speed_max_mps)
         if speed > cap:
             ve, vn = ve * cap / speed, vn * cap / speed
-        vx, vy = self.frame.rotate_to_odom(ve, vn)
-        vz = max(-cfg.follow_vz_max_mps, min(cfg.follow_vz_max_mps, cfg.follow_z_gain * (self.z_fly - pose.z)))
+        vx, vy = (0.0, 0.0) if wait else self.frame.rotate_to_odom(ve, vn)
+        vz = max(-cfg.follow_vz_max_mps, min(cfg.follow_vz_max_mps, cfg.follow_z_gain * (z_ref - pose.z)))
         yaw_rate = max(-self.follower_config.yaw_rate_max_rps,
                        min(self.follower_config.yaw_rate_max_rps, 2.0 * wrap(self._yaw_cmd - pose.yaw)))
         fallback = None
         if t - self._fallback_t >= cfg.fallback_pose_period_s:
             self._fallback_t = t
-            fallback = (xy[0], xy[1], self.z_fly, self._yaw_cmd)
-        self.reason = "following by velocity"
+            fallback = (xy[0], xy[1], z_ref, self._yaw_cmd)
+        self.reason = ("climbing in place by velocity: the path ahead needs more height" if wait
+                       else "following by velocity" + (", descending" if z_ref < self.z_fly else ""))
         return Command("twist", vx=vx, vy=vy, vz=vz, yaw_rate=yaw_rate, fallback=fallback)
 
     def _held(self, t: float, pose: Optional[OdomPose]) -> Command:
@@ -476,7 +575,9 @@ class Mission:
         return self._hold_cmd
 
     def _hold(self, t: float, pose: OdomPose, landed: Optional[bool]) -> Command:
-        cmd = Command("pose", self.end_odom[0], self.end_odom[1], self.z_fly, self._yaw_cmd)
+        # at the end of the path's height: the flight height, or the early descent's floor
+        z_end = self.z_target(self.plan.trajectory.duration)
+        cmd = Command("pose", self.end_odom[0], self.end_odom[1], z_end, self._yaw_cmd)
         if not self.config.land:
             return cmd
         near = math.hypot(self.end_odom[0] - pose.x, self.end_odom[1] - pose.y) < self.config.land_tolerance_m

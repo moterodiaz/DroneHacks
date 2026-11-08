@@ -130,11 +130,12 @@ class MissionNode(Node):
             limits = dataclasses.replace(VehicleLimits(), v_max_mps=float(self._param("v_max_mps")))
             prefer = tuple(p for p in self._param("prefer") if p)
             cmap = load_map(map_file)
+            boulders = cmap.boulders        # the height kept over them, even when the plan ignores them
             if not self._param("avoid_boulders"):
                 cmap = dataclasses.replace(cmap, boulders=())
             self.prepared = prepare(cmap, config, limits,
                                    dataclasses.replace(PlannerConfig(), prefer=prefer), frame=frame,
-                                   track_speed_mps=float(self._param("track_speed_mps")))
+                                   track_speed_mps=float(self._param("track_speed_mps")), low_obstacles=boulders)
         except Exception as exc:  # noqa: BLE001 - every start-up failure must stop the node before it publishes
             raise ConfigError(str(exc)) from exc
         self.mission = self.prepared.mission

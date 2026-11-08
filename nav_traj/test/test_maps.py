@@ -133,6 +133,18 @@ class TapedArenaMapTest(unittest.TestCase):
         self.assertEqual(checks["wall_touches"], 0)
         self.assertTrue(checks["on_pad"])
 
+    def test_the_window_route_is_smoothed_not_left_as_its_polyline(self):
+        """The tight gap at the diagonal's top end needs 22 smoothing repairs. At the old limit of 20
+        every corner fell back to sharp, and the speed profile stopped at each one (planned 36.9 s
+        at 0.5 m/s instead of 27.2 s)."""
+        from dronehacks_planner.pipeline import build
+        from dronehacks_planner.route import PlannerConfig
+        cmap = dataclasses.replace(load_map(str(TAPED)), boulders=())
+        plan = build(cmap, dataclasses.replace(PlannerConfig(), prefer=("window",)))
+        self.assertFalse(any("fell back" in n for n in plan.path.notes), plan.path.notes)
+        self.assertGreaterEqual(sum(r > 0 for r in plan.path.radii), len(plan.path.radii) // 2)
+        self.assertGreater(plan.trajectory.length / plan.trajectory.duration, 0.65)   # mean m/s at v_max 1.0
+
 
 if __name__ == "__main__":
     unittest.main()

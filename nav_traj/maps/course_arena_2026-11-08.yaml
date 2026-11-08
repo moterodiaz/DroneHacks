@@ -1,7 +1,7 @@
 # Course map for the planner (contracts/course.md format), generated from the STEP model and measured edits.
 # STEP: dronehacks-course-v3.step sha256 2194664e852e341f86fb63a19ecc4f8f0ef34da6a51867e49beb3157cb90b876 (extracted 2026-11-07)
 # via course_v3_map.json sha256 c8233aafc1460218c9446dd68c7037ba8821e78a12435b025d0d9bf91d596308 and course_v3_rules.json sha256 3795d517f6d3ed14ccaca93a905a269e44f9e73da6716df48fa4ed60f56ef565
-# edited by arena_2026-11-08_edits.json sha256 3911b4f69228b52bb9d9980f69264cd38d359d7fc26cf3388b6df0d215f4f8ac: The course as the team taped it, 2026-11-08 (Michael Bar On's course map)
+# edited by arena_2026-11-08_edits.json sha256 537469ee0c6f035f01554e1b9985114c89f06040421548e56abfd3556a4ea241: The course as the team taped it, 2026-11-08 (Michael Bar On's course map)
 # by: python -m dronehacks_planner.convert course_v3_map.json course_v3_rules.json --edits arena_2026-11-08_edits.json --launch-heading 0 1 --slice-height 1.23 --route-gate gate_b ends "C2b chicane wall" "A1 approach wall" --out course_arena_2026-11-08.yaml
 # Sliced at 1.23 m over the drone's band +-0.1 m. Not surveyed: the real
 # course may sit a few cm off its model (contracts/course.md, Layout tolerance).

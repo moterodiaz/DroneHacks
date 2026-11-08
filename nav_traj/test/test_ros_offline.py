@@ -263,9 +263,11 @@ class LaunchTest(unittest.TestCase):
         with open(line, encoding="utf-8") as fh:
             doc = yaml.safe_load(fh)
         mission = doc["mission"]["ros__parameters"]
-        self.assertEqual(mission, {"prefer": ["window"], "avoid_boulders": False, "track_speed_mps": 2.0,
+        self.assertEqual(mission, {"prefer": ["window"], "avoid_boulders": False, "rolling_takeoff_m": 0.3,
+                                   "early_descent": True, "hold_before_land_s": 0.0, "track_speed_mps": 2.0,
                                    "v_max_mps": 2.0, "twist_speed_max_mps": 2.0})
-        self.assertTrue(all(isinstance(v, float) for k, v in mission.items() if k not in ("prefer", "avoid_boulders")))
+        flags = ("prefer", "avoid_boulders", "early_descent")
+        self.assertTrue(all(isinstance(v, float) for k, v in mission.items() if k not in flags))
         # the line flies the taped map (maps/README.md), not the default launch's STEP map
         if not os.path.isfile("/root/team_ws/course_map.yaml"):
             self.assertTrue(inc.launch_arguments["map_file"].endswith(os.path.join("maps", "course_arena_2026-11-08.yaml")))

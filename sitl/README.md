@@ -233,7 +233,7 @@ on), so `DRONEHACKS_*` variables do not arrive, just as on the drone.
 
 | id | what | source |
 |---|---|---|
-| `traj` | dronehacks_traj: minimum-time trajectory + Follower, no lidar, on the 2026-11-07 layout (routes through CP2 Gate A) | `navigation/new-course-layout` (this branch; same code as `navigation/vo-traj-follower` @ `0b783d9`) |
+| `traj` | dronehacks_traj: minimum-time trajectory + Follower, no lidar, on the 2026-11-07 layout (routes through CP2 Gate A) | `navigation/traj-taped-arena` (this branch; `navigation/vo-traj-follower` @ `0b783d9` plus the window lines, the taped course, the rolling take-off and the early descent) |
 | `lidar_allowed` / `lidar_forbidden` | dronehacks_lidar: vo_guard → pose_fusion (MS200K) → carrot follower (PR #27 + the dropout coast) | `localization/lidar-nav` (local, ahead of PR #27) |
 | `return_flight` | the lidar build with the rule 7.10 return leg and the dropout coast | `localization/return-flight` (local) |
 | `vo_nolidar` | dronehacks_vo: vo_guard + carrot follower, with the dropout coast | `core/vo-nav-no-lidar` (local) |

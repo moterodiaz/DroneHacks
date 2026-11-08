@@ -28,12 +28,13 @@
 versions:
 
   traj:
-    label: "dronehacks_traj: trajectory Follower, no lidar (2026-11-07 layout, navigation/new-course-layout)"
+    label: "dronehacks_traj: trajectory Follower, no lidar (2026-11-07 layout + the taped course, navigation/traj-taped-arena)"
     description: >-
       Mission state machine + dronehacks_planner's minimum-time trajectory and Follower, raw cuVSLAM.
-      Branch navigation/new-course-layout: the 2026-11-07 course map, routed through CP2 Gate A
-      (gate goal cp2_gate_a), with the dropout coast and track speed.
-    source: {git: navigation/new-course-layout}
+      Branch navigation/traj-taped-arena: the 2026-11-07 course map, routed through CP2 Gate A
+      (gate goal cp2_gate_a), with the dropout coast and track speed. Its window lines fly the taped
+      course instead: the fastest route to the pad, a rolling take-off and an early descent.
+    source: {git: navigation/traj-taped-arena}
     packages: [planner, nav_traj]
     launch: {package: dronehacks_traj, file: traj_nav_competitor.launch.py}
     install_config:

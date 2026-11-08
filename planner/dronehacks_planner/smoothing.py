@@ -54,7 +54,9 @@ class SmoothingConfig:
     smoothing_half_width_m: float = 0.35
     #: Arc-length spacing of the output samples.
     sample_step_m: float = 0.01
-    repair_iterations: int = 20
+    #: Enough to shrink several corners near one tight spot and then the kernel (the 2026-11-08 taped
+    #: map needs 22: at 20 every corner fell back to sharp). A path that verifies stops the loop early.
+    repair_iterations: int = 60
     #: A "via" waypoint with a neighbour closer than this is dropped when the
     #: straight line replacing it is clear and no riskier. Such stubs, left
     #: where a planner leg meets an opening's entry, would otherwise leave a

@@ -31,8 +31,9 @@ def prep(map_source, config, **kw):
     return prepare(cmap, config, frame=model_odom_frame(cmap.launch.position, cmap.launch.heading), **kw)
 
 
-def l_course():
-    """A 1.2 m wide L: north 4 m from the launch, then east to a pad. Launch facing north."""
+def l_course(gate_y=None):
+    """A 1.2 m wide L: north 4 m from the launch, then east to a pad. Launch facing north.
+    ``gate_y``: a gate goal across the north leg there, flown north (an opening to be at full height in)."""
     segs = [((-1.0, -0.6), (-1.0, 4.6)), ((0.2, -0.6), (0.2, 3.4)), ((-1.0, 4.6), (4.0, 4.6)),
             ((0.2, 3.4), (4.0, 3.4)), ((-1.0, -0.6), (0.2, -0.6)), ((4.0, 3.4), (4.0, 4.6))]
     doc = {
@@ -41,6 +42,9 @@ def l_course():
         "segments": [{"start": list(a), "end": list(b), "thickness": 0.1} for a, b in segs],
         "goals": [{"name": "pad", "shape": "disc", "centre": [3.2, 4.0], "params": {"radius": 0.5}}],
     }
+    if gate_y is not None:
+        doc["goals"].insert(0, {"name": "gate", "shape": "gate", "centre": [-0.4, gate_y],
+                                "params": {"axis": [0.0, 1.0], "width": 1.2, "depth": 0.0}})
     return parse_map(doc, source="l_course")
 
 
@@ -309,19 +313,31 @@ class WholeFlightTest(unittest.TestCase):
         cmap = load_map(_paths.PACKAGE_ROOT / "maps" / "course_arena_2026-11-08.yaml")
         if not line["avoid_boulders"]:
             cmap = dataclasses.replace(cmap, boulders=())
-        cfg = dataclasses.replace(CONFIG, twist_speed_max_mps=line["twist_speed_max_mps"])
+        fields = {f.name for f in dataclasses.fields(MissionConfig)}
+        cfg = dataclasses.replace(CONFIG, **{k: v for k, v in line.items() if k in fields})
         return prep(cmap, cfg, limits=dataclasses.replace(VehicleLimits(), v_max_mps=line["v_max_mps"]),
                     planner=dataclasses.replace(PlannerConfig(), prefer=tuple(line["prefer"])),
-                    track_speed_mps=line["track_speed_mps"])
+                    track_speed_mps=line["track_speed_mps"],
+                    low_obstacles=load_map(_paths.PACKAGE_ROOT / "maps" / "course_arena_2026-11-08.yaml").boulders)
+
+    @staticmethod
+    def heights_in(prepared, log, goal_name, half_length):
+        """Body-centre heights above the floor flown within ``half_length`` of an opening's centre."""
+        goal = next(g for g in prepared.cmap.goals if g.name == goal_name)
+        xy = np.array([prepared.frame.to_course(float(a), float(b)) for a, b in log.pos[:, :2]])
+        rel = xy - np.asarray(goal.centre)
+        ax = np.asarray(goal.axis)
+        inside = (np.abs(rel @ ax) <= half_length) & (np.abs(rel @ np.array([-ax[1], ax[0]])) < 1.0)
+        return log.pos[inside, 2] + CONFIG.rest_height_m
 
     def test_the_window_2mps_line_flies_the_taped_map_through_the_window(self):
         from dronehacks_planner.limits import VehicleLimits
         prepared = self.prep_line("window_2mps")
         self.assertEqual(prepared.plan.route.goals, ["tunnel", "window", "pad"])
-        # the taped map's window route breaks the along-path jerk limit at 2.0 m/s, so the plan is
-        # retried 10 % slower (factory.plan_fastest_verified) and says why
-        self.assertEqual(prepared.v_max_mps, 1.8)
-        self.assertIn("planned at 1.8 m/s", prepared.speed_note)
+        self.assertEqual(prepared.v_max_mps, 2.0)       # verified at 2 m/s, not planned slower
+        self.assertIsNone(prepared.speed_note)
+        self.assertTrue(prepared.mission.config.early_descent)
+        self.assertGreater(prepared.mission.config.rolling_takeoff_m, 0.0)
         # PX4 at MPC_XY_VEL_MAX 2.0 and the interface at max_speed_mps 2.0 (the line needs both)
         log = fly(prepared.mission, dataclasses.replace(VehicleLimits(), v_max_mps=2.0),
                   VehicleSimConfig(twist_speed_cap_mps=2.0))
@@ -330,6 +346,10 @@ class WholeFlightTest(unittest.TestCase):
         self.assertEqual(checks["wall_touches"], 0)
         self.assertEqual(checks["openings"], {"tunnel": True, "window": True})
         self.assertTrue(checks["on_pad"])
+        # the window's taped band is 0.914-1.549 m: the whole drone (+-0.10 m) stays inside it
+        z = self.heights_in(prepared, log, "window", 0.4)
+        self.assertGreater(len(z), 0)
+        self.assertTrue(np.all((z >= 0.9144 + 0.10) & (z <= 1.5494 - 0.10)), (z.min(), z.max()))
 
     def test_the_window_0p5mps_slow_line_flies_the_same_route_at_half_a_metre_per_second(self):
         # config/flight_line_window_0p5mps.yaml: the 2 m/s line's route, every speed 0.5 m/s
@@ -351,6 +371,30 @@ class WholeFlightTest(unittest.TestCase):
         follow = np.array([s == FOLLOW for s in log.state])
         speed = np.hypot(*np.diff(log.pos[follow, :2], axis=0).T) / np.diff(log.t[follow])
         self.assertLess(float(speed.max()), 0.6)         # slow throughout (0.5 + the loop's overshoot)
+
+    def test_the_lines_rolling_take_off_and_early_descent_land_sooner_on_the_same_route(self):
+        from dronehacks_planner.limits import VehicleLimits
+        from dronehacks_planner.route import PlannerConfig
+        for name, px4, saved in (("window_0p5mps", 1.0, 4.0), ("window_2mps", 2.0, 4.0)):
+            with self.subTest(line=name):
+                fast = self.prep_line(name)
+                cap = fast.mission.config.twist_speed_max_mps
+                slow = prep(fast.cmap, dataclasses.replace(fast.mission.config, rolling_takeoff_m=0.0,
+                                                           early_descent=False, hold_before_land_s=2.0),
+                            limits=dataclasses.replace(VehicleLimits(), v_max_mps=fast.v_max_mps),
+                            planner=dataclasses.replace(PlannerConfig(), prefer=("window",)),
+                            track_speed_mps=fast.v_max_mps)
+                times = {}
+                for key, p in (("fast", fast), ("slow", slow)):
+                    log = fly(p.mission, dataclasses.replace(VehicleLimits(), v_max_mps=px4),
+                              VehicleSimConfig(twist_speed_cap_mps=cap))
+                    checks = flight_checks(p, log.pos)
+                    self.assertEqual(checks["wall_touches"], 0)
+                    self.assertTrue(checks["on_pad"])
+                    times[key] = log.events["disarm"] - log.events["takeoff"]
+                    z = self.heights_in(p, log, "tunnel", 0.76)
+                    self.assertGreater(float(z.min()), 1.23 - 0.10 - 1e-6)        # full height in the tube
+                self.assertGreater(times["slow"] - times["fast"], saved, times)
 
     def test_a_plan_that_fails_its_checks_at_a_speed_is_planned_slower_not_refused(self):
         # the 2026-10-27 STEP map's window route over the boulders breaks the jerk limit at 1.5 m/s
@@ -415,6 +459,87 @@ class WholeFlightTest(unittest.TestCase):
         self.assertEqual(summary(log)["states"], [WAIT, TAKEOFF, FOLLOW, HOLD, LAND, LANDED])
         self.assertEqual(checks["wall_touches"], 0)
         self.assertEqual(checks["openings"], {"tunnel": True, "gate_b": True})
+        self.assertTrue(checks["on_pad"])
+
+
+class ShortcutTest(unittest.TestCase):
+    """The rolling take-off and the early descent (MissionConfig), on the made-up L course."""
+
+    def pose(self, t=0.0, x=0.0, y=0.0, z=0.0, yaw=0.0):
+        return OdomPose(t=t, x=x, y=y, z=z, yaw=yaw)
+
+    def airborne(self, m, z):
+        """Offer the takeoff pose, start Offboard, then one tick at height z (odom)."""
+        m.update(0.0, False, self.pose(), True, 0.0)
+        m.update(0.02, True, self.pose(t=0.02), True, 0.0)
+        return m.update(0.5, True, self.pose(t=0.5, z=z), False, 0.0)
+
+    def test_off_by_default(self):
+        m = prep(l_course(gate_y=2.0), CONFIG, track_speed_mps=0.5).mission
+        self.assertEqual(m.descent_from_t, math.inf)
+        self.assertTrue(all(m.z_target(t) == m.z_fly for t in np.linspace(0.0, m.plan.duration, 20)))
+        cmd = self.airborne(m, 0.4)                                   # well below the flight height
+        self.assertEqual((m.state, cmd.kind), (TAKEOFF, "pose"))
+
+    def test_rolling_take_off_hands_over_low_and_climbs_while_flying(self):
+        cfg = dataclasses.replace(CONFIG, rolling_takeoff_m=0.3)
+        m = prep(l_course(), cfg, track_speed_mps=0.5).mission
+        cmd = self.airborne(m, 0.2)
+        self.assertEqual(m.state, TAKEOFF)                            # not yet 0.3 m up
+        cmd = m.update(0.6, True, self.pose(t=0.6, z=0.35), False, 0.0)
+        self.assertEqual((m.state, cmd.kind), (FOLLOW, "twist"))
+        self.assertGreater(cmd.vz, 0.0)                               # still climbing...
+        self.assertGreater(math.hypot(cmd.vx, cmd.vy), 0.0)           # ...and already on the way
+        self.assertEqual(cmd.fallback[2] if cmd.fallback else m.z_fly, m.z_fly)
+
+    def test_it_climbs_in_place_where_the_path_ahead_needs_the_flight_height(self):
+        cfg = dataclasses.replace(CONFIG, rolling_takeoff_m=0.3)
+        m = prep(l_course(gate_y=0.9), cfg, track_speed_mps=0.5).mission   # a gate right ahead
+        m.update(0.0, False, self.pose(), True, 0.0)
+        m.update(0.02, True, self.pose(t=0.02), True, 0.0)
+        cmd = m.update(0.5, True, self.pose(t=0.5, z=0.35), False, 0.0)
+        self.assertEqual((m.state, cmd.kind), (FOLLOW, "twist"))
+        self.assertEqual((cmd.vx, cmd.vy), (0.0, 0.0))
+        self.assertGreater(cmd.vz, 0.0)
+        self.assertIn("climbing in place", m.reason)
+        cmd = m.update(1.5, True, self.pose(t=1.5, z=m.z_fly - 0.05), False, 0.0)
+        self.assertNotIn("climbing in place", m.reason)              # at height: on its way
+
+    def test_early_descent_starts_once_the_whole_drone_is_past_the_last_opening(self):
+        cfg = dataclasses.replace(CONFIG, early_descent=True)
+        m = prep(l_course(gate_y=2.0), cfg, track_speed_mps=0.5).mission
+        traj = m.plan.trajectory
+        self.assertTrue(math.isfinite(m.descent_from_t))
+        # past the gate line by the whole drone (0.28 m prop reach) plus the crossing margin
+        self.assertGreater(traj.at(m.descent_from_t).position[1], 2.0 + 0.28 + 0.10 - 1e-6)
+        self.assertEqual(m.z_target(m.descent_from_t - 0.05), m.z_fly)
+        self.assertAlmostEqual(m.z_target(m.descent_from_t + 0.01), cfg.descent_floor_m - cfg.rest_height_m)
+        # over the pad it holds at the floor, not at the flight height
+        self.assertAlmostEqual(m.z_target(traj.duration), cfg.descent_floor_m - cfg.rest_height_m)
+
+    def test_the_descent_stays_over_a_boulder_the_plan_ignored(self):
+        from dronehacks_planner.course_map import Boulder
+        cfg = dataclasses.replace(CONFIG, early_descent=True)
+        rock = Boulder(centre=(1.5, 4.45), radius=0.1, height=0.3)   # beside the east leg, not in the plan
+        m = prep(l_course(gate_y=2.0), cfg, track_speed_mps=0.5, low_obstacles=[rock]).mission
+        traj = m.plan.trajectory
+        k = int(np.argmin(np.hypot(traj.xy[:, 0] - 1.5, traj.xy[:, 1] - 4.45)))
+        self.assertGreater(float(traj.t[k]), m.descent_from_t)
+        self.assertAlmostEqual(m.z_target(float(traj.t[k])), 0.3 + cfg.low_obstacle_clearance_m - cfg.rest_height_m)
+        self.assertAlmostEqual(m.z_target(traj.duration), cfg.descent_floor_m - cfg.rest_height_m)
+
+    def test_a_floor_below_the_rest_height_is_refused(self):
+        with self.assertRaises(ValueError):
+            prep(l_course(gate_y=2.0), dataclasses.replace(CONFIG, early_descent=True, descent_floor_m=0.05))
+
+    def test_the_whole_mission_lands_with_both_shortcuts(self):
+        cfg = dataclasses.replace(CONFIG, rolling_takeoff_m=0.3, early_descent=True, hold_before_land_s=0.0)
+        p = prep(l_course(gate_y=2.0), cfg, track_speed_mps=0.5)
+        log = fly(p.mission)
+        checks = flight_checks(p, log.pos)
+        self.assertIn("disarm", log.events)
+        self.assertEqual(checks["wall_touches"], 0)
+        self.assertTrue(checks["openings"]["gate"])
         self.assertTrue(checks["on_pad"])
 
 

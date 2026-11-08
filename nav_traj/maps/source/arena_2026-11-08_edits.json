@@ -59,7 +59,7 @@
    "CP2 Gate A": {
     "gate": {"segment": [[0.3048, 0.508], [0.3048, 2.4384]]},
     "planner_goal": false,
-    "why": "Assumed, not from the organisers. The published Gate A runs north from (0.3048, 2.1209), but only 0.32 m of it is south of the taped north wall: no drone fits, and the source map has no Gate A goal. Kept on the same line (where the maze guideline ends), across the whole corridor from Barrier 3's north face to the north wall. Every route from the start area to the tunnel crosses it, so the planner gets no goal for it; nav_traj/test/test_maps.py checks that the whole drone does cross it. Ask the organisers how Gate A is scored now."
+    "why": "The team (@jsun4231, 2026-11-08): on this map the route is the fastest way to the pad, and no checkpoint is a goal of its own. The published Gate A runs north from (0.3048, 2.1209), but only 0.32 m of it is south of the taped north wall, so no drone fits; the source map has no Gate A either. Scoring only (the SITL referee), and assumed: Gate A stays on its line, where the maze guideline ends, across the whole corridor from Barrier 3's north face to the north wall, which every route to the tunnel crosses (nav_traj/test/test_maps.py checks the whole drone does). Ask the organisers how Gate A is scored now."
    }
   }
  }
