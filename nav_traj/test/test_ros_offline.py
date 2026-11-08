@@ -61,7 +61,7 @@ class NodeTest(unittest.TestCase):
         self.assertEqual(n.subscriptions["/fmu/out/vehicle_odometry_v1"][2].reliability, "best_effort")
         self.assertEqual(set(n.publishers), {"/skybeta/setpoint/pose", "/skybeta/setpoint/twist", "~/status"})
         self.assertAlmostEqual(n.timers[0][0], 1 / 50.0)
-        self.assertTrue(any("route tunnel > gate_b > pad" in line for line in n.logged), n.logged)
+        self.assertTrue(any("route cp2_gate_a > tunnel > gate_b > pad" in line for line in n.logged), n.logged)
 
     def test_the_boulders_are_planned_around_unless_avoid_boulders_is_off(self):
         self.assertEqual(len(self.node.prepared.cmap.boulders), 5)
@@ -72,7 +72,7 @@ class NodeTest(unittest.TestCase):
         mod = importlib.reload(importlib.import_module("dronehacks_traj.mission_node"))
         node = mod.MissionNode()
         self.assertEqual(node.prepared.cmap.boulders, ())
-        self.assertEqual(node.prepared.plan.route.goals, ["tunnel", "window", "pad"])
+        self.assertEqual(node.prepared.plan.route.goals, ["cp2_gate_a", "tunnel", "window", "pad"])
 
     def test_px4_velocity_reaches_the_mission_in_the_body_heading_frame(self):
         # PX4 heading east (NED yaw 90 deg), flying north at 1 m/s: north is the drone's left
@@ -122,7 +122,7 @@ class NodeTest(unittest.TestCase):
         self.node.timers[1][1]()
         status = json.loads(self.node.publishers["~/status"].sent[-1].data)
         self.assertEqual(status["state"], "WAIT")
-        self.assertEqual(status["route"], ["tunnel", "gate_b", "pad"])
+        self.assertEqual(status["route"], ["cp2_gate_a", "tunnel", "gate_b", "pad"])
 
     def test_body_velocity_is_rotated_into_odom(self):
         pose = self.mod.odom_to_pose(self.odom(1.5, yaw=math.pi / 2, vx_body=1.0))

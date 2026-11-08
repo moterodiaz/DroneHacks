@@ -298,12 +298,13 @@ class WholeFlightTest(unittest.TestCase):
         self.assertTrue(any("following by velocity" in r for r in log.reasons))
 
     def test_a_plan_that_fails_its_checks_at_a_speed_is_planned_slower_not_refused(self):
-        # the STEP map's window route over the boulders breaks the jerk limit at 1.5 m/s and up:
-        # refusing would leave the node silent, so the kit never grants Offboard
+        # the 2026-10-27 STEP map's window route over the boulders breaks the jerk limit at 1.5 m/s
+        # and up (the 2026-11-07 layout's routes verify at every speed, so the old map is kept as a
+        # fixture for this): refusing would leave the node silent, so the kit never grants Offboard
         from dronehacks_planner.limits import VehicleLimits
         from dronehacks_planner.route import PlannerConfig
         from dronehacks_traj.factory import prepare
-        cmap = dataclasses.replace(load_map(_paths.PACKAGE_ROOT / "maps" / "course_v3_step.yaml"), boulders=())
+        cmap = dataclasses.replace(load_map(_paths.HERE / "fixtures" / "course_v3_step_2026-10-27.yaml"), boulders=())
         prepared = prep(cmap, CONFIG, limits=dataclasses.replace(VehicleLimits(), v_max_mps=2.0),
                         planner=dataclasses.replace(PlannerConfig(), prefer=("window",)))
         self.assertEqual(prepared.plan.route.goals, ["tunnel", "window", "pad"])

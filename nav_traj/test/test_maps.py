@@ -23,7 +23,7 @@ class StepMapTest(unittest.TestCase):
         doc = convert(cmap, rules, (0, 1), route_gates={"gate_b": {"ends": ["C2b chicane wall", "A1 approach wall"]}})
         packaged = yaml.safe_load((MAPS / "course_v3_step.yaml").read_text(encoding="utf-8"))
         self.assertEqual(doc, packaged)
-        self.assertEqual(cmap["source"]["sha256"], "b0e52800ad77e7f173b328601e466083aad32a163ec035b8090e43bb624d4500")
+        self.assertEqual(cmap["source"]["sha256"], "2194664e852e341f86fb63a19ecc4f8f0ef34da6a51867e49beb3157cb90b876")
 
     def test_contract_geometry(self):
         doc = yaml.safe_load((MAPS / "course_v3_step.yaml").read_text(encoding="utf-8"))
@@ -45,7 +45,7 @@ class StepMapTest(unittest.TestCase):
         self.assertEqual(summary(log)["states"], ["WAIT", "TAKEOFF", "FOLLOW", "HOLD", "LAND", "LANDED"])
         self.assertIn("disarm", log.events)
         self.assertEqual(checks["wall_touches"], 0)
-        self.assertEqual(checks["openings"], {"tunnel": True, "gate_b": True})
+        self.assertEqual(checks["openings"], {"cp2_gate_a": True, "tunnel": True, "gate_b": True})
         self.assertTrue(checks["on_pad"])
 
 

@@ -1,17 +1,29 @@
 # Course map for the planner (contracts/course.md format), generated from the STEP model.
-# STEP: course_v3.step sha256 b0e52800ad77e7f173b328601e466083aad32a163ec035b8090e43bb624d4500 (extracted 2026-10-27)
-# via course_v3_map.json sha256 8eec27f5721d63594c36e834b2a15c213cd21bcccafbce124bf1d8e41e66c5fb and course_v3_rules.json sha256 1e84296d78232591cb5ebd761f030c6a311c3edd8e160749ee4ba8c80edba596
+# STEP: dronehacks-course-v3.step sha256 2194664e852e341f86fb63a19ecc4f8f0ef34da6a51867e49beb3157cb90b876 (extracted 2026-11-07)
+# via course_v3_map.json sha256 291c73500120d8dc4f7050f1af7f68235ed5e1ba38875bd57716bbb9f8fdc631 and course_v3_rules.json sha256 3795d517f6d3ed14ccaca93a905a269e44f9e73da6716df48fa4ed60f56ef565
 # by: python -m dronehacks_planner.convert course_v3_map.json course_v3_rules.json --launch-heading 0 1 --route-gate gate_b ends "C2b chicane wall" "A1 approach wall" --out course_v3_step.yaml
 # Sliced at 0.8 m over the drone's band +-0.1 m. Not surveyed: the real
 # course may sit a few cm off its model (contracts/course.md, Layout tolerance).
-# Fields not in contracts/course.md yet (launch, depth, gate, group, boulder height,
-# checkpoints) are PROPOSED; see planner/README.md.
+# Fields not in contracts/course.md yet (launch, depth, gate, group, boulder height)
+# are PROPOSED; see planner/README.md.
 origin: [0.0, 0.0]
 slice_height: 0.8
 launch:
   position: [-2.5146, 0.9144]
   heading: [0.0, 1.0]
 segments:
+- start: [-3.04927, 2.698]
+  end: [-1.24927, 2.698]
+  thickness: 0.0
+- start: [-1.24927, 2.698]
+  end: [-1.24927, 3.048]
+  thickness: 0.0
+- start: [-1.24927, 3.048]
+  end: [-3.04927, 3.048]
+  thickness: 0.0
+- start: [-3.04927, 3.048]
+  end: [-3.04927, 2.698]
+  thickness: 0.0
 - start: [3.04927, -3.048]
   end: [3.04927, 3.048]
   thickness: 0.0
@@ -180,41 +192,17 @@ segments:
 - start: [-0.14729, -1.53124]
   end: [-0.24277, -1.4965]
   thickness: 0.0
-- start: [-1.9812, 0.508]
-  end: [-1.9812, 2.1209]
+- start: [-2.16664, 0.508]
+  end: [-0.72672, 1.848]
   thickness: 0.0
-- start: [-1.9812, 2.1209]
-  end: [-1.8796, 2.1209]
+- start: [-0.72672, 1.848]
+  end: [-0.6586, 1.7748]
   thickness: 0.0
-- start: [-1.8796, 2.1209]
-  end: [-1.8796, 0.508]
+- start: [-0.6586, 1.7748]
+  end: [-2.09852, 0.4348]
   thickness: 0.0
-- start: [-1.8796, 0.508]
-  end: [-1.9812, 0.508]
-  thickness: 0.0
-- start: [-0.8636, 1.4351]
-  end: [-0.8636, 3.048]
-  thickness: 0.0
-- start: [-0.8636, 3.048]
-  end: [-0.762, 3.048]
-  thickness: 0.0
-- start: [-0.762, 3.048]
-  end: [-0.762, 1.4351]
-  thickness: 0.0
-- start: [-0.762, 1.4351]
-  end: [-0.8636, 1.4351]
-  thickness: 0.0
-- start: [0.254, 0.508]
-  end: [0.254, 2.1209]
-  thickness: 0.0
-- start: [0.254, 2.1209]
-  end: [0.3556, 2.1209]
-  thickness: 0.0
-- start: [0.3556, 2.1209]
-  end: [0.3556, 0.508]
-  thickness: 0.0
-- start: [0.3556, 0.508]
-  end: [0.254, 0.508]
+- start: [-2.09852, 0.4348]
+  end: [-2.16664, 0.508]
   thickness: 0.0
 boulders:
 - centre: [2.01168, -2.46888]
@@ -233,6 +221,13 @@ boulders:
   radius: 0.2286
   height: 0.5334
 goals:
+- name: cp2_gate_a
+  shape: gate
+  centre: [0.3048, 2.58445]
+  params:
+    axis: [1.0, 0.0]
+    width: 0.9271
+    depth: 0.0
 - name: tunnel
   shape: oval
   centre: [2.3114, 0.4572]
@@ -261,14 +256,5 @@ goals:
   group: cp4_landing_area
 - name: pad
   shape: disc
-  centre: [-2.04216, -0.79248]
+  centre: [-2.04216, -0.79205]
   params: {radius: 0.7366}
-checkpoints:
-- name: CP1 end of first corridor
-  line:
-  - [-3.048, 2.58445]
-  - [-1.9812, 2.58445]
-- name: CP2 Gate A
-  line:
-  - [0.254, 2.1209]
-  - [0.254, 3.048]

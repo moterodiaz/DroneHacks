@@ -113,17 +113,21 @@ The launch picks the map in this order: `map_file:=`, then
 then the packaged `maps/course_v3_step.yaml`. The launch log names the map
 it used.
 
-The packaged map comes from `dronehacks-course-v3.step` (PR #4, SHA-256
-`b0e52800…`) through the team's STEP extraction and
-`dronehacks_planner.convert`. `test_maps.py` regenerates it byte for byte.
-Two definitions in it:
+The packaged map is the **2026-11-07 layout**: `dronehacks-course-v3.step`
+(SHA-256 `2194664e…`; maze dividers M1–M3 gone, a north-west block and a
+diagonal wall added, checkpoint 1 removed) through the team's STEP extraction
+and `dronehacks_planner.convert`. `maps/README.md` has the details;
+`test_maps.py` regenerates it byte for byte. Three definitions in it:
+* **CP2 Gate A** is a `gate` goal, `cp2_gate_a`: the old line from M3's north
+  end to the north net, unchanged, now that no wall bounds it. The route flies
+  straight through it, east, so the whole drone crosses the line.
 * **Gate B** follows `contracts/course.md`: "1.13 m gap, C2b to A1", wall end
   to wall end. The lidar stream's rules file puts Gate B between C2b and
   Barrier 2 instead. The contract wins (AGENTS.md §3.1). This still needs
   resolving with an organiser. The **default route goes through Gate B**
   (planner issue #25: window goals are opt-in, `PlannerConfig.allow_windows`;
-  the window route, 22.8 s planned, only plans when the window is allowed or
-  preferred, against Gate B's 24.4 s).
+  the window route, 18.1 s planned at 1 m/s, only plans when the window is
+  allowed or preferred, against Gate B's 19.7 s).
 * **The tunnel** is sliced at its narrowest within the drone's 0.7–0.9 m band
   (1.409 m inside).
 
