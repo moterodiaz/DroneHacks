@@ -78,9 +78,9 @@ def test_full_sequence():
     for dx, dy in [(0, 0), (s, 0), (s, s), (0, s)]:          # x forward, y left
         assert held(track, (x0 + dx, y0 + dy, h)) >= 2.9, (dx, dy)
     touchdowns = sum(1 for a, b in zip(track, track[1:]) if a[3] > 1e-6 and b[3] <= 1e-6)
-    assert touchdowns == 2
-    first_down = next(i for i, p in enumerate(track) if i and p[3] <= 1e-6 and track[i - 1][3] > 1e-6)
-    assert all(p[4] for p in track[:first_down + 20])        # still armed on the ground: touch-and-go
+    assert touchdowns == 1                                   # the rest hovers, it never lands
+    assert held(track, (x0, y0, 0.08), tol=0.04) >= 2.9      # the rest: low over the start
+    first_down = next(i for i, p in enumerate(track) if i > _up(track) and p[3] < 0.12)
     assert max(p[3] for p in track[first_down:]) > 0.7       # climbed back to height
     _, x, y, z, armed, yaw = track[-1]
     assert not armed and z == 0.0 and math.hypot(x - x0, y - y0) < 0.05
@@ -93,11 +93,13 @@ def test_full_sequence():
         assert min(math.dist(p[1:4], (x0 + dx, y0 + dy, h)) for p in second) < 0.05, (dx, dy)
 
 
-def test_ground_wait_longer_than_auto_disarm_ends_after_first_landing():
-    m = Mission(Config(ground_s=2.5))
-    track, _ = fly(m)
-    assert m.state == DONE and 'COM_DISARM_LAND' in m.reason
-    assert max(p[3] for p in track[-30:]) < 0.05
+def test_touching_down_during_the_rest_climbs_at_once():
+    m = Mission(Config(rest_height_m=-0.05))                # aims below the floor: it touches down
+    track, cmds = fly(m)
+    assert m.state == DONE and m.reason == 'disarmed on the ground', m.reason
+    touch = next(p[0] for p, prev in zip(track[1:], track) if p[3] <= 1e-6 and prev[3] > 1e-6)
+    climb = next(t for t, c in cmds if t > touch and c.kind == 'pose')
+    assert climb - touch <= 0.2                              # long before COM_DISARM_LAND's 2 s
 
 
 def test_pilot_takeover_stops_for_good():
@@ -129,7 +131,7 @@ def test_turns_slowly_to_face_each_leg():
     x0, y0, _ = START
     # at each corner, the heading it settles on before moving on: left turns of 90 deg
     for (dx, dy), turn in [((s, 0), 90), ((s, s), 180), ((0, s), 270)]:
-        box = track[:next(i for i, p in enumerate(track) if i > 20 and p[3] <= 1e-6)]   # before the circle
+        box = track[:next(i for i, p in enumerate(track) if i > _up(track) and p[3] < 0.12)]    # before the circle
         here = [p for p in box if math.dist(p[1:4], (x0 + dx, y0 + dy, h)) < 0.03]
         assert abs(_wrap(here[-1][5] - START_YAW - math.radians(turn))) < math.radians(5), (dx, dy)
     yaws = [(t, c.yaw) for t, c in cmds if c.kind == 'pose' and c.yaw is not None and t > 1.1]
@@ -243,10 +245,22 @@ def test_both_flies_a_lap_fixed_then_a_lap_turn_then_the_rest():
     assert all(abs(_wrap(cmds[i][1].yaw - START_YAW)) < 1e-9 for i in fixed if cmds[i][1].kind == 'pose')
     assert max(abs(_wrap(p[5] - START_YAW)) for p in second) > math.radians(85)
     touchdowns = sum(1 for a, b in zip(track, track[1:]) if a[3] > 1e-6 and b[3] <= 1e-6)
-    assert touchdowns == 2                                        # then the touch-and-go and circle as before
+    assert touchdowns == 1                                        # then the rest and the circle as before
     assert abs(_wrap(track[-1][5] - START_YAW)) < math.radians(5)
 
 
 def test_an_unknown_heading_mode_is_refused():
     with pytest.raises(ValueError):
         Mission(Config(heading_mode='ahead'))
+
+
+def test_disarm_mid_flight_ends_the_run_at_once():
+    m = Mission(Config())
+    fly(m, max_t=10.0)
+    assert m.step(10.05, (0, 0, 0.7), 10.05, True, False, False).kind == 'none'
+    assert m.state == DONE and 'disarmed during step' in m.reason
+
+
+def _up(track):
+    """Index where the drone first reached the box height."""
+    return next(i for i, p in enumerate(track) if p[3] > 0.7)

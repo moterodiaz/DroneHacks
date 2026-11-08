@@ -1,7 +1,7 @@
 # dronehacks_square_test
 
 A cage test for the autonomy chain on cuVSLAM alone: take off, fly a small box with slow turns,
-land, touch-and-go, land and disarm. Same kit contract as `competitor_example` (pose and twist
+rest in a low hover, fly a circle, land and disarm. Same kit contract as `competitor_example` (pose and twist
 setpoints to `skybeta_flight_interface`; nothing to `/fmu/in/*`, no PX4 parameters, never arms
 or changes mode). About 57 s.
 
@@ -12,10 +12,9 @@ or changes mode). About 57 s.
 | 3 | Left 0.5 m | turn +90 deg | 3 s |
 | 4 | Back 0.5 m | turn +90 deg | 3 s |
 | 5 | Right 0.5 m, over the start | turn +90 deg, back to the take-off heading | 3 s |
-| 6 | Land as the course follower does: 0.5 m/s down (PX4 needs over 0.275 m/s to see ground contact), pulling back over the start | | |
-| 7 | Idle on the ground 1 s after PX4 reports landed (under `COM_DISARM_LAND`, 2 s) | | |
-| 8 | Take off to 0.73 m | | 3 s |
-| 9 | Land the same way; PX4 disarms | | |
+| 6 | Rest: down to 8 cm over the start by camera and hover there, never landed (PX4 would disarm 2 s after landed); if PX4 reports landed anyway, climb at once | | 3 s |
+| 7 | Take off to 0.73 m, then a 1 m circle inside the box and back over the start | | 3 s |
+| 8 | Land as the course follower does: 0.5 m/s down (PX4 needs over 0.275 m/s to see ground contact), pulling back over the start; PX4 disarms | | |
 
 Forward/left are the body axes at power-on. Moves never yaw; a hold's 3 s start once the drone
 is within 10 cm horizontally, 15 cm vertically and 5 deg. Pilot to Altitude: stops for good. Pose
@@ -32,7 +31,7 @@ in-place yaw and took about 10 s to crawl back; a hold without a yaw stayed with
 |---|---|
 | `turn` (default) | the table above: +90 deg at each corner (a "lap turn") |
 | `fixed` | the same box and circle never yawing: the take-off heading held throughout (a "lap fixed") |
-| `both` | a lap fixed, then a lap turn from over the start, then steps 6-9 and the circle: the A/B on one battery and one bias |
+| `both` | a lap fixed, then a lap turn from over the start, then steps 6-8: the A/B on one battery and one bias |
 
 ```bash
 ros2 launch dronehacks_square_test square_test.launch.py heading_mode:=both
@@ -41,7 +40,7 @@ ros2 launch dronehacks_square_test square_test.launch.py heading_mode:=both
 The stack launches team code with no arguments, so to fly it from the stack set the default in the
 drone's copy before restarting the stack:
 `sed -i "s/('heading_mode', 'turn')/('heading_mode', 'both')/" ~/team_ws/src/dronehacks_square_test/launch/square_test.launch.py`.
-The status names the lap (`FLY: step 4/28: hold, lap fixed`), so the bag shows which is which.
+The status names the lap (`FLY: step 4/26: hold, lap fixed`), so the bag shows which is which.
 
 ## Power up on the spot (why the first flights never moved sideways)
 
@@ -97,7 +96,8 @@ python3 -m pytest team_ws/src/dronehacks_square_test/test -q
 ```
 
 A crude drone model (pose tracking at 0.6 m/s, the kit's 0.3 m floor, PX4's auto-disarm after
-landing, yaw at 60 deg/s): the full sequence, the turns and their rate, a ground wait longer
-than `COM_DISARM_LAND`, pilot takeover, a stale pose, flying without a heading, each heading mode.
+landing, yaw at 60 deg/s): the full sequence, the turns and their rate, a touch-down in the rest
+climbing at once, a disarm mid-flight, pilot takeover, a stale pose, flying without a heading,
+each heading mode.
 
 Not checked: any real flight. Built and its tests run in skybeta-11's stack on 2026-11-07.
