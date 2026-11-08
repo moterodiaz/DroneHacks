@@ -1,0 +1,9 @@
+# The real course as taped on 2026-11-08: launch mark -> tunnel -> window -> pad.
+# Every point is a named entry of the course map (contracts/course.md format);
+# the mesh is the STEP plus the taped-course edits (export_step.py).
+name: DroneHacks course, taped 2026-11-08
+mesh: ../courses/taped_2026-11-08.npz
+map: ../courses/course_arena_2026-11-08.yaml
+start: launch
+gates: [tunnel, window]
+end: pad

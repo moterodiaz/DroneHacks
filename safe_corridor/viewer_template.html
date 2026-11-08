@@ -1,0 +1,336 @@
+<title>Safe Corridor</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Semi+Condensed:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500&display=swap">
+<style>
+/* Layout: full-bleed 3D scene, an instrument panel docked left (bottom sheet on phones). Single dark look: a hangar at night. */
+:root {
+  color-scheme: dark;
+  --bg: #0d1117;
+  --panel: #131a22;
+  --line: #243040;
+  --fg: #e3e9ef;
+  --muted: #8796a8;
+  --accent: #5ad1e6;
+  --ok: #3ddc97;
+  --warn: #ffb547;
+  --bad: #ff5a4e;
+  --frame: #ffd166;
+  --display: "Barlow Semi Condensed", "Arial Narrow", sans-serif;
+  --body: "IBM Plex Sans", "Segoe UI", sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, Consolas, monospace;
+}
+html, body { height: 100%; }
+body { background: var(--bg); color: var(--fg); font-family: var(--body); overflow: hidden; }
+#app { position: relative; height: 100%; display: grid; grid-template-columns: 340px 1fr; }
+#panel {
+  background: var(--panel); border-right: 1px solid var(--line); overflow-y: auto;
+  padding-block: 20px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: 16px;
+  display: flex; flex-direction: column; gap: 18px; min-width: 0; z-index: 2;
+}
+#stage { position: relative; min-width: 0; }
+#stage canvas { display: block; }
+h1 { font-family: var(--display); font-weight: 700; font-size: 28px; letter-spacing: .01em; margin: 0; text-wrap: balance; }
+.lede { color: var(--muted); font-size: 13px; line-height: 1.5; margin: 6px 0 0; }
+.label { font-family: var(--display); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: .12em; color: var(--muted); margin: 0 0 8px; }
+.seg { display: flex; gap: 0; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+.seg button { flex: 1; background: transparent; color: var(--muted); border: 0; padding: 9px 8px; font: 500 13px var(--body); cursor: pointer; }
+.seg button + button { border-left: 1px solid var(--line); }
+.seg button[aria-pressed="true"] { background: var(--accent); color: #062026; }
+.seg button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.src { font: 11px/1.45 var(--mono); color: var(--muted); margin-top: 8px; word-break: break-word; }
+table { width: 100%; border-collapse: collapse; font-size: 12.5px; font-variant-numeric: tabular-nums; }
+th { text-align: left; font: 600 11px var(--display); letter-spacing: .1em; text-transform: uppercase; color: var(--muted); padding: 0 6px 6px 0; }
+td { padding: 6px 6px 6px 0; border-top: 1px solid var(--line); font-family: var(--mono); }
+td.num, th.num { text-align: right; }
+.chip { display: inline-block; min-width: 54px; text-align: right; padding: 1px 6px; border-radius: 4px; font-weight: 500; }
+.ok { color: var(--ok); } .warn { color: var(--warn); } .bad { color: var(--bad); }
+.chip.ok { background: color-mix(in srgb, var(--ok) 14%, transparent); }
+.chip.warn { background: color-mix(in srgb, var(--warn) 16%, transparent); }
+.chip.bad { background: color-mix(in srgb, var(--bad) 16%, transparent); }
+input[type=range] { width: 100%; accent-color: var(--accent); }
+.readout { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; font: 12.5px var(--mono); font-variant-numeric: tabular-nums; margin-top: 8px; }
+.readout dt { color: var(--muted); }
+.readout dd { margin: 0; text-align: right; }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 12px; color: var(--muted); }
+.legend span::before { content: ""; display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 6px; vertical-align: -1px; background: var(--c); }
+.toggles { display: flex; flex-wrap: wrap; gap: 8px 16px; font-size: 13px; }
+.toggles label { display: inline-flex; gap: 6px; align-items: center; cursor: pointer; }
+.how { font-size: 12.5px; line-height: 1.55; color: var(--muted); margin: 0; }
+.how b { color: var(--fg); font-weight: 500; }
+.tag { font: 600 11px var(--display); letter-spacing: .08em; text-transform: uppercase; color: var(--fg);
+  background: color-mix(in srgb, var(--bg) 70%, transparent); border: 1px solid var(--line); padding: 2px 6px; border-radius: 4px; white-space: nowrap; }
+.eyebrow { font: 600 11px var(--display); letter-spacing: .16em; text-transform: uppercase; color: var(--accent); margin: 0 0 4px; }
+.stagebar { position: absolute; top: 12px; right: max(12px, env(safe-area-inset-right, 0px)); display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; z-index: 3; }
+.stagebar button { background: color-mix(in srgb, var(--panel) 88%, transparent); color: var(--fg); border: 1px solid var(--line); border-radius: 6px;
+  padding: 8px 12px; font: 500 13px var(--body); cursor: pointer; }
+.stagebar button[aria-pressed="true"] { background: var(--frame); border-color: var(--frame); color: #2a1d00; }
+.stagebar button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.tag.frame { border-color: var(--frame); color: var(--frame); }
+.hint { position: absolute; right: max(12px, env(safe-area-inset-right, 0px)); bottom: 12px; font: 11px var(--mono); color: var(--muted); pointer-events: none; }
+@media (max-width: 760px) {
+  #app { grid-template-columns: 1fr; grid-template-rows: 55% 45%; }
+  #stage { grid-row: 1; }
+  #panel { grid-row: 2; border-right: 0; border-top: 1px solid var(--line); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+}
+@media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; } }
+</style>
+
+<div id="app">
+  <aside id="panel">
+    <div>
+      <p class="eyebrow">Tech demo · CAD to safest flight line</p>
+      <h1>Safe Corridor</h1>
+      <p class="lede">The course's openings become frames. A tube morphs from each frame's outline to the next, and the line runs taut and smooth through their centres, bending only to keep clear of the walls.</p>
+    </div>
+    <div>
+      <p class="label">Course</p>
+      <div class="seg" role="group" aria-label="Course">
+        <button id="b-taped" aria-pressed="true">Taped 2026-11-08</button>
+        <button id="b-example" aria-pressed="false">Alternative course example</button>
+      </div>
+      <p class="src" id="src"></p>
+    </div>
+    <div>
+      <p class="label">Legs</p>
+      <table>
+        <thead><tr><th>From → to</th><th class="num">Length</th><th class="num">Worst margin</th></tr></thead>
+        <tbody id="legs"></tbody>
+      </table>
+    </div>
+    <div>
+      <p class="label">Fly along the line</p>
+      <input type="range" id="scrub" min="0" max="1000" value="0" aria-label="Position along the line">
+      <dl class="readout">
+        <dt>Along the line</dt><dd id="r-s"></dd>
+        <dt>Height</dt><dd id="r-z"></dd>
+        <dt>Flight band</dt><dd id="r-band"></dd>
+        <dt>Nearest surface</dt><dd id="r-d"></dd>
+        <dt>Drone margin</dt><dd id="r-m"></dd>
+      </dl>
+    </div>
+    <div>
+      <p class="label">Show</p>
+      <div class="toggles">
+        <label><input type="checkbox" id="t-walls" checked> Course</label>
+        <label><input type="checkbox" id="t-shape" checked> Free-space shape</label>
+        <label><input type="checkbox" id="t-rings" checked> Cross-sections</label>
+      </div>
+      <div class="legend" style="margin-top:10px">
+        <span style="--c: var(--ok)">margin ≥ 15 cm</span>
+        <span style="--c: var(--warn)">5–15 cm</span>
+        <span style="--c: var(--bad)">&lt; 5 cm</span>
+      </div>
+    </div>
+    <div>
+      <p class="label">How it works</p>
+      <p class="how"><b>Input:</b> a CAD mesh and a rough route of named openings. <b>Frames:</b> each opening's outline is measured from the mesh. <b>Tube:</b> each frame's outline blends straight into the next, so halfway its top and bottom are the averages of the two frames'; walls only trim it. <b>Line:</b> pulled taut through each frame's centre, pushed off a wall only where the drone (a 0.32 × 0.32 × 0.12 m ellipsoid) would have under 25 cm of margin.</p>
+    </div>
+  </aside>
+  <div id="stage">
+    <div class="stagebar">
+      <button id="b-play" aria-pressed="false">Play flythrough</button>
+      <button id="v-all" class="view" aria-pressed="true">Everything</button>
+      <button id="v-map" class="view" aria-pressed="false">1 · CAD map</button>
+      <button id="v-frames" class="view" aria-pressed="false">2 · + Frames &amp; shape</button>
+      <button id="v-shape" class="view" aria-pressed="false">3 · Shape, frames &amp; path</button>
+    </div>
+    <div class="hint">drag to orbit · scroll to zoom · right-drag to pan</div></div>
+</div>
+
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+} }
+</script>
+<script>window.COURSES = /*DATA*/;</script>
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { CSS2DRenderer, CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js';
+import { Line2 } from 'three/addons/lines/Line2.js';
+import { LineMaterial } from 'three/addons/lines/LineMaterial.js';
+import { LineGeometry } from 'three/addons/lines/LineGeometry.js';
+
+const css = getComputedStyle(document.documentElement);
+const tok = n => css.getPropertyValue(n).trim();
+const C = { ok: new THREE.Color(tok('--ok')), warn: new THREE.Color(tok('--warn')), bad: new THREE.Color(tok('--bad')), accent: new THREE.Color(tok('--accent')) };
+const V = (x, y, z) => new THREE.Vector3(x, z, -y);          // course (x east, y north, z up) -> three (y up)
+const cls = m => m < 0.05 ? 'bad' : m < 0.15 ? 'warn' : 'ok';
+const cm = m => (m * 100).toFixed(1) + ' cm';
+
+const stage = document.getElementById('stage');
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setClearColor(new THREE.Color(tok('--bg')));
+stage.appendChild(renderer.domElement);
+const labels = new CSS2DRenderer();
+labels.domElement.style.cssText = 'position:absolute;inset:0;pointer-events:none';
+stage.appendChild(labels.domElement);
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(42, 1, 0.05, 100);
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+scene.add(new THREE.HemisphereLight(0xcfe6ff, 0x1a2230, 1.1));
+const sun = new THREE.DirectionalLight(0xffffff, 1.4); sun.position.set(4, 8, 3); scene.add(sun);
+
+const KIND = { wall: 0x7d8da3, tunnel: 0xc98a52, tunnel_support: 0x8a6a4c, boulder: 0x8d8778, pad: 0xff8a3d, marking: 0x3b4a5c };
+let world = null, lineMat = null, state = {};
+
+function build(key) {
+  if (world) { scene.remove(world); world.traverse(o => { o.geometry?.dispose(); if (o.isCSS2DObject) o.element.remove(); }); }
+  const d = window.COURSES[key];
+  world = new THREE.Group(); scene.add(world);
+
+  // course mesh, one geometry per kind
+  const byKind = {};
+  d.tris.forEach((t, i) => (byKind[d.tri_kind[i]] ??= []).push(t));
+  const walls = new THREE.Group();
+  for (const [k, list] of Object.entries(byKind)) {
+    const pos = new Float32Array(list.length * 9);
+    list.forEach((t, i) => { for (let j = 0; j < 3; j++) { const v = V(t[3*j], t[3*j+1], t[3*j+2]); pos.set([v.x, v.y, v.z], i * 9 + j * 3); } });
+    const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(pos, 3)); g.computeVertexNormals();
+    const solid = k === 'pad' || k === 'marking' || k === 'boulder';
+    walls.add(new THREE.Mesh(g, new THREE.MeshStandardMaterial({ color: KIND[k] ?? 0x7d8da3, roughness: .8, flatShading: true,
+      transparent: !solid, opacity: solid ? 1 : 0.42, depthWrite: solid, side: THREE.DoubleSide })));
+  }
+  world.add(walls);
+  const [lo, hi] = d.bounds;
+  const grid = new THREE.GridHelper(Math.max(hi[0] - lo[0], hi[1] - lo[1]) - 0.2, 12, 0x2a3746, 0x1c2632);
+  grid.position.set((lo[0] + hi[0]) / 2, 0, -(lo[1] + hi[1]) / 2); world.add(grid);
+
+  // free-space shape: loft consecutive cross-sections
+  const R = d.rings.map(r => r.map(p => V(...p)));          // one section per point of the line
+  const n = R[0].length, pos = [], idx = [];
+  R.forEach(r => r.forEach(v => pos.push(v.x, v.y, v.z)));
+  for (let i = 0; i + 1 < R.length; i++) for (let j = 0; j < n; j++) {
+    const a = i * n + j, b = i * n + (j + 1) % n, c = a + n, e = b + n; idx.push(a, c, b, b, c, e);
+  }
+  const sg = new THREE.BufferGeometry(); sg.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); sg.setIndex(idx); sg.computeVertexNormals();
+  const shape = new THREE.Mesh(sg, new THREE.MeshPhongMaterial({ color: C.accent, transparent: true, opacity: 0.16, depthWrite: false, side: THREE.DoubleSide, shininess: 60 }));
+  world.add(shape);
+  const rings = new THREE.Group();
+  const ringMat = new THREE.LineBasicMaterial({ color: C.accent, transparent: true, opacity: 0.32 });
+  R.forEach((r, i) => { if (i % 4 === 0) rings.add(new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(r), ringMat)); });
+  world.add(rings);
+
+  // centre line coloured by margin
+  const pts = [], cols = [];
+  d.path.forEach(p => { const v = V(p[0], p[1], p[2]); pts.push(v.x, v.y, v.z); const c = C[cls(p[3])]; cols.push(c.r, c.g, c.b); });
+  const lg = new LineGeometry(); lg.setPositions(pts); lg.setColors(cols);
+  lineMat = new LineMaterial({ linewidth: 4, vertexColors: true, worldUnits: false });
+  const line = new Line2(lg, lineMat);
+  world.add(line);
+
+  // path distance, and which path point each cross-section belongs to
+  const s = [0]; for (let i = 1; i < d.path.length; i++) s.push(s[i-1] + Math.hypot(d.path[i][0]-d.path[i-1][0], d.path[i][1]-d.path[i-1][1], d.path[i][2]-d.path[i-1][2]));
+  const ringAt = i => i;
+
+  // nodes; each opening also gets its frame: its outline across the line, measured from the CAD
+  const markers = [], frameObjs = [], frameMat = new LineMaterial({ color: new THREE.Color(tok('--frame')), linewidth: 6, worldUnits: false });
+  d.nodes.forEach((nd, n) => {
+    const v = V(...nd.p), gate = n > 0 && n < d.nodes.length - 1, fr = d.frames.find(f => f.name === nd.name);
+    const el = document.createElement('div'); el.className = fr ? 'tag frame' : 'tag';
+    el.textContent = nd.pad_r ? `${nd.name} · pad, r ${nd.pad_r.toFixed(2)} m` : `${nd.name} · ${nd.band[0].toFixed(2)}–${nd.band[1].toFixed(2)} m`;
+    const lab = new CSS2DObject(el); lab.position.copy(v).add(new THREE.Vector3(0, gate ? 0.55 : 0.22, 0)); world.add(lab);
+    if (!fr) {
+      const sph = new THREE.Mesh(new THREE.SphereGeometry(0.05, 16, 12), new THREE.MeshBasicMaterial({ color: 0xffffff }));
+      sph.position.copy(v); world.add(sph); markers.push(sph, lab);
+      return;
+    }
+    const ring = fr.pts.map(p => V(...p)), fp = [];
+    [...ring, ring[0]].forEach(q => fp.push(q.x, q.y, q.z));
+    const fg = new LineGeometry(); fg.setPositions(fp);
+    const frame = new Line2(fg, frameMat);
+    world.add(frame); frameObjs.push(frame, lab);
+  });
+
+  // the drone marker and the current cross-section
+  const drone = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.15, 0.5), new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0x334455 }));
+  world.add(drone);
+  const cur = new THREE.LineLoop(new THREE.BufferGeometry(), new THREE.LineBasicMaterial({ color: 0xffffff }));
+  world.add(cur);
+  state = { d, walls, grid, shape, rings, line, drone, cur, s, ringAt, R, markers, frameObjs, frameMat };
+
+  document.getElementById('src').textContent = d.source;
+  document.getElementById('legs').innerHTML = d.legs.map(l =>
+    `<tr><td>${l.from} → ${l.to}</td><td class="num">${l.length_m.toFixed(2)} m</td><td class="num"><span class="chip ${cls(l.min_margin_m)}">${cm(l.min_margin_m)}</span></td></tr>`).join('');
+
+  const box = new THREE.Box3().setFromPoints(d.path.map(p => V(p[0], p[1], p[2])));
+  const ctr = box.getCenter(new THREE.Vector3());
+  controls.target.copy(ctr);
+  camera.position.copy(ctr).add(new THREE.Vector3(-3.2, 6.5, 6.8));
+  applyToggles(); scrub(); resize();
+}
+
+function scrub() {
+  const { d, s, drone, cur, ringAt, R } = state;
+  const want = document.getElementById('scrub').value / 1000 * s[s.length - 1];
+  let i = s.findIndex(x => x >= want); if (i < 0) i = s.length - 1;
+  const p = d.path[i];
+  drone.position.copy(V(p[0], p[1], p[2]));
+  cur.geometry.dispose(); cur.geometry = new THREE.BufferGeometry().setFromPoints(R[ringAt(i)]);
+  document.getElementById('r-s').textContent = `${s[i].toFixed(2)} / ${s[s.length-1].toFixed(2)} m`;
+  document.getElementById('r-z').textContent = `${p[2].toFixed(2)} m`;
+  document.getElementById('r-band').textContent = `${d.bands[i][0].toFixed(2)}–${d.bands[i][1].toFixed(2)} m`;
+  document.getElementById('r-d').textContent = cm(p[4]);
+  const m = document.getElementById('r-m'); m.textContent = cm(p[3]); m.className = cls(p[3]);
+}
+
+// view steps: all (checkboxes apply) | map (the CAD as imported) | frames (the CAD plus the
+// openings' frames and the shape) | shape (the map hidden: shape, frames and path only)
+let view = 'all', playing = false;
+function applyToggles() {
+  const st = state, all = view === 'all', map = all || view === 'map' || view === 'frames';
+  const show = (o, on) => { o.visible = on; if (o.isCSS2DObject) o.element.hidden = !on; };
+  st.walls.visible = all ? document.getElementById('t-walls').checked : map;
+  show(st.grid, map);
+  st.markers.forEach(o => show(o, map));
+  show(st.shape, all ? document.getElementById('t-shape').checked : view !== 'map');
+  st.frameObjs.forEach(o => show(o, view !== 'map'));
+  show(st.line, all || view === 'shape');
+  show(st.rings, all && document.getElementById('t-rings').checked);
+  [st.drone, st.cur].forEach(o => show(o, all));
+  st.shape.material.opacity = view === 'shape' ? 0.28 : view === 'frames' ? 0.22 : 0.16;
+}
+
+function resize() {
+  const w = stage.clientWidth, h = stage.clientHeight;
+  renderer.setSize(w, h); labels.setSize(w, h);
+  camera.aspect = w / h; camera.updateProjectionMatrix();
+  lineMat?.resolution.set(w, h);
+  state.frameMat?.resolution.set(w, h);
+}
+
+for (const key of ['taped', 'example']) document.getElementById('b-' + key).addEventListener('click', () => {
+  document.querySelectorAll('.seg button').forEach(b => b.setAttribute('aria-pressed', String(b.id === 'b-' + key)));
+  document.getElementById('scrub').value = 0; build(key);
+});
+document.getElementById('scrub').addEventListener('input', scrub);
+['t-walls', 't-shape', 't-rings'].forEach(id => document.getElementById(id).addEventListener('change', applyToggles));
+const bPlay = document.getElementById('b-play'), slider = document.getElementById('scrub');
+document.querySelectorAll('.stagebar .view').forEach(b => b.addEventListener('click', () => {
+  view = b.id.slice(2);
+  document.querySelectorAll('.stagebar .view').forEach(x => x.setAttribute('aria-pressed', String(x === b)));
+  applyToggles();
+}));
+bPlay.addEventListener('click', () => {
+  playing = !playing; bPlay.setAttribute('aria-pressed', String(playing));
+  bPlay.textContent = playing ? 'Pause flythrough' : 'Play flythrough';
+  if (playing && +slider.value >= 1000) slider.value = 0;
+});
+new ResizeObserver(resize).observe(stage);
+build('taped');
+let last = performance.now();
+renderer.setAnimationLoop(now => {
+  if (playing) {                       // about 0.5 m/s along the line
+    const total = state.s[state.s.length - 1];
+    slider.value = Math.min(1000, +slider.value + (now - last) / 1000 * 0.5 / total * 1000);
+    scrub();
+    if (+slider.value >= 1000) bPlay.click();
+  }
+  last = now;
+  controls.update(); renderer.render(scene, camera); labels.render(scene, camera);
+});
+</script>
