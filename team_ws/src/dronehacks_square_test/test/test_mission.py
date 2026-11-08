@@ -9,7 +9,7 @@ COM_DISARM_LAND = 2.0
 START_YAW = 0.4                  # rad: not zero, so the test catches a missing offset
 
 
-def fly(mission, drop_pose=None, takeover_at=None, max_t=150.0, heading=True):
+def fly(mission, drop_pose=None, takeover_at=None, max_t=150.0, heading=True, off=None):
     """Moves toward a pose setpoint at <= 0.6 m/s (z floored 0.3 m, as the kit does), follows
     twists, sits on the ground at z 0. Disarms after COM_DISARM_LAND landed, which ends Offboard."""
     x, y, z = START
@@ -29,13 +29,15 @@ def fly(mission, drop_pose=None, takeover_at=None, max_t=150.0, heading=True):
         else:
             landed_since = None
         stale = drop_pose and drop_pose[0] <= t < drop_pose[1]
+        px4 = None if off is None else (x + off[0], y + off[1], z + off[2])
         cmd = mission.step(t, None if stale else (x, y, z), None if stale else t, offboard, landed, armed,
-                           yaw if heading and not stale else None)
+                           yaw if heading and not stale else None, px4)
         cmds.append((t, cmd))
         if not offboard:
             pass                              # PX4 ignores setpoints outside Offboard
         elif cmd.kind == 'pose':
-            d = [cmd.x - x, cmd.y - y, max(cmd.z, 0.3) - z]
+            o = off or (0.0, 0.0, 0.0)          # PX4 flies the setpoint in its own frame
+            d = [cmd.x - o[0] - x, cmd.y - o[1] - y, max(cmd.z, 0.3) - o[2] - z]
             n = math.sqrt(sum(v * v for v in d))
             f = min(1.0, 0.6 * DT / n) if n else 0.0
             x, y, z = x + d[0] * f, y + d[1] * f, z + d[2] * f
@@ -127,3 +129,20 @@ def test_without_heading_it_flies_without_commanding_yaw():
     _, cmds = fly(m, heading=False)
     assert m.state == DONE
     assert all(c.yaw is None for _, c in cmds)
+
+
+def test_px4_frame_offset_is_corrected():
+    for off in [(0.02, -0.03, 0.15), (0.0, 0.0, -0.25)]:
+        m = Mission(Config())
+        track, _ = fly(m, off=off)
+        assert m.state == DONE and m.reason == 'disarmed on the ground', (off, m.reason)
+        x0, y0, _ = START
+        for dx, dy in [(0, 0), (0.5, 0), (0.5, 0.5), (0, 0.5)]:
+            assert held(track, (x0 + dx, y0 + dy, 0.73)) >= 2.9, (off, dx, dy)
+
+
+def test_large_px4_offset_refuses_to_fly():
+    m = Mission(Config())
+    _, cmds = fly(m, off=(0.0, 0.0, 0.73), max_t=5.0)
+    assert m.state == 'WAIT' and 'disagree' in m.reason
+    assert all(c.kind == 'none' for _, c in cmds)

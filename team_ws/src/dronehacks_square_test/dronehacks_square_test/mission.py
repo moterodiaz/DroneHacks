@@ -51,6 +51,7 @@ class Config:
     stale_land_s: float = 3.0
     yaw_rate_dps: float = 20.0      # slow turn: 90 deg in 4.5 s
     yaw_tol_deg: float = 5.0
+    max_offset_m: float = 0.3       # PX4 vs camera position on the ground; more than this: refuse to fly
 
 
 @dataclass
@@ -94,14 +95,21 @@ class Mission:
         self.dwell_since = None
         self.stale_since = None
         self.last_t = None
+        self.offset = (0.0, 0.0, 0.0)  # PX4 local minus camera, frozen at Offboard
 
     @property
     def step_name(self):
         return self.steps[self.i][0] if self.state == FLY else self.state
 
-    def step(self, t, pose, pose_t, offboard, landed, armed, yaw=None):
+    def step(self, t, pose, pose_t, offboard, landed, armed, yaw=None, px4=None):
         """One tick. pose: (x, y, z) or None; pose_t: when it was captured (s); yaw: its ENU
-        heading in radians, or None (then the drone holds whatever heading it has)."""
+        heading in radians, or None (then the drone holds whatever heading it has); px4: PX4's
+        own local position, ENU (``/skybeta/state`` local_enu), or None.
+
+        The kit passes pose setpoints to PX4 unanchored (``anchor_setpoints`` false), so PX4 flies
+        them in its own frame. Its height can sit off the camera's (0.73 m in one flight, 0.15 m
+        after a clean power cycle), so every setpoint carries the PX4-minus-camera offset taken at
+        Offboard, and all checks stay in the camera frame."""
         c = self.cfg
         fresh = pose is not None and pose_t is not None and t - pose_t <= c.pose_timeout_s
         if self.state in (DONE, STOPPED):
@@ -109,8 +117,14 @@ class Mission:
         if self.state == WAIT:
             if not fresh:
                 return NONE          # no stream: the kit will not enter Offboard
+            self.offset = (0.0, 0.0, 0.0) if px4 is None else tuple(p - o for p, o in zip(px4, pose))
+            if math.hypot(*self.offset) > c.max_offset_m:
+                self.reason = 'PX4 and camera disagree by {:.2f} m: power-cycle on the spot'.format(
+                    math.hypot(*self.offset))
+                return NONE          # no stream: no Offboard, the pilot keeps Position
+            self.reason = 'waiting for arm, then Position'
             if not offboard:
-                return Command('pose', *pose)
+                return Command('pose', *self._px4(pose))
             self.start, self.target, self.start_yaw, self.heading = pose, pose, yaw, 0.0
             self.state, self.i, self.since, self.last_t = FLY, 0, t, t
         elif armed is False and self.steps[self.i][0] in ('land', 'ground', 'disarm'):
@@ -183,7 +197,10 @@ class Mission:
         return _wrap(self.start_yaw + math.radians(self.heading))
 
     def _pose(self):
-        return Command('pose', *self.target, yaw=None if self.start_yaw is None else self._yaw_cmd())
+        return Command('pose', *self._px4(self.target), yaw=None if self.start_yaw is None else self._yaw_cmd())
+
+    def _px4(self, p):
+        return tuple(a + o for a, o in zip(p, self.offset))
 
     def _at(self, offset):
         return tuple(s + o for s, o in zip(self.start, offset))

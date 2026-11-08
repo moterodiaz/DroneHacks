@@ -50,6 +50,7 @@ class SquareTest(Node):
         self.offboard = False
         self.landed = None
         self.armed = None
+        self.px4 = None               # PX4 local position, ENU, from /skybeta/state
         self.last_status = None
         self.finished = False        # main() closes the recording and exits on it
         self.end_t = None
@@ -115,13 +116,15 @@ class SquareTest(Node):
         self.offboard = bool(s.get('offboard_active', False))
         self.landed = s.get('landed')
         self.armed = s.get('armed')
+        local = s.get('local_enu')
+        self.px4 = tuple(local) if isinstance(local, list) and len(local) == 3 else None
         if s.get('clamped'):
             self.get_logger().warn('kit is clamping our setpoint: {}'.format(s['clamped']),
                                    throttle_duration_sec=2.0)
 
     def tick(self):
         cmd = self.mission.step(self.now(), self.pose, self.pose_t, self.offboard, self.landed, self.armed,
-                                self.yaw)
+                                self.yaw, self.px4)
         stamp = self.get_clock().now().to_msg()
         if cmd.kind == 'pose':
             m = PoseStamped()
