@@ -107,9 +107,10 @@ middle, 1.23 m above the floor, flown with `odom_origin_height_m` 0.10 (the Pixh
 height). The tunnel is open 0.03-1.85 m, about 1.39 m wide at that height; the walls are 1.73 m.
 Everything else is the published v3 map below, unchanged. The route goes
 from the launch mark along the diagonal's north-west side, around its top end, to the tunnel.
-The two east rocks are placed from the team's photos and description on 2026-11-08 (estimated,
-not taped): one against the east net level with the turn south of the tunnel, the other against
-the south net east of the window; none is straight south of the tunnel's mouth. The rock west of
+The rock east of the window is placed from the team's photos and description on 2026-11-08
+(estimated, not taped), against the south net. The rock south of the tunnel sits about 4 in off the
+east net, so the rangefinder's cone over the tunnel's axis misses it; it is not in the map, which
+lets the tunnel's run-out reach its full length on the axis. The rock west of
 the window sits about a foot from the south net, and the pad's centre 36 in from the west net and
 48 in from the south net, about a metre south of the published pad (both taped roughly by the team).
 Stop-and-go's legs keep off the rocks' rangefinder rings without the corner-cutting margin, since
