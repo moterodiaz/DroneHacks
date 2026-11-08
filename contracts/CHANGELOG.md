@@ -2,6 +2,21 @@
 
 Newest entries first. One entry per contract-affecting change, linking the PR.
 
+## 2026-11-07 — DH Bailout firmware and COM_FLTMODE1 (proposed, blocked)
+
+Proposes two contract changes for skybeta-11, both blocked until the organisers
+give permission, as was done for `COM_DISARM_LAND`, and until SITL and props-off
+bench evidence exist.
+- A scoped exception to the firmware pin: the organisers'
+  `v1.16.2-1-g7a39c59` plus one commit adding the "DH Bailout" flight mode
+  (`firmware/bailout`).
+- `COM_FLTMODE1` `0 → 100`: the mode-switch position that selected Manual selects
+  DH Bailout instead.
+
+The proposal also records `COM_MODE0_HASH` as PX4's own write when the mode
+registers. The failsafe, kill-switch, geofence and battery entries are unchanged.
+The request came from @jsun4231. Affected owner: contracts (@moterodiaz).
+
 ## 2026-11-07 — COM_DISARM_LAND 5 s on skybeta-11
 
 Allow `COM_DISARM_LAND = 5` (organisers' default 2) on skybeta-11, with the
