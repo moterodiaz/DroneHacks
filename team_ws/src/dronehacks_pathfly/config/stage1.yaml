@@ -1,0 +1,7 @@
+# Stage 1: lift-off, a short move and a landing. Flies the first 0.4 m of the
+# path (climbing to about 0.4 m on the way), lands there and stops. No hop.
+# Loaded on top of pathfly.yaml: launch with stage:=1 or stage1.launch.py.
+dronehacks_pathfly:
+  ros__parameters:
+    path_limit_m: 0.4
+    stop_after_landing_1: true

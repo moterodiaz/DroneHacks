@@ -1,0 +1,4 @@
+# Keep the path data byte-exact on every checkout: data/SOURCE.md records
+# their SHA-256 and the tests compare data/ against the path_planning/ copy.
+data/*.csv -text
+path_planning/** -text

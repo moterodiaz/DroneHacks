@@ -1,0 +1,62 @@
+# dronehacks_pathfly mission parameters. Every number must be a float (write
+# 2.0, not 2); hold_heading is true/false. Any field of mission.Config can be
+# set here; unset ones use the defaults in dronehacks_pathfly/mission.py.
+dronehacks_pathfly:
+  ros__parameters:
+    # Path from github.com/jsun4231/path-planning (see data/SOURCE.md).
+    # Empty = the installed data/path_dense.csv.
+    path_csv: ''
+
+    # --- where the drone sits at lift-off, in the path's arena frame -----
+    # Put the drone centred on the START marker. start_x_m/start_y_m default
+    # to the path's first point (0.580, 4.596); uncomment to override.
+    # start_x_m: 0.58
+    # start_y_m: 4.596
+    # Nose direction at lift-off, degrees counter-clockwise from the arena +x
+    # axis (+x = to the right in path.png, along CAD X).
+    # THIS MUST MATCH HOW THE DRONE IS PLACED: it rotates the whole path.
+    # 0.0 = nose pointing east on the map (arena +x, to the right in
+    # path.png, along CAD X). REQUIRED for this path: path-planning 11db65f
+    # computed its wall margins (as low as 8 cm) for the drone held facing
+    # east. Other headings fly the same line but those margins no longer
+    # hold; the node logs a WARNING. With hold_heading true the camera faces
+    # east for the WHOLE flight.
+    # (162.5 = along the corridor into the goal, which makes the leg back to
+    # START 66.8 deg clockwise of the nose, as in the design sketch.)
+    start_yaw_deg: 0.0
+    # The last leg always goes from the goal straight back over the take-off
+    # point at hop_height_m and lands there.
+    # true (default): never yaw; the leg is flown without turning.
+    # false: turn to face the take-off point first (95.6 deg to the left with
+    # the nose east), then fly nose-first.
+    hold_heading: true
+
+    # --- the mission -----------------------------------------------------
+    liftoff_height_m: 0.2       # first climb, straight up
+    cruise_height_m: 1.25       # reached while already moving along the path
+    climb_distance_m: 1.5       # path length over which 0.2 -> 1.25 m happens
+    hop_height_m: 2.0           # climb after the first touchdown; the leg
+                                # back crosses the walls at this height
+
+    # --- speeds (m/s) ----------------------------------------------------
+    # Slow on purpose (margin first): faster means more tracking error in
+    # the 8-11 cm corridors. See mission.py for the sim numbers.
+    path_speed_mps: 0.4         # cruise along the path where it is wide
+    path_min_speed_mps: 0.10    # where the planner margin is ~0
+    full_speed_margin_m: 0.40   # planner margin at which cruise speed is allowed
+    forward_speed_mps: 0.5
+    climb_speed_mps: 0.5
+    descent_speed_mps: 0.4
+    final_descent_speed_mps: 0.2
+
+    # --- vision vs PX4 heading ---------------------------------------------
+    # Measured with pathfly_check (BRINGUP.md step 4). Radians, same meaning
+    # as flight_interface's parameter of this name; the launch file passes
+    # this one value to both nodes. Leave 0.0 unless the measurement is
+    # steady and above ~1 deg.
+    odom_to_ned_yaw_offset_rad: 0.0
+
+    # --- safety ----------------------------------------------------------
+    abort_error_m: 0.5          # off the path by this much -> HOLD (hover)
+    max_height_m: 2.5           # above the start -> HOLD
+    touchdown_dwell_s: 0.5      # on the ground between the touchdowns

@@ -1,0 +1,44 @@
+# FAST profile: the same planned path (path-planning 11db65f, nose east),
+# flown faster. Layered on top of pathfly.yaml (and under a stage file) when
+# ~/team_ws/pathfly_speed says "fast", or with `speed:=fast`:
+#
+#   bash ~/team_ws/src/dronehacks_pathfly/scripts/speed.sh fast    # then power-cycle on START
+#   bash ~/team_ws/src/dronehacks_pathfly/scripts/speed.sh safe
+#
+# Goal: touch down at the GOAL within 60 s of Offboard (the hop back to START
+# is not counted). Sim (sim.py, scratch sweep), time from Offboard to touchdown 1:
+#   no disturbance                       38 s   (safe profile 53 s)
+#   0.7 s PX4 lag + 2 cm noise + 5 cm/s  <= 48 s (safe <= 61 s)
+#   1.0 s lag + noise + 5 cm/s push       54 s   (safe 60 s)
+# Worst real-footprint wall margin over those cases: +10 mm (safe -10 mm),
+# because the cross-track integral cancels a steady push. It is WORSE than
+# safe with a pure 1.0 s lag (17 vs 29 mm) or an uncorrected 5 deg heading
+# offset (22-34 vs 47-64 mm): the open stretches are flown at up to 1 m/s.
+#
+# Where it is faster: up to 1.0 m/s where the planner's margin is >= 0.55 m
+# (the tunnel, the east and south rooms), and quicker take-off and landing.
+# Where it is NOT: at the 8 cm spots (north corridor, goal pocket) it flies
+# 0.15 m/s, about what the safe profile flies there (0.16 m/s at 8 cm).
+# Every number must be a float (write 1.0, not 1).
+dronehacks_pathfly:
+  ros__parameters:
+    # --- along the path ---------------------------------------------------
+    path_speed_mps: 1.0         # safe 0.4; the node caps every twist at 1.0
+    path_min_speed_mps: 0.15    # at planner margin <= slow_margin_m
+    slow_margin_m: 0.08         # the path's tightest spots are 78-82 mm
+    full_speed_margin_m: 0.55   # full speed only this far from every wall
+    accel_mps2: 0.7             # safe 0.5
+    # Brake gently into the goal pocket: PX4's lag otherwise carries the
+    # drone past the goal point towards the pocket's end wall.
+    end_decel_mps2: 0.25
+    end_decel_length_m: 1.0
+    # Cancel a steady sideways push (draft, small frame offset) while
+    # moving; learns only on stretches bending less than 0.3 rad/m.
+    ki_cross_xy: 0.5
+    cross_track_max_curv: 0.3
+
+    # --- vertical -----------------------------------------------------------
+    takeoff_speed_mps: 0.5      # safe 0.3
+    descent_speed_mps: 0.7      # safe 0.4, down to final_descent_height_m
+    final_descent_speed_mps: 0.3   # safe 0.2
+    final_descent_height_m: 0.3    # safe 0.4
