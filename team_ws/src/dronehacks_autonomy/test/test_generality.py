@@ -116,8 +116,9 @@ class NoLayoutKnowledgeInCodeTest(unittest.TestCase):
                 for x in v:
                     add(x)
             elif isinstance(v, dict):
-                for x in v.values():
-                    add(x)
+                for k, x in v.items():
+                    if k != "wall_segment_index":  # a list index, not a course dimension
+                        add(x)
 
         add(PUBLISHED["boulders"])
         for g in PUBLISHED["goals"]:
