@@ -2,7 +2,7 @@
 
 A single reference for the team's technical presentation (25 pts: autonomy design, technical execution, originality, evidence of testing and iteration) and the generality score (15 pts). It collects what we built, why we built it that way, what each iteration taught us, and the numbers behind every claim.
 
-**Sources.** Everything here was read from the team's GitHub repo on 2026-11-08: every PR (#1–#48), every issue (#3–#45), every branch, the READMEs, `contracts/`, `docs/PRD.md`, `docs/field-guide.html`, `docs/architecture/`, `docs/flight-findings.md` (on `core/flight-iteration`), commit messages, and the recorded flight folders. Where a number comes from simulation, the bench or a real flight, the text says which. **Judges will ask, and "evidence of testing" is a named criterion.**
+**Sources.** Everything here was read from the team's GitHub repo on 2026-11-08: every PR (#1–#48), every issue (#3–#45), every branch, the READMEs, `contracts/`, `docs/PRD.md`, `docs/field-guide.html`, `docs/architecture/`, `docs/flight-findings.md` (on `core/flight-iteration`), commit messages, and the recorded flight folders; §24–§25 add the team's `Drone 11 Flight Stack` explainer (8 Nov morning) and `navigation/pp-path-flight` (`872731c`). Where a number comes from simulation, the bench or a real flight, the text says which. **Judges will ask, and "evidence of testing" is a named criterion.**
 
 **Workstreams** (by package and PR):
 
@@ -28,7 +28,7 @@ A single reference for the team's technical presentation (25 pts: autonomy desig
 8. [Course planning: the shared foundation](#8-course-planning-the-shared-foundation)
 9. [The course follower: buffer zones and straight legs](#9-the-course-follower-buffer-zones-and-straight-legs)
 10. [The trajectory stack: the smooth, time-optimal path](#10-the-trajectory-stack-the-smooth-time-optimal-path)
-11. [The planner family: six designs side by side](#11-the-planner-family-six-designs-side-by-side)
+11. [The planner family: seven designs side by side](#11-the-planner-family-seven-designs-side-by-side)
 12. [Generality: one map file away from a new course](#12-generality-one-map-file-away-from-a-new-course)
 13. [Localization research: the Guard, lidar fusion, cuVSLAM](#13-localization-research-the-guard-lidar-fusion-cuvslam)
 14. [Our own software-in-the-loop simulator](#14-our-own-software-in-the-loop-simulator)
@@ -41,6 +41,8 @@ A single reference for the team's technical presentation (25 pts: autonomy desig
 21. [Honest caveats and open items](#21-honest-caveats-and-open-items)
 22. [Glossary](#22-glossary)
 23. [Credits](#23-credits)
+24. [The drone 11 flight stack as pitched, and the 8 Nov judging](#24-the-drone-11-flight-stack-as-pitched-and-the-8-nov-judging)
+25. [`dronehacks_pathfly`: flying an offline-planned route by twist](#25-dronehacks_pathfly-flying-an-offline-planned-route-by-twist)
 
 ---
 
@@ -181,6 +183,8 @@ All times Pacific; flight folder names are UTC.
 | Sun 00:13, 00:21 | **3. Whole course, stop-and-go** | Course follower at ladder step 0 (0.3 m/s): `081345` (crashed mid-route, pilot killed), `082135` (climbed to 0.80 m and flew the route) |
 | Sun early morning | **Map and route fixes from those runs** | North wall where run 1 hit; turn only once the drone reaches the waypoint; rocks and pad re-placed by tape |
 | Sun | **Smooth line ready** | The trajectory stack's window line at 2 m/s (30.9–33.7 s SITL) and 0.5 m/s test line |
+| Sun morning | **First scored session** | Every flight ended when a stick moved (stick override); a north-wall crash came after pilot input at 66.2 s, with the drone 3–8 cm from its setpoint until then; a tracker jump after a manual landing. → Route moved 0.61 m off the north wall, LOST phase, hands-off procedure (§24.2) |
+| Sun morning | **Second route package** | `dronehacks_pathfly` (`navigation/pp-path-flight`): offline footprint-exact plan flown by twist, nose east (§25) |
 
 ---
 
@@ -749,7 +753,7 @@ Speed profiling alone is worth 7 s over waypoints (−22%), and B shows why: a s
 
 ---
 
-## 11. The planner family: six designs side by side
+## 11. The planner family: seven designs side by side
 
 We deliberately built competing designs in parallel, then measured them against each other in the same simulator. That is iteration in breadth, not just depth.
 
@@ -760,7 +764,8 @@ We deliberately built competing designs in parallel, then measured them against 
 | 3 | `planner/` + `nav_traj` trajectory stack | #24/#26 | Exact distance field, A*, arcs + kernel smoothing, TOPP speed | Time-optimal | Plain poses, or **velocity at track speed** | No (SITL) |
 | 4 | Lidar carrot (`dronehacks_lidar`) | Ported from pre-event research, #27 | Grows obstacles by a 0.40 × 0.50 m drone at a **fixed heading**; carrot ≤ 0.5 m ahead, constrained so the drone-to-carrot line stays within 1.5 cm of the path | Carrot-limited (~0.95 × carrot) | Poses corrected by lidar drift `C⁻¹` | No (SITL) |
 | 5 | `dronehacks_autonomy` | #38 | A vendored copy of #3, wired into one ROS package that reads the contract map; adds `contract_map.py` (tunnel side walls, fail-closed), `measure_frame`, a `pause()` fix, the jerk retry, the coast port and the return leg | As #3 | As #3 | No (SITL, dry run) |
-| 6 | `dronehacks_course_follower` | `core/flight-iteration` | §9: A* with boulder cones, folded hooks, stop-and-go or smooth | Ladder | Poses (+ twist landing) | **Yes: 2 course runs, Sunday 00:13 and 00:21** |
+| 6 | `dronehacks_course_follower` | `core/flight-iteration` | §9: A* with boulder cones, folded hooks, stop-and-go or smooth | Ladder | Poses (+ twist landing) | **Yes: 2 course runs, Sunday 00:13 and 00:21, then the first scored session** |
+| 7 | `dronehacks_pathfly` (§25) | `navigation/pp-path-flight` | Offline: footprint-exact signed distance, 16-connected A* on 2 cm, elastic band, Douglas–Peucker (jsun4231/path-planning) | 0.25–0.6 m/s, scaled by planner margin | **Twists only**, nose held east | Not yet (staged bring-up ready) |
 
 **Architectural decision #35.** `core/` duplicated `planner/`, and only `planner/` was wired to a node. The team stopped building a third stack (`core/`'s planned Layer C) instead of shipping duplicate flight code.
 
@@ -1099,6 +1104,8 @@ The "evidence of testing and iteration" list. Each item: what we assumed → wha
 - **DH Bailout was flashed** (#47) before the contract's permission and bench-check items were recorded. `COM_FLTMODE1` is still 0, so it isn't on the switch yet. Recording the organiser permission is a human step.
 - **The map disagreement.** The course follower's tape-measured map drops the SolidWorks diagonal's long ends (the taped gap rules it out). The trajectory stack's `nav_traj` flies a STEP-generated map. Reconcile before flying the trajectory line on the real course.
 - **yaw_comp, the return home, led poses and the 2 m/s line** are not yet flown.
+- **Heading policy differs between packages** (§25.3): the course follower turns along the route because a fixed heading starved cuVSLAM in SITL; `dronehacks_pathfly` holds east because its margins assume it. Neither choice is settled by a real-drone A/B.
+- **Scoring:** use the 8 Nov judging slides (§24.3); earlier notes predate them.
 - **Drone identity.** All flights are on skybeta-11; AGENTS.md says drone 11 is ours (#43).
 - **CI runs ~6% of the tests** (`tests/`); the other suites run locally.
 
@@ -1147,3 +1154,128 @@ To state in the README and the pitch (rule 9.1):
 - numpy, PyYAML, SciPy (research), matplotlib (bench plots), OpenCV, Open3D, trimesh, Gazebo (pre-event research);
 - MonoRace and SkyDreamer (techniques assessed; direct-to-motor rejected);
 - AI coding tools (rule 9.2: we can explain every line we fly).
+
+---
+
+## 24. The drone 11 flight stack as pitched, and the 8 Nov judging
+
+Source: `Drone 11 Flight Stack.html` (team explainer, as of Sun 8 Nov morning PT). It describes what flies on skybeta-11: `dronehacks_course_follower` on `core/flight-iteration` at `1ecee21`, kit skybeta on PX4 1.16 and ROS 2 Humble.
+
+### 24.1 The idea in one minute: four parts, one moving target
+
+| Part | Role | Rate |
+|---|---|---|
+| OAK-D S2 stereo camera | Eyes | 30 image pairs/s |
+| cuVSLAM on the Jetson | Sense of place: "I am here, facing this way", relative to where it started | 30 Hz |
+| Our ROS 2 node | Navigator: knows the map, plans the route, moves the setpoint along it | 50 Hz |
+| PX4 on the Pixhawk | Reflexes: chases the setpoint by driving the motors | hundreds of Hz |
+
+**We never touch the motors.** Our code only moves a target point; the organisers' flight interface passes it on and enforces limits; the safety pilot sits above everyone.
+
+**Phases of the flown node:** WAIT → CLIMB (to 1.23 m, the window's measured centre height) → FLY (stop-and-go or smooth) → DESCEND (0.5 m/s onto the pad) → RETURN (2.3 m, last ladder step only); plus **LOST** (a pose jump of more than 0.3 m at more than 3 m/s means straight down) and ABORTED.
+
+**Pre-flight gates:** rest on the mark for 2 s within 2 cm and 1° before the course is placed; the PX4–camera gap must be at most 0.3 m; abort if Offboard starts more than 0.5 m from the mark.
+
+### 24.2 Testing table (the evidence-of-testing slide)
+
+| What happened | Evidence | Fix |
+|---|---|---|
+| First square test climbed but never moved sideways | Bag vs PX4 log: the two height zeros differed, so "0.74 m" became 1.33 m (measured) | Measure the PX4-minus-camera gap and add it to every setpoint |
+| Run 1 hit the north wall | The log put the hit 24 in inside the net; the team taped the wall there. **Localization was right to inches; the map was wrong** (measured) | Map corrected from tape: north wall, diagonal wall, window height, rocks |
+| Run 2 (flight 082135) turned early after the tunnel | Yaw began when the setpoint reached the corner while the drone trailed 0.25 m; pilot kill at **79.57 s**, **no contact** (measured) | Turns wait for the drone itself to arrive |
+| A run clipped the wall beside the tunnel's south mouth | Turn after the tunnel too close to the mouth (team report) | Tunnel flown straight from 0.75 m outside its mouths |
+| **Every flight in the first scored session ended early** | Bags' stick and mode records: each ended when a stick moved and PX4 handed control to the pilot (measured) | Pilot procedure: hands off in Offboard unless a collision is imminent |
+| A crash into the north wall in that session | Until the pilot's input at **66.2 s** the drone was **3–8 cm** from its setpoint with no contact; then full throttle with yaw (measured) | Pilot procedure (hands off). The corridor point added after this crash was later removed (5391e34) |
+| Tracker jumped by metres after a manual landing | Pose logs (measured) | New LOST phase; restart the stack after any handling |
+| **Idea: never yaw, to avoid turn drift** | SITL holding north: by the north wall the camera stared at the wall from 0.4 m and cuVSLAM lost track | **Rejected** for the course follower: face along the route; stop-and-go waits out each turn's drift |
+| Heading drift, measured against PX4's gyro | Under 1° over four turns (013018); about 2.5° by the tunnel on the real tunnel run (measured) | Stop-and-go waits out each turn; pathfly holds one heading for 8 cm margins |
+| The new route, before flying it | SITL on the taped map: **stop-and-go 109 s, smooth 0.5 m/s 79 s**, no touches, window crossed within 7 cm of centre, landed within 7 cm of the pad | What flies today, ladder step 0 first |
+
+Flown package at **5391e34** (`core/flight-iteration`, straight leg past the diagonal wall, no corridor goal): SITL on the taped map **stop-and-go 102 s, smooth 0.5 m/s 76 s**, window crossed within **8 cm** of centre, landed within **11 cm** of the pad centre. The 109 s / 79 s row above is the earlier route.
+
+Earlier SITL findings on the published course: PX4 1.16.1 boots with a wrong yaw-rate bias for its first seconds (wait 30 s on the mark before arming); with boulders moved at random the planned route stayed clear in **20/20** layouts against **6/20** for the hand route; the return home landed within 23 cm of the mark in 5/5 runs.
+
+### 24.3 The 8 Nov judging (supersedes earlier scoring notes)
+
+- **Course run 65%, judges 35%.** Score = 65/30 × (checkpoint points + window bonus) × 1.25 for a valid return + 35 × (judges' points ÷ 40).
+- Checkpoints: exit quadrant 1 = 6 (over its wall allowed), tunnel = 10, enter quadrant 4 = 7, window +4, pad 3 / 5 / 7 (blue / silver ring / inner white circle), return ×1.25 (not over "the ladder").
+- A checkpoint reached over a wall keeps 15% of its points (except into quadrant 1). Each contact +5 s; time only breaks ties; best run within 3 min counts.
+- A full run: 30 raw = 65 points; with the window 34 raw = 73.7; plus a valid return = 92.1. **The window is worth more than the gap between a 3- and a 7-point landing.**
+- **Pitch:** two panels, 12:30–3:10 pm; 5–7 min of slides (autonomy stack, approach, results), then 5–6 min of questions, run as a technical interview probing decisions, experiments, testing and challenges. **25 pts** presentation (autonomy design, technical execution, originality, evidence of testing), **15 pts** generality. An AI repository review flags course-specific hard-coding and shares the flags with the judges.
+
+### 24.4 Talking points per criterion and rehearsal answers
+
+- **Autonomy design:** map in, route out (the map file is the only course knowledge); the course placed from the drone's own rest on the mark; two layers of truth (camera says where we are, PX4 checked against it before every flight).
+- **Execution:** stop-and-go first, faster rungs only after a clean landing; tunnel straight from outside; window at its measured centre height; every flight recorded and analysed the same day.
+- **Originality:** correcting the published map with tape and logs (the drone's own log located the wall to inches); descend rather than steer on a pose that cannot be real.
+- **Testing:** the table above; ideas rejected with data (holding one heading); the simulator runs the real PX4 and the kit's real code.
+- **Generality:** no route, waypoint or timing in code; a new course is a new map file; clearances from the drone's measured size. **Say upfront what is course-specific: the map file itself (with the 8 Nov tape corrections), the flight height 1.23 m read from the map's window opening, pathfly's precomputed route, and the taped launch mark.**
+
+| They may ask | Short answer |
+|---|---|
+| No GPS: how does it know where it is? | cuVSLAM on the stereo camera, anchored by the rest on the launch mark; PX4 checked against it before take-off |
+| The dark tunnel? | Line up outside, one straight line with no turns, the jump guard lands it if the pose leaps |
+| Why stop-and-go? | Each turn adds 10–20 cm drift; holding until settled keeps each leg's start accurate; speed rises one rung per clean landing |
+| Why not never turn? | Tried in SITL: facing one way, the camera stares at a wall from 0.4 m by the north gap and loses tracking |
+| What went wrong? | The map was wrong, not the localization; the pilot's sticks, not our code, ended every flight of the first session |
+| What is hard-coded? | The course lives in one map file; constants are the drone's size, rates and margins, each named with its unit |
+| Another course? | New map and launch mark; planner, tunnel and window handling and every safety check carry over |
+
+**Do not claim** (rehearsal list, 8 Nov):
+
+- a 60/40 split: the split is **65/35**;
+- that cuVSLAM uses the IMU: it runs **stereo-only**; EKF2 fuses the IMU;
+- that the tunnel run was a collision: it was a **pilot kill at 79.57 s with no contact**;
+- real-flight course completion before it has happened.
+
+Pitch credits (rule 9.1): skybeta starter stack, NVIDIA Isaac ROS cuVSLAM, Luxonis DepthAI and depthai-ros, PX4, QGroundControl, ROS 2, rosbag2, MCAP, Gazebo, Nav2 inflation cost, Pham & Pham TOPP, NumPy, PyYAML, AI coding tools (rule 9.2).
+
+---
+
+## 25. `dronehacks_pathfly`: flying an offline-planned route by twist
+
+**Branch** `navigation/pp-path-flight` (`872731c`, @jsun4231), package `team_ws/src/dronehacks_pathfly`. It flies the route produced by [jsun4231/path-planning](https://github.com/jsun4231/path-planning) at `e0f22d8`, copied byte-identical into `path_planning/` with SHA-256 checks in `data/SOURCE.md`.
+
+### 25.1 The planner (`plan_path.py`, from a STEP file)
+
+1. Reads the arena straight from the STEP B-rep: the floor face's outer loop is free space, its two circular inner loops are the markers (smaller = start, larger = goal).
+2. **Exact signed distance from the drone's footprint** to the boundary polygon. Footprint options: the true 0.50 × 0.40 m rectangle at a **fixed east heading** (default), the rectangle along the direction of travel, or the circumscribed 0.32 m circle (safe at any yaw).
+3. **A\* on a 2 cm grid, 16-connected**, cost = ∫[1 + W·((T − margin)/T)²] ds below a 0.40 m margin target, with a much steeper tier below 0.10 m.
+4. **Elastic-band refinement** with exact margin gradients plus a curvature term, then Douglas–Peucker into straight waypoints, re-verified.
+
+Output: a 12.27 m path, 124 dense points, start (0.580, 4.596), goal (0.900, 1.350), in a frame with its origin at the arena's inside SW corner. The tightest margins are **0.079–0.082 m**: about 0.8 m of the top corridor under the north wall, and the goal.
+
+### 25.2 The mission (`mission.py`, a pure state machine)
+
+| Phase | What happens |
+|---|---|
+| TAKEOFF | Straight up to 0.2 m over START |
+| PATH | Follows the path while climbing 0.2 → 1.25 m over its first 1.5 m |
+| PATH_END, LAND_1 | Settles over the goal and touches down |
+| GROUND_1, CLIMB_2 | After 0.5 s on the ground, straight up to 2.0 m |
+| FORWARD | Straight back over START at 2.0 m (3.26 m, over the walls), **without yawing** |
+| LAND_2, DONE | Touches down on START, presses until PX4 disarms (`COM_DISARM_LAND` 5 s) |
+
+Plus HOLD and ABORTED. About 60 s arming to disarm.
+
+**Design choices worth presenting:**
+- **Twist setpoints only.** The flight interface floors every pose at 0.3 m, so a pose cannot hold 0.2 m or land; twists are not floored (still capped at 1.5 m/s; the node stays under 1.0 m/s).
+- **Speed follows the planner's margin:** 0.6 m/s, down to 0.25 m/s where the margin is thin; full speed from a 0.30 m margin.
+- **Nose held east for the whole flight** (`hold_heading: true`): the planner's 8 cm margins are only valid for the footprint at that heading. Another `start_yaw_deg` rotates the path and logs a warning. 3° of placement error moves the goal end ~0.17 m.
+- **Anchored when Offboard begins**, so where the stack powered up doesn't matter.
+- **Safety:** no setpoints (so no Offboard) until odometry is fresh and camera and PX4 agree within 0.3 m; HOLD on path error > 0.5 m, odometry loss, height > 2.5 m, or camera/PX4 drift in flight. Optional vision-to-EKF2 yaw-offset correction for twists.
+- **Staged bring-up:** stages 1–3 via `~/team_ws/pathfly_stage`, a listen-only `pathfly_check` drift monitor, `scripts/preflight.sh`, a 460-line `BRINGUP.md`.
+- **Testing:** an offline PX4 model (`sim.py`) and 41 tests, run under the repo CI's `tests/` discovery; the flown CSVs are checked byte-identical to the source repo.
+
+### 25.3 The heading tension (be ready for this question)
+
+Two of our packages make **opposite yaw choices, each for a measured reason**:
+- `dronehacks_course_follower` faces along the route and waits out each turn's drift (10–20 cm per turn), because **holding one heading starved cuVSLAM**: in SITL, by the north wall the camera stared at the wall from 0.4 m and lost track (§24.2).
+- `dronehacks_pathfly` holds east the whole flight, because its planner's **8 cm margins assume a fixed rectangular footprint**, and any yaw sweeps the 0.50 × 0.40 m rectangle through a 0.32 m circle.
+
+The honest summary: turning costs drift, not turning can cost tracking, and a rectangular footprint buys clearance only at one heading. Which one wins depends on the corridor widths and where the camera points; that is an experiment, not a preference.
+
+### 25.4 Generality of this approach
+
+- General: the planner reads free space and markers from any STEP floor face; the margins come from the drone's size; the return leg is computed from the goal and the start.
+- Course-specific: the flown CSV is a precomputed route for one arena, the east heading is tied to that route's margins, and its frame is the arena corner rather than the launch mark. **On a new course: rerun `plan_path.py` on the new STEP, then fly** (one offline step, no code change).
