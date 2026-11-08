@@ -1,4 +1,4 @@
-"""Cage test: climb, a 0.5 m box with holds, land, touch-and-go, land and disarm.
+"""Cage test: climb, a box with turns, a low-hover rest, a circle inside the box, land and disarm.
 
 Pure logic, no ROS, so it can be unit-tested. ``square_test_node`` feeds it the cuVSLAM pose and
 ``/skybeta/state`` and publishes what it returns. Frame: ENU ``odom`` (cuVSLAM's), whose origin
@@ -11,20 +11,18 @@ The sequence (``plan``), every hold 3 s once within ``arrive_m`` of the target:
       during each hold it first yaws slowly (``yaw_rate_dps``) to face the next leg: +90 deg
       (a left turn) at each corner, and +90 more over the start, so it faces its take-off heading
       again before landing. Moves never yaw; a hold's 3 s start once position and heading arrive
-    land, exactly as the real follower does: velocity straight down at 0.3 m/s, pulling back over
-      the start, then pressing down gently once PX4 reports landed
-    climb again as soon as PX4 reports landed (``ground_s`` 0; motors at idle, not off: see below)
+    rest: down (velocity, at most 0.3 m/s) to ``rest_height_m`` above the start by camera, pulling
+      back over the start, hover there ``rest_s``; if PX4 reports landed meanwhile, climb at once
     take off again to height_m, hold
     a circle of diameter ``circle_d_m`` inside the box (centre r forward, r left): forward r to the
       middle of the box's right side, round counter-clockwise from there (forward first) back to
       it, heading held; then back over the start and hold
-    land the same way, and keep pressing down until PX4 disarms (COM_DISARM_LAND)
+    land as the real follower does: velocity straight down at 0.3 m/s, pulling back over the
+      start, then pressing down until PX4 disarms (COM_DISARM_LAND)
 
-Motors cannot actually stop between the two landings: stopping them is a disarm, a disarm ends
-Offboard, and only the pilot can arm again. PX4 also disarms on its own once it has been landed
-for COM_DISARM_LAND (2 s in the organisers' parameters), and the motors took over 0.8 s to lift it
-off in flight 20261108-013018 (climb 1.1 s after landed, disarmed at 1.9 s), so ``ground_s`` is 0:
-it sits about 1 s (PX4's land detection) plus the spool-up, roughly 2 s on the ground.
+The rest hovers instead of landing: PX4 disarms 2 s after it reports landed (COM_DISARM_LAND, the
+organisers' and frozen), a disarm ends Offboard and only the pilot can arm again, and in flight
+20261108-013018 the motors had not lifted it 0.8 s into a climb started 1.1 s after landed.
 
 States: WAIT (stream the current position so the kit can enter Offboard on arm-then-Position),
 FLY (working through the plan), DONE (disarmed), STOPPED (Offboard ended early: the pilot has it;
@@ -47,7 +45,10 @@ class Config:
     lead_m: float = 0.3
     arrive_m: float = 0.10          # the real follower's land_tolerance_m
     hold_s: float = 3.0
-    ground_s: float = 0.0           # after PX4 says landed; lift-off took > 0.8 s, COM_DISARM_LAND is 2 s
+    rest_s: float = 3.0             # the low hover between the box and the circle
+    rest_height_m: float = 0.08     # above the start by camera; never landed, so COM_DISARM_LAND never starts
+    rest_band_m: float = 0.03       # the rest's seconds count from within this of rest_height_m
+    rest_gain: float = 1.0          # m/s per m of height error
     step_timeout_s: float = 20.0
     descent_mps: float = 0.3        # the real follower's descent_mps
     land_xy_gain: float = 1.0       # the real follower's land_xy_gain
@@ -81,7 +82,7 @@ def plan(c):
     steps = []
     for k, p in enumerate(box):
         steps += [('move', p, 0, None), ('hold', p, c.hold_s, 90.0 * k)]
-    steps += [('land', None, 0, None), ('ground', None, c.ground_s, None),
+    steps += [('rest', None, c.rest_s, None),
               ('move', (0, 0, h), 0, None), ('hold', (0, 0, h), c.hold_s, 360.0),
               ('move', (r, 0, h), 0, None), ('circle', (r, 0, h), 0, None),
               ('move', (0, 0, h), 0, None), ('hold', (0, 0, h), c.hold_s, 360.0),
@@ -202,13 +203,18 @@ class Mission:
             elif t - self.dwell_since >= secs:
                 self._next(t)
             return self._pose()
-        if kind == 'ground':
-            if self.dwell_since is None:
+        if kind == 'rest':
+            # velocity, not pose: the kit floors pose setpoints at 0.3 m
+            zt = self.start[2] + c.rest_height_m
+            if abs(zt - pose[2]) <= c.rest_band_m and self.dwell_since is None:
                 self.dwell_since = t
-            if t - self.dwell_since >= secs:
-                self.target = (self.start[0], self.start[1], pose[2])
+            if landed or (self.dwell_since is not None and t - self.dwell_since >= secs):
+                self.target = (self.start[0], self.start[1], pose[2])   # touched down: climb now
                 self._next(t)
-            return Command('twist', 0.0, 0.0, -0.3 * c.descent_mps)
+                return Command('twist')
+            return Command('twist', _clip(c.land_xy_gain * (self.start[0] - pose[0]), c.land_xy_max_mps),
+                           _clip(c.land_xy_gain * (self.start[1] - pose[1]), c.land_xy_max_mps),
+                           _clip(c.rest_gain * (zt - pose[2]), c.descent_mps))
         # land / disarm: the real follower's descent
         if landed:
             if kind == 'land':
