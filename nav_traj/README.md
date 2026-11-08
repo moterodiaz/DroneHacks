@@ -194,6 +194,8 @@ our code paths, not ROS itself.
 | `launch/traj_nav_competitor.launch.py`, `..._raw.launch.py` | for `COMPETITOR_LAUNCH`: Guard if installed / never |
 | `launch/traj_nav_competitor_window_2mps.launch.py` | for `COMPETITOR_LAUNCH`: the window at 2 m/s (`docs/deploy.md` section 4) |
 | `config/flight_line_window_2mps.yaml` | that line's overrides: window, 2 m/s speeds, the interface's 2 m/s twist clamp |
+| `launch/traj_nav_competitor_window_0p5mps.launch.py` | for `COMPETITOR_LAUNCH`: the same line slowed to 0.5 m/s for test flights |
+| `config/flight_line_window_0p5mps.yaml` | the 2 m/s line's overrides with every speed at 0.5 m/s |
 | `config/traj_nav.example.yaml` | the mission node's parameters |
 | `maps/` | the STEP-derived map, its sources and provenance |
 | `scripts/install_on_drone.sh` | copy, build, check, dry-run on the drone |

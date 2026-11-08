@@ -73,6 +73,7 @@ COMPETITOR_PKG=dronehacks_traj
 COMPETITOR_LAUNCH=traj_nav_competitor.launch.py        # raw cuVSLAM, the default (no Guard)
 # COMPETITOR_LAUNCH=traj_nav_competitor_raw.launch.py  # also raw cuVSLAM
 # COMPETITOR_LAUNCH=traj_nav_competitor_window_2mps.launch.py  # the window at 2 m/s (below)
+# COMPETITOR_LAUNCH=traj_nav_competitor_window_0p5mps.launch.py  # the same, slowed to 0.5 m/s
 ```
 
 **The window-at-2-m/s flight line** (`traj_nav_competitor_window_2mps.launch.py`) is the
@@ -85,6 +86,13 @@ kit interface's documented `max_speed_mps` launch argument 2.0 (default 1.5). Be
   planner's window pass keeps 0.049 m over its inscribed radius.
 * On this course the speed profile peaks near 1.4 m/s even at 2.0: the unvalidated cornering
   limit (`a_lat_mps2` 1.0) binds before the speed caps. SITL results: `sitl/README.md`.
+
+**The slow test line** (`traj_nav_competitor_window_0p5mps.launch.py`) is the same line with
+`config/flight_line_window_0p5mps.yaml`. That file differs only in its speeds: all four are
+0.5 m/s, below PX4's 1.0 cap, so the pilot has time to take over before a touch. The tube takes
+longer at this speed. In SITL, cuVSLAM was lost for 3.1-3.2 s, within the 4 s `coast_max_s`.
+If the real tube stays dark for more than 4 s, the drone stops inside it, and PX4 drops to
+Altitude 5 s after the loss (`EKF2_NOAID_TOUT`). Be ready to take over at the tube.
 
 The kit passes only its own drone.env keys into the container, so don't put
 `DRONEHACKS_*` settings there; they never arrive. Restart the stack on the

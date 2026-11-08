@@ -10,7 +10,12 @@
 #   0.5 m/s, so it doesn't bind here.
 # * The window is not cleared by contracts/course.md: its clearance budget is unreviewed and
 #   unvalidated on the kit. The planner's window pass keeps 0.049 m over its inscribed radius.
-# * SITL_RESULTS
+# * The dark tube takes longer at 0.5 m/s. In SITL cuVSLAM was lost for 3.1-3.2 s and the drone
+#   coasted about 1.55 m through it by dead reckoning (coast_max_s 4.0, unchanged here). If the
+#   real tube stays dark longer than 4 s, the drone stops inside it, and after EKF2_NOAID_TOUT
+#   (5 s) PX4 drops Offboard to Altitude. Be ready to take over at the tube.
+# * SITL (dark tunnel, land, PX4 at the organisers' 1.0): 31 points + window bonus,
+#   46.7 / 43.9 / 43.3 s, no touch (3 seeds), peak 0.51 m/s. Planned 13.78 m in 29.4 s.
 
 mission:
   ros__parameters:
