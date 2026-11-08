@@ -79,7 +79,12 @@ def test_full_sequence():
     _, x, y, z, armed, yaw = track[-1]
     assert not armed and z == 0.0 and math.hypot(x - x0, y - y0) < 0.05
     assert abs(_wrap(yaw - START_YAW)) < math.radians(5)         # faces its take-off heading again
-    assert all(x0 - 0.1 <= p[1] <= x0 + s + 0.1 and y0 - 0.1 <= p[2] <= y0 + s + 0.1 for p in track)
+    r = Config().circle_d_m / 2
+    assert all(x0 - 0.1 <= p[1] <= x0 + max(s, 2 * r) + 0.1 and y0 - 0.1 <= p[2] <= y0 + max(s, 2 * r) + 0.1
+               for p in track)
+    second = track[first_down:]                              # the circle inside the box: its four sides
+    for dx, dy in [(r, 0), (2 * r, r), (r, 2 * r), (0, r)]:
+        assert min(math.dist(p[1:4], (x0 + dx, y0 + dy, h)) for p in second) < 0.05, (dx, dy)
 
 
 def test_ground_wait_longer_than_auto_disarm_ends_after_first_landing():
@@ -118,7 +123,8 @@ def test_turns_slowly_to_face_each_leg():
     x0, y0, _ = START
     # at each corner, the heading it settles on before moving on: left turns of 90 deg
     for (dx, dy), turn in [((s, 0), 90), ((s, s), 180), ((0, s), 270)]:
-        here = [p for p in track if math.dist(p[1:4], (x0 + dx, y0 + dy, h)) < 0.03]
+        box = track[:next(i for i, p in enumerate(track) if i > 20 and p[3] <= 1e-6)]   # before the circle
+        here = [p for p in box if math.dist(p[1:4], (x0 + dx, y0 + dy, h)) < 0.03]
         assert abs(_wrap(here[-1][5] - START_YAW - math.radians(turn))) < math.radians(5), (dx, dy)
     yaws = [(t, c.yaw) for t, c in cmds if c.kind == 'pose' and c.yaw is not None and t > 1.1]
     for (t0, a), (t1, b) in zip(yaws, yaws[1:]):
