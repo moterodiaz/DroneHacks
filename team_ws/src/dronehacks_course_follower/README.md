@@ -44,7 +44,7 @@ PX4's offset from the odometry stays frozen from the pad descent on.
 
 - **Planner** (`planner.py`): A* on a 5 cm grid, lethal within 0.32 m of a wall (prop reach
   0.28 m + 0.04 m), Nav2-style inflation cost beyond, boulders widened by the rangefinder's
-  footprint. Goals in the map's own `order`. The window is flown only when `allow_window` and the
+  footprint (below). Goals in the map's own `order`. The window is flown only when `allow_window` and the
   map says it is passable (the opening spans the flight height with 0.25 m either side and is
   wider than the lethal ring twice); otherwise its opening is walled across and A* finds Gate B.
   A flown window is one straight leg on its normal through the opening's middle, from up to
@@ -54,6 +54,19 @@ PX4's offset from the odometry stays frozen from the pad descent on.
   the turn into the opening, about 8.7 cm toward the frame. The route is planned once, before
   take-off, so no in-flight re-plan can shorten that lead-in. The ideal dry run takes about 31 s
   with the lead-in, against 27 s without it.
+- **Boulders** (`boulder_lethal_m`): the drone's centre keeps out of radius + the VL53L1X's 27°
+  cone footprint + a margin. With the boulder's height in the map and its top at least 0.20 m
+  (`MIN_BOULDER_OVERHEAD_M`) below the flight height, the footprint is the cone's at the top,
+  (0.8 - 0.533) tan 13.5° = 0.064 m, and the margin 0.10 m (`BOULDER_MARGIN_M`, for sideways
+  tracking error: skybeta-11 held its corners within about 5 cm when not yawing, SITL's tracker
+  strayed 5-15 cm): 0.39 m from the centre. The props (0.28 m) then pass over the boulder's edge,
+  0.27 m above its top. Without a height, or with the top nearer, the footprint is the cone's on
+  the floor, 0.8 tan 13.5° = 0.19 m, with the walls' 0.04 m: 0.46 m. Why the cone must stay off:
+  in SITL (2026-11-07) flying the rangefinder over a boulder moved the held height (a
+  terrain-following climb, or EKF2 falling back to the barometer). Offline on the packaged map
+  (`dry_run`, 2026-11-07): to the disarm 22.8 s at 1.0 m/s and 33.2 s at 0.5 m/s, against 25.4 s
+  and 35.4 s with the floor footprint; the nearest pass keeps the cone's edge 0.11 m off the top
+  of the boulder 1.3 m east of the window.
 - **Follower** (`follower.py`): corners as arcs from 0.4 m before, a speed profile within PX4's
   v1.16 default `MPC_ACC_HOR` 3, `MPC_JERK_AUTO` 4 and turn acceleration, an eased jerk-limited
   pace that slows when the drone strays toward a wall, falls behind or its heading lags, heading
@@ -82,8 +95,8 @@ face, 1.25 m east of where the barrier meets the west net, to 1.40 m short of th
 net at the old M2 divider's east-west position: (-1.798, 0.508) to (-0.813, 1.648), drawn
 0.10 m thick (assumed). Everything else is the published v3 map below, unchanged. The route goes
 from the launch mark along the diagonal's north-west side, around its top end, to the tunnel.
-The boulders are still avoided; whether to plan over them (smoother, faster, but under the
-rangefinder) is being checked.
+The boulders carry their height, 0.5334 m (21 in, the organisers' CAD), so the route passes their
+edge with the props over them and the rangefinder's cone off their tops.
 
 The published v3 map it was edited from is written by `sim/generate.py` in Michael Bar On's DroneDepthCamTesting
 repo (`write_course_map`, published variant, commit `52c8c27`), from the organisers' published
@@ -96,7 +109,7 @@ as an axis: the tube's side walls are not in it (the manual navigator rebuilds t
 Format (JSON, course frame: x east, y north, metres, origin at the floor centre):
 `height_m` (flight height above the floor), `launch` (`[east, north, heading_deg]`, heading
 counter-clockwise from east), `segments` (`[x1, y1, x2, y2]` wall cuts), `bounds`
-(`[west, east, south, north]`, the net), `boulders` (`[east, north, radius]`), `goals` (by name:
+(`[west, east, south, north]`, the net), `boulders` (`[east, north, radius]`, or with a fourth value, the top's height above the floor), `goals` (by name:
 `at`; the tunnel's two mouths `ends`; the window's `along`, `size_m` `[width, height]` and
 `span_m` `[bottom, top]`), and `order` (the goal names in the order a run passes them). A
 surveyed course goes in a new file passed as `course_map:=`; nothing in the code knows this course.
