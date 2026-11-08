@@ -100,6 +100,22 @@ facing a wall. Turn while moving, looking along the route.
   narrowly; 0.5 m/s clears it with margin.
 - The time goes to detection and the disarm, not the descent: about 3 s to `landed`, then
   `COM_DISARM_LAND`'s 2 s.
+- **What holds up `landed` on the floor.** [M] On skybeta-11 (`20261108-035510`, 0.3 m/s
+  twist) the drone sat on the floor about 4 s before `has_low_throttle`, then `ground_contact`,
+  `maybe_landed` and `landed` followed about 1 s apart. [M, source] In v1.16.1 ground contact
+  needs the thrust setpoint at or under `MPC_THR_MIN` + 0.6 × (hover − `MPC_THR_MIN`)
+  (`MulticopterLandDetector::_get_ground_contact_state`); once it holds,
+  `MulticopterPositionControl` drops thrust to zero, so the rest is the fixed hysteresis. On the
+  floor only the vertical velocity loop lowers thrust: `MPC_Z_VEL_P_ACC` (4) × the setpoint error
+  plus `MPC_Z_VEL_I_ACC` (2) integrating it. [I] A small descent error waits seconds on the
+  integrator; a 1 m/s error asks for 4 m/s² down at once. The follower now presses 1.0 m/s down
+  once its odometry height has held 0.3 s near the floor, with no PX4 parameter changed.
+- **The press in SITL [M].** v3 map, seed 3, `return_home:=true`, `COM_DISARM_LAND` 5, the
+  package before and after the press, same harness and session (`recordings/pkgsitl/touchdown_*`
+  in Michael Bar On's repo, timed by `scratchpad/touchdown/touchdown_times.py` from ground truth
+  touchdown): ground truth touchdown to `landed` went from 4.20 s (pad) and 4.31 s (launch mark)
+  to 3.58 s and 3.57 s; the rest, the climb off the pad and the return were unchanged. SITL's
+  hover thrust and the follower's 0.5 m/s descent leave less to gain than a real 0.3 m/s descent.
 
 ## The course [M, SITL]
 

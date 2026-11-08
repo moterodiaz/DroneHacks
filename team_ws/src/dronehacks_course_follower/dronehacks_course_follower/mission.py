@@ -43,6 +43,16 @@ LANDING_SETTLE_S = 2.0
 # LNDMC_Z_VEL_MAX or more, 0.275 m/s at the organisers' 0.25: a pose, or a slower twist, never lands
 LANDING_DESCENT_MPS = 0.5
 
+# The drone is on the floor once the tracker's height has held within CLIMB_STEADY_M for this long,
+# no higher than TOUCHDOWN_NEAR_FLOOR_M above where it stood at Offboard
+TOUCHDOWN_DWELL_S = 0.3
+TOUCHDOWN_NEAR_FLOOR_M = 0.3
+
+# On the floor the descent presses at this speed until PX4 lands or disarms. PX4 counts ground contact
+# only below its low-throttle threshold; its vertical velocity loop (MPC_Z_VEL_P_ACC 4) gets there at
+# once from a 1 m/s error, where the descent's smaller error waits seconds on the integrator to wind
+TOUCHDOWN_PRESS_MPS = 1.0
+
 # While descending, the twist steers back over the landing point at this gain, no faster than the
 # cap: a twist alone has no position hold
 LANDING_GAIN_PER_S = 1.0
@@ -168,8 +178,10 @@ class Mission:
         self.events: list[str] = []
         self.flown = False
         self.offboard_at_s = math.nan
+        self.floor_height_m = math.nan
         self.steady_height_m = math.nan
         self.steady_since_s = math.nan
+        self.on_floor = False
         self.hovering = False
 
         # The return: its plan, and where it stands
@@ -232,7 +244,7 @@ class Mission:
             case Phase.RETURN_FLY:
                 return self._return_fly(now_s, elapsed_s, drone)
             case Phase.RETURN_DESCEND:
-                return landing_twist(self.launch, None if self.straight_down else drone)
+                return self._land(now_s, self.launch, drone)
             case _:
                 return None
 
@@ -257,6 +269,7 @@ class Mission:
             self.held_yaw_rad = drone.yaw_rad if self.heading_mode is HeadingMode.FIXED else math.nan
             self.flown = True
             self.offboard_at_s = now_s
+            self.floor_height_m = drone.height_m
             self._enter(Phase.CLIMB, f"Offboard: climbing to {self.height_m:.2f} m")
 
         return PoseCommand(drone.east, drone.north, self.height_m, math.nan)
@@ -282,10 +295,14 @@ class Mission:
 
     def _settled(self, now_s: float, drone: Drone, min_height_m: float) -> bool:
         """Whether a climb has stopped rising, at least `min_height_m` up."""
+        return drone.height_m >= min_height_m and self._steady_for_s(now_s, drone) >= CLIMB_SETTLED_S
+
+    def _steady_for_s(self, now_s: float, drone: Drone) -> float:
+        """How long the tracker's height has held within `CLIMB_STEADY_M`, counted from this phase's start."""
         if not abs(drone.height_m - self.steady_height_m) <= CLIMB_STEADY_M:
             self.steady_height_m, self.steady_since_s = drone.height_m, now_s
 
-        return drone.height_m >= min_height_m and now_s - self.steady_since_s >= CLIMB_SETTLED_S
+        return now_s - self.steady_since_s
 
     def _fly(self, now_s: float, elapsed_s: float, drone: Drone | None) -> PoseCommand | TwistCommand:
         """The follower's led pose; at the route's end, the descent once the drone is over it."""
@@ -306,7 +323,7 @@ class Mission:
     def _descend(self, now_s: float, drone: Drone | None, landed: bool) -> TwistCommand:
         """The twist down onto the pad; returning, once PX4 reports landed, the rest begins."""
         if self.return_plan is None or not landed:
-            return landing_twist(self.pad, drone)
+            return self._land(now_s, self.pad, drone)
 
         self.landed_on_pad = True
         self.rest_since_s = now_s
@@ -320,7 +337,6 @@ class Mission:
         if now_s - self.rest_since_s < self.return_plan.rest_s:
             return TwistCommand(0.0, 0.0, -RETURN_PRESS_MPS, 0.0)
 
-        self.steady_height_m = math.nan
         self._enter(Phase.RETURN_CLIMB, f"returning: climbing to {self.return_plan.height_m:.2f} m over the pad")
         return self._return_climb(now_s, drone)
 
@@ -388,6 +404,25 @@ class Mission:
         self._enter(Phase.RETURN_DESCEND, f"no odometry for {RETURN_STALE_LAND_S:.0f} s: straight down")
         return True
 
+    def _land(self, now_s: float, aim: tuple[float, float], drone: Drone | None) -> TwistCommand:
+        """The descent's twist onto `aim`, pressed at `TOUCHDOWN_PRESS_MPS` from the moment the drone
+        is on the floor until the phase ends; straight down after the return lost its odometry."""
+        if not self.on_floor and self._touched_down(now_s, drone):
+            self.on_floor = True
+            self.events.append(f"on the floor {now_s - self.offboard_at_s:.1f} s after Offboard: pressing "
+                               f"{TOUCHDOWN_PRESS_MPS:.1f} m/s down for PX4's land detector")
+
+        down_mps = TOUCHDOWN_PRESS_MPS if self.on_floor else LANDING_DESCENT_MPS
+        return landing_twist(aim, None if self.straight_down else drone, down_mps)
+
+    def _touched_down(self, now_s: float, drone: Drone | None) -> bool:
+        """Whether the tracker's height has stopped falling for `TOUCHDOWN_DWELL_S` near the floor."""
+        if drone is None:
+            return False
+
+        near_floor = drone.height_m - self.floor_height_m <= TOUCHDOWN_NEAR_FLOOR_M
+        return self._steady_for_s(now_s, drone) >= TOUCHDOWN_DWELL_S and near_floor
+
     def _disarmed_event(self, now_s: float) -> str:
         """What a disarm in a landing phase means; a disarm on the pad counts it as landed there."""
         after = f"{now_s - self.offboard_at_s:.1f} s after Offboard"
@@ -405,9 +440,11 @@ class Mission:
         return f"disarmed {miss_m:.2f} m from the launch mark {after}"
 
     def _enter(self, phase: Phase, event: str) -> None:
-        """Moves to `phase`, noting why; a new attempt starts with no follower and no return."""
+        """Moves to `phase`, noting why, its height steadiness and floor press counted afresh; a new
+        attempt starts with no follower and no return."""
         self.phase = phase
         self.events.append(event)
+        self.steady_height_m, self.on_floor = math.nan, False
         if phase is Phase.WAIT:
             self.follower, self.start, self.finished_at_s = None, None, None
             self.return_along_m, self.return_motion, self.return_finished_at_s = 0.0, EasedSpeed(0.0, 0.0), None
@@ -424,9 +461,10 @@ def _check_return(plan: ReturnPlan) -> None:
                          "COM_DISARM_LAND (5 s) after landing and the motors need about 1 s to lift")
 
 
-def landing_twist(aim: tuple[float, float], drone: Drone | None) -> TwistCommand:
-    """The descent: `LANDING_DESCENT_MPS` down, steered back over `aim` at the capped correction,
-    heading held; straight down while the drone's estimate is stale."""
+def landing_twist(aim: tuple[float, float], drone: Drone | None,
+                  down_mps: float = LANDING_DESCENT_MPS) -> TwistCommand:
+    """The descent: `down_mps` down, steered back over `aim` at the capped correction, heading held;
+    straight down while the drone's estimate is stale."""
     correction = np.zeros(2)
     if drone is not None:
         correction = LANDING_GAIN_PER_S * (np.asarray(aim) - (drone.east, drone.north))
@@ -434,4 +472,4 @@ def landing_twist(aim: tuple[float, float], drone: Drone | None) -> TwistCommand
         if size > LANDING_CORRECTION_MPS:
             correction *= LANDING_CORRECTION_MPS / size
 
-    return TwistCommand(float(correction[0]), float(correction[1]), -LANDING_DESCENT_MPS, 0.0)
+    return TwistCommand(float(correction[0]), float(correction[1]), -down_mps, 0.0)

@@ -8,7 +8,8 @@ import pytest
 
 from dronehacks_course_follower import dry_run
 from dronehacks_course_follower.follower import Drone, HeadingMode
-from dronehacks_course_follower.mission import (LANDING_CORRECTION_MPS, RETURN_CLIMBED_M, RETURN_STALE_LAND_S, Mission,
+from dronehacks_course_follower.mission import (LANDING_CORRECTION_MPS, LANDING_DESCENT_MPS, RETURN_CLIMBED_M,
+                                                RETURN_PRESS_MPS, RETURN_STALE_LAND_S, TOUCHDOWN_DWELL_S, Mission,
                                                 Phase, PoseCommand, ReturnPlan, TwistCommand, landing_twist)
 
 # PX4 counts ground contact only while the setpoint descends at 1.1 x LNDMC_Z_VEL_MAX, 0.25 m/s in
@@ -352,3 +353,69 @@ def test_the_pilot_taking_over_on_the_return_aborts_it() -> None:
     ticks = _fly_ideally(mission, stop_at=Phase.RETURN_FLY)
     assert mission.tick(ticks[-1].now_s + _PERIOD_S, offboard=False, armed=True, drone=ticks[-1].drone) is None
     assert mission.phase is Phase.ABORTED
+
+
+# A 1 m/s error through PX4's MPC_Z_VEL_P_ACC of 4 asks 4 m/s² down, past the land detector's
+# low-throttle threshold at once; the descent's 0.5 m/s waits on the integrator
+_FIRM_PRESS_MPS = 1.0
+
+
+def _sink(mission: Mission, now_s: float, drone: Drone, seconds: float, floor_m: float = 0.0,
+          landed: bool = False) -> list[tuple[float, Drone, TwistCommand]]:
+    """Ticks the mission for `seconds` against a drone that follows every twist down to `floor_m`,
+    PX4 reporting `landed` throughout; returns each tick's time, drone and command."""
+    record = []
+    for step in range(1, int(seconds / _PERIOD_S) + 1):
+        tick_s = now_s + step * _PERIOD_S
+        command = mission.tick(tick_s, offboard=True, armed=True, drone=drone, landed=landed)
+        record.append((tick_s, drone, command))
+        if isinstance(command, TwistCommand):
+            drone = Drone(drone.east, drone.north, max(drone.height_m + command.up_mps * _PERIOD_S, floor_m),
+                          drone.yaw_rad)
+
+    return record
+
+
+def test_on_the_floor_the_descent_presses_firmly_until_px4_lands() -> None:
+    mission = _mission()
+    ticks = _fly_ideally(mission, stop_at=Phase.DESCEND)
+    record = _sink(mission, ticks[-1].now_s, ticks[-1].drone, 4.0)
+    assert mission.phase is Phase.DESCEND
+
+    # All the way down at the descent's speed; the firm press only after a dwell on the floor
+    floor_s = next(tick_s for tick_s, drone, _ in record if drone.height_m <= 0.0)
+    firm = [tick_s for tick_s, _, command in record if command.up_mps <= -_FIRM_PRESS_MPS]
+    assert all(command.up_mps == -LANDING_DESCENT_MPS for tick_s, _, command in record if tick_s < floor_s)
+    assert firm and abs(firm[0] - (floor_s + TOUCHDOWN_DWELL_S)) <= 0.1
+    assert firm == [tick_s for tick_s, _, _ in record if tick_s >= firm[0]]
+
+
+def test_a_descent_held_up_above_the_floor_keeps_its_speed() -> None:
+    # A stall 0.5 m above where the drone stood at Offboard is not trusted as the floor
+    mission = _mission()
+    ticks = _fly_ideally(mission, stop_at=Phase.DESCEND)
+    record = _sink(mission, ticks[-1].now_s, ticks[-1].drone, 3.0, floor_m=0.5)
+    assert all(command.up_mps == -LANDING_DESCENT_MPS for _, _, command in record)
+
+
+def test_the_returns_rest_and_climb_follow_a_firm_press_on_the_pad() -> None:
+    mission = _returning_mission()
+    ticks = _fly_ideally(mission, stop_at=Phase.DESCEND)
+    pressed = _sink(mission, ticks[-1].now_s, ticks[-1].drone, 3.0)
+    assert pressed[-1][2].up_mps == -_FIRM_PRESS_MPS
+
+    # PX4 reports landed: the rest presses gently, then the climb lifts off the pad
+    rest = _sink(mission, pressed[-1][0], pressed[-1][1], _RETURN.rest_s + 0.2, landed=True)
+    twists = [command for _, _, command in rest if isinstance(command, TwistCommand)]
+    assert all(command == TwistCommand(0.0, 0.0, -RETURN_PRESS_MPS, 0.0) for command in twists)
+    assert len(twists) * _PERIOD_S == pytest.approx(_RETURN.rest_s, abs=2 * _PERIOD_S)
+    assert mission.phase is Phase.RETURN_CLIMB
+    assert rest[-1][2][:3] == (*_ROUTE[-1], _RETURN.height_m)
+
+
+def test_on_the_launch_mark_the_returns_descent_presses_firmly() -> None:
+    mission = _returning_mission()
+    ticks = _fly_ideally(mission, stop_at=Phase.RETURN_DESCEND)
+    record = _sink(mission, ticks[-1].now_s, ticks[-1].drone, 8.0)
+    assert record[0][2].up_mps == -LANDING_DESCENT_MPS
+    assert record[-1][2].up_mps == -_FIRM_PRESS_MPS
