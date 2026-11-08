@@ -200,10 +200,14 @@ def _window_leg(grid: CourseGrid, window: Mapping[str, Any]) -> list[tuple[float
 
 def _free(grid: CourseGrid, point_m: np.ndarray) -> bool:
     """Whether a point lies on a free cell inside the grid."""
-    column = int(round((point_m[0] - grid.origin_m[0]) / CELL_M))
-    row = int(round((point_m[1] - grid.origin_m[1]) / CELL_M))
+    row, column = _rounded_cell(grid, point_m)
     rows, columns = grid.cost.shape
     return 0 <= row < rows and 0 <= column < columns and bool(np.isfinite(grid.cost[row, column]))
+
+
+def _rounded_cell(grid: CourseGrid, point_m: tuple[float, float] | np.ndarray) -> tuple[int, int]:
+    """The (row, column) of the cell a point lies in, inside the grid or not."""
+    return int(round((point_m[1] - grid.origin_m[1]) / CELL_M)), int(round((point_m[0] - grid.origin_m[0]) / CELL_M))
 
 
 def _shortest(grid: CourseGrid, launch: tuple[float, float],
@@ -229,11 +233,19 @@ def _shortest(grid: CourseGrid, launch: tuple[float, float],
     return routes[int(np.argmin(lengths_m))]
 
 
+class _Leg(NamedTuple):
+    """A straight leg the route flies through a goal, its ends at cell centres."""
+
+    entry: tuple[float, float]          # where the route joins the leg
+    leaving: tuple[float, float]        # where it leaves
+
+
 def _through_stops(grid: CourseGrid, launch: tuple[float, float],
                    stops: list[list[tuple[float, float]]]) -> list[tuple[float, float]]:
-    """A* through the stops in order, a two-point stop's points joined by its straight leg.
-    Raises `ValueError` when a straight leg crosses a lethal cell or a stop cannot be reached."""
-    route, start, pending = [], launch, []
+    """A* through the stops in order, a two-point stop's points joined by its straight leg, and the
+    turns onto and off each leg folded onto its line. Raises `ValueError` when a straight leg
+    crosses a lethal cell or a stop cannot be reached."""
+    route, pending, behind = [launch], [], None
     for stop in stops:
         pending.append(stop[0])
         if len(stop) == 1:
@@ -244,11 +256,83 @@ def _through_stops(grid: CourseGrid, launch: tuple[float, float],
             raise ValueError(f"the leg from {stop[0]} to {stop[1]} meets a wall")
 
         # A* up to the leg's entry, then straight along it; the next stretch starts where it leaves
-        leaving_point = _point_of(grid, leaving_cell)
-        route += [*plan_route(grid, start, pending), leaving_point]
-        start, pending = leaving_point, []
+        leg = _Leg(_point_of(grid, entry_cell), _point_of(grid, leaving_cell))
+        route = [*_extended(grid, route, pending, behind, leg), leg.leaving]
+        pending, behind = [], leg
 
-    return [*route, *plan_route(grid, start, pending)]
+    return _extended(grid, route, pending, behind, None)[1:]
+
+
+def _extended(grid: CourseGrid, route: list[tuple[float, float]], goals: list[tuple[float, float]],
+              behind: _Leg | None, ahead: _Leg | None) -> list[tuple[float, float]]:
+    """The route extended by A* through `goals`, its turn off the leg `behind` its last point and
+    its turn onto the leg `ahead` of the last goal each folded onto that leg's line."""
+    stretches, start = [], route[-1]
+    for goal in goals:
+        stretches.append([start, *plan_route(grid, start, [goal])])
+        start = stretches[-1][-1]
+
+    if not stretches:
+        return route
+
+    # The departure folded as an approach flown backwards, then the approach to the next leg
+    if behind is not None:
+        stretches[0] = _folded_onto(grid, stretches[0][::-1], behind.entry)[::-1]
+    if ahead is not None:
+        stretches[-1] = _folded_onto(grid, stretches[-1], ahead.leaving)
+
+    return [*route[:-1], *stretches[0], *(point for stretch in stretches[1:] for point in stretch[1:])]
+
+
+def _folded_onto(grid: CourseGrid, points: list[tuple[float, float]],
+                 far: tuple[float, float]) -> list[tuple[float, float]]:
+    """`points`, ending at a straight leg's near end, with a corner closer than `MIN_LEG_M` before
+    that end folded into it: the end slides along the leg's line to where the leg into that corner
+    meets it, so the route turns onto the leg once instead of hooking round it in two tight turns.
+
+    A* reaches a leg's fixed end from wherever the obstacles around it leave room, often through
+    one last cell beside it; the follower rounds a corner by at most half its shorter leg, so that
+    cell's two turns become two tiny arcs flown almost at rest. The points stay as they are unless
+    the new corner lies ahead of the leg into it, no nearer `far` than a cell past the old end, and
+    the straight lines to it and on to `far` are as clear as the route they replace.
+    """
+    if len(points) < 3 or math.dist(points[-2], points[-1]) >= MIN_LEG_M:
+        return points
+
+    before, corner, end = (np.asarray(point, dtype=float) for point in points[-3:])
+    folded = _meeting_point(before, corner - before, end, np.asarray(far, dtype=float) - end)
+    if folded is None or not _free(grid, folded):
+        return points
+
+    # The straight lines into the folded corner and on along the leg, against the lines they replace.
+    # Sampled between the points themselves: the corner lies within a cell of the old end, and a
+    # line drawn to that end's cell would cut whatever the corner before it stepped round
+    replaced = [*points[-3:], far]
+    replaced_cost = max(_segment_cost(grid, first, second)
+                        for first, second in zip(replaced[:-1], replaced[1:], strict=True))
+    folded_cost = max(_segment_cost(grid, points[-3], folded), _segment_cost(grid, folded, far))
+    if folded_cost > SHORTCUT_COST_TOLERANCE * replaced_cost:
+        return points
+
+    return [*points[:-2], (float(folded[0]), float(folded[1]))]
+
+
+def _meeting_point(start: np.ndarray, heading: np.ndarray, leg_start: np.ndarray,
+                   leg_heading: np.ndarray) -> np.ndarray | None:
+    """Where the line from `start` along `heading` meets the leg's line: None where the lines are
+    parallel, the meeting lies behind `start`, or more than a cell ahead of `leg_start`."""
+    across = float(heading[0] * leg_heading[1] - heading[1] * leg_heading[0])
+    if abs(across) < 1e-9 * float(np.linalg.norm(heading) * np.linalg.norm(leg_heading)):
+        return None
+
+    # start + ahead x heading = leg_start + onward x leg_heading, solved by cross products in the plane
+    offset = leg_start - start
+    ahead = float(offset[0] * leg_heading[1] - offset[1] * leg_heading[0]) / across
+    onward_m = float(offset[0] * heading[1] - offset[1] * heading[0]) / across * float(np.linalg.norm(leg_heading))
+    if ahead <= 0.0 or onward_m > CELL_M:
+        return None
+
+    return start + ahead * heading
 
 
 def _length_m(points: list[tuple[float, float]]) -> float:
@@ -440,6 +524,15 @@ def _without_short_legs(grid: CourseGrid, cells: list[tuple[int, int]]) -> list[
             index += 1
 
     return kept
+
+
+def _segment_cost(grid: CourseGrid, start_m: tuple[float, float] | np.ndarray,
+                  end_m: tuple[float, float] | np.ndarray) -> float:
+    """The highest cell cost along the straight line between two points inside the grid, sampled
+    every half cell."""
+    samples = math.ceil(math.dist(start_m, end_m) / (CELL_M / 2)) + 1
+    rows, columns = zip(*(_rounded_cell(grid, point) for point in np.linspace(start_m, end_m, samples)), strict=True)
+    return float(grid.cost[list(rows), list(columns)].max())
 
 
 def _line_cost(grid: CourseGrid, start: tuple[int, int], end: tuple[int, int]) -> float:

@@ -49,6 +49,15 @@ The pilot taking the drone back (Offboard ends) stops it at once; it sends nothi
   the turn into the opening, about 8.7 cm toward the frame. The route is planned once, before
   take-off, so no in-flight re-plan can shorten that lead-in. The ideal dry run takes about 31 s
   with the lead-in, against 27 s without it.
+  A* reaches a leg's fixed end through whatever cell the obstacles leave, often one last cell
+  beside it: two tight turns the follower rounds with arcs of half that 5 cm leg, flown almost at
+  rest. So a corner closer than `MIN_LEG_M` to a leg's end is folded into it, the end sliding along
+  the leg's line to where the leg before meets it (never more than a cell toward the opening), when
+  the new lines are as clear as the old. Measured offline 2026-11-07 on the course with boulders,
+  approach from the east: `python -m dronehacks_course_follower.dry_run --speed 1.0` lands in
+  22.8 s against 25.4 s, slowest point within 1.2 m of the window 0.61 m/s against 0.16 m/s,
+  window crossing and nearest-wall clearance unchanged; without the boulders the route was already
+  one turn and is unchanged.
 - **Follower** (`follower.py`): corners as arcs from 0.4 m before, a speed profile within PX4's
   v1.16 default `MPC_ACC_HOR` 3, `MPC_JERK_AUTO` 4 and turn acceleration, an eased jerk-limited
   pace that slows when the drone strays toward a wall, falls behind or its heading lags, heading

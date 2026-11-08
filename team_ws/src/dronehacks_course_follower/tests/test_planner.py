@@ -11,8 +11,8 @@ import numpy as np
 import pytest
 
 from dronehacks_course_follower.follower import flown_path
-from dronehacks_course_follower.planner import (REACH_M, PlannedCourse, clearance_m, load_course_map, plan_flight,
-                                                window_passable)
+from dronehacks_course_follower.planner import (MIN_LEG_M, REACH_M, PlannedCourse, _folded_onto, build_grid,
+                                                clearance_m, load_course_map, plan_flight, window_passable)
 
 # A route waypoint counts as passing a goal within one grid cell's diagonal
 _CELL_DIAGONAL_M = 0.05 * math.sqrt(2)
@@ -36,9 +36,13 @@ def _turn(point: list[float], turn_rad: float) -> list[float]:
 
 
 def _turned(course_map: dict[str, Any], turn_rad: float) -> dict[str, Any]:
-    """The course map turned about its origin by `turn_rad`; the net is square about the origin, so
-    its bounds stay as they are for a quarter turn."""
+    """The course map turned about its origin by `turn_rad`, a whole number of quarter turns so the
+    net stays a rectangle on the grid's axes."""
     turned = copy.deepcopy(course_map)
+    west, east, south, north = course_map["bounds"]
+    corners = np.array([_turn([x, y], turn_rad) for x in (west, east) for y in (south, north)])
+    turned["bounds"] = [float(corners[:, 0].min()), float(corners[:, 0].max()), float(corners[:, 1].min()),
+                        float(corners[:, 1].max())]
     turned["segments"] = [[*_turn(segment[:2], turn_rad), *_turn(segment[2:], turn_rad)]
                           for segment in course_map["segments"]]
     turned["boulders"] = [[*_turn(boulder[:2], turn_rad), boulder[2]] for boulder in course_map["boulders"]]
@@ -112,6 +116,56 @@ def test_a_turned_course_plans_a_route_as_long_through_its_turned_goals(course_m
 
     path = flown_path(tuple(turned_launch), turned.route, turned.walls)
     assert clearance_m(path, turned.walls).min() >= REACH_M
+
+
+@pytest.mark.parametrize("quarter_turns", [0, 1, 2, 3])
+def test_the_route_turns_onto_and_off_the_windows_leg_once_from_any_side(course_map: dict[str, Any],
+                                                                         quarter_turns: int) -> None:
+    turned_map = _turned(course_map, quarter_turns * math.pi / 2)
+    route = [tuple(turned_map["launch"][:2]), *plan_flight(turned_map, allow_window=True).route]
+    entry = _window_leg_start(turned_map, route)
+
+    # A leg shorter than the planner's own shortest beside either end is a hook: two tight turns
+    # the follower can only round with tiny arcs, flown almost at rest
+    assert math.dist(route[entry - 1], route[entry]) >= MIN_LEG_M
+    if entry + 2 < len(route):
+        assert math.dist(route[entry + 1], route[entry + 2]) >= MIN_LEG_M
+
+
+def _window_leg_start(course_map: dict[str, Any], route: list[tuple[float, float]]) -> int:
+    """The index of the route point starting the leg that crosses the window's plane inside its opening."""
+    window = course_map["goals"]["window"]
+    along = np.asarray(window["along"])
+    offsets = np.array(route) - np.asarray(window["at"])
+    across, beside = offsets @ np.array([-along[1], along[0]]), offsets @ along
+    for index in range(len(route) - 1):
+        if across[index] * across[index + 1] < 0 and max(abs(beside[index:index + 2])) < window["size_m"][0]:
+            return index
+
+    raise AssertionError("the route never crosses the window's opening")
+
+
+def test_a_corner_a_cell_before_a_legs_entry_is_folded_onto_the_legs_line() -> None:
+    grid = build_grid(np.empty((0, 4)), [], (-2.0, 3.0, -2.0, 2.0), 0.0)
+
+    # Arriving from the north-east through a last cell just north of a leg flown east
+    approach = [(1.0, 0.8), (0.5, 0.05), (0.5, 0.0)]
+    folded = _folded_onto(grid, approach, (1.9, 0.0))
+
+    # The corner is gone and the entry slid back along the leg's line to where the approach's
+    # line meets it: 5 cm further down a line falling 0.75 for every 0.5 it runs west
+    assert len(folded) == 2 and folded[0] == approach[0]
+    assert folded[1][1] == pytest.approx(0.0, abs=1e-9)
+    assert folded[1][0] == pytest.approx(0.5 - 0.05 * 0.5 / 0.75)
+
+
+def test_a_fold_never_moves_a_legs_entry_towards_its_far_end() -> None:
+    grid = build_grid(np.empty((0, 4)), [], (-2.0, 3.0, -2.0, 2.0), 0.0)
+
+    # A shallow approach meets the leg's line 11 cm past its entry, more than a cell: folding would
+    # shorten the straight the leg exists to give, so the approach is left as planned
+    approach = [(-1.0, 0.5), (0.45, 0.05), (0.5, 0.0)]
+    assert _folded_onto(grid, approach, (1.9, 0.0)) == approach
 
 
 def _length_m(points: list[tuple[float, float]]) -> float:
