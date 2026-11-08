@@ -157,6 +157,14 @@ descent on, so the rangefinder's floor error on the pad and its steps over the w
 reach a setpoint. A lost odometry on the return holds 3 s, then goes straight down. A run that
 landed on the pad climbs the speed ladder even if the return fails.
 
+Flown once in Michael Bar On's PX4 v1.16.1 SITL (2026-11-07, the older v3 course map, organisers'
+0.3.3 interface at 10 Hz, `COM_DISARM_LAND` 5 set in SITL, `return_home:=true`, ladder speed
+0.5 m/s), scored from PX4's ground truth: it lifted off the pad 2.95 s after PX4 reported landed (no
+disarm on the pad), peaked 2.18 m up with 37 cm to the nearest wall, the slide began on the settle
+rule at 2.13 m by the tracker, PX4's height estimate ran 0.15-0.27 m above truth with no step over
+the wall tops (largest per-sample change 3 mm), and it disarmed 0.11 m from the launch mark 126 s
+after arming (the return itself 31 s). Not yet flown on the drone.
+
 ```bash
 ros2 launch dronehacks_course_follower competitor.launch.py return_home:=true
 ros2 run dronehacks_course_follower dry_run --return-home      # reports the landing's distance from the mark
