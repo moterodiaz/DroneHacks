@@ -1,359 +1,534 @@
-// Team 08 technical presentation (8 slides). Rules: docs/presentation/DESIGN.md.
-// Numbers come from technical-corpus/TECHNICAL_CORPUS.md; each carries a FLOWN / SITL / MODEL chip.
-//   NODE_PATH=<dir with pptxgenjs, react, react-dom, react-icons, sharp> node docs/presentation/build_deck.js
-//   SLIDES=5 builds only the first five (batch review).
+// Team 08 technical presentation: 7 slides, engineering-report style, ASD-STE100 text.
+// Rules: docs/presentation/DESIGN.md. Facts: technical-corpus/TECHNICAL_CORPUS.md.
+//   NODE_PATH=<dir with pptxgenjs> APPLY_THEME=<pptx skill>/scripts/apply_theme.js node docs/presentation/build_deck.js
 const path = require("path");
 const pptxgen = require("pptxgenjs");
-const React = require("react");
-const ReactDOMServer = require("react-dom/server");
-const sharp = require("sharp");
-const fa = require("react-icons/fa");
 
 const HERE = __dirname;
 const OUT = path.join(HERE, "DroneHacks-Team08-technical.pptx");
-const APPLY_THEME = process.env.APPLY_THEME; // path to the pptx skill's scripts/apply_theme.js
-const LIMIT = Number(process.env.SLIDES || 8);
+const N = 7;
 
 const THEME = {
-  name: "Team 08 Night Arena",
+  name: "Team 08 Report",
   headFontFace: "Arial",
-  bodyFontFace: "Calibri",
+  bodyFontFace: "Arial",
   colors: {
-    dk1: "0E1A2B", lt1: "FFFFFF", dk2: "3D4B5C", lt2: "EEF2F6",
-    accent1: "F26B1D", accent2: "3F6E9E", accent3: "2BA36B", accent4: "C9D6E3",
-    accent5: "8A97A6", accent6: "D64545", hlink: "3F6E9E", folHlink: "8A97A6",
+    dk1: "111111", lt1: "FFFFFF", dk2: "4D4D4D", lt2: "F2F2F2",
+    accent1: "B42318", accent2: "1F3A5F", accent3: "2E7D32", accent4: "BFBFBF",
+    accent5: "808080", accent6: "E6E6E6", hlink: "1F3A5F", folHlink: "808080",
   },
 };
 const HEX = THEME.colors;
 
 const pres = new pptxgen();
-pres.layout = "LAYOUT_16x9"; // 10 x 5.625 in
+pres.layout = "LAYOUT_WIDE"; // 13.333 x 7.5 in
 pres.author = "Team 08";
-pres.title = "Drone 11 flies the course by itself";
+pres.title = "skybeta-11 autonomy: stack, approach, results";
 pres.theme = { headFontFace: THEME.headFontFace, bodyFontFace: THEME.bodyFontFace };
 const C = pres.SchemeColor;
-const INK = C.text1, SLATE = C.text2, PAPER = C.background1, MIST = C.background2;
-const ORANGE = C.accent1, STEEL = C.accent2, GO = C.accent3, ICE = C.accent4, GRAY = C.accent5, STOP = C.accent6;
+const INK = C.text1, GREY = C.text2, TINT = C.background2, BLUE = C.accent2, MUTE = C.accent5;
 
-// ---------- layouts ----------
-const FOOT = "Team 08  ·  skybeta-11  ·  DroneHacks 2026";
+const L = 0.45, R = 13.333 - 0.45, W = R - L;
 pres.defineSlideMaster({
-  title: "DARK_TITLE",
-  background: { color: INK },
+  title: "REPORT",
+  background: { color: C.background1 },
   objects: [
-    { placeholder: { options: { name: "title", type: "title", x: 0.5, y: 1.2, w: 5.2, h: 1.6, fontFace: "Arial", fontSize: 38, bold: true, color: PAPER, align: "left", valign: "top", margin: 0 }, text: "" } },
+    { placeholder: { options: { name: "title", type: "title", x: L, y: 0.52, w: W, h: 0.5, fontFace: "Arial", fontSize: 22, bold: true, color: INK, align: "left", valign: "middle", margin: 0 }, text: "" } },
+    { text: { text: "Team 08  ·  skybeta-11  ·  DroneHacks 2026", options: { x: L, y: 7.1, w: 4, h: 0.22, fontFace: "Arial", fontSize: 9, color: MUTE, margin: 0 } } },
+    { text: { text: "[F] flown on skybeta-11   [S] our SITL   [M] model, bench or test", options: { x: 4.6, y: 7.1, w: 5.5, h: 0.22, fontFace: "Arial", fontSize: 9, color: MUTE, align: "center", margin: 0 } } },
   ],
-});
-pres.defineSlideMaster({
-  title: "DARK_CLOSE",
-  background: { color: INK },
-  objects: [
-    { placeholder: { options: { name: "title", type: "title", x: 0.5, y: 0.45, w: 9.0, h: 0.8, fontFace: "Arial", fontSize: 36, bold: true, color: PAPER, align: "left", valign: "middle", margin: 0 }, text: "" } },
-  ],
-});
-pres.defineSlideMaster({
-  title: "CONTENT",
-  background: { color: PAPER },
-  margin: [0.5, 0.5, 0.5, 0.5],
-  objects: [
-    { placeholder: { options: { name: "title", type: "title", x: 0.5, y: 0.32, w: 9.0, h: 0.7, fontFace: "Arial", fontSize: 36, bold: true, color: INK, align: "left", valign: "middle", margin: 0 }, text: "" } },
-    { text: { text: FOOT, options: { x: 0.5, y: 5.22, w: 6, h: 0.25, fontFace: "Calibri", fontSize: 10, color: GRAY, margin: 0 } } },
-  ],
-  slideNumber: { x: 9.0, y: 5.22, w: 0.5, h: 0.25, fontFace: "Calibri", fontSize: 10, color: GRAY, align: "right" },
+  slideNumber: { x: R - 0.6, y: 7.1, w: 0.6, h: 0.22, fontFace: "Arial", fontSize: 9, color: MUTE, align: "right" },
 });
 
 // ---------- helpers ----------
-async function icon(Comp, hex, size = 256) {
-  const svg = ReactDOMServer.renderToStaticMarkup(React.createElement(Comp, { color: "#" + hex, size: String(size) }));
-  const buf = await sharp(Buffer.from(svg)).png().toBuffer();
-  return "image/png;base64," + buf.toString("base64");
-}
-const T = (o) => Object.assign({ isTextBox: true, margin: 0, fontFace: "Calibri", valign: "top" }, o);
+const T = (o) => Object.assign({ isTextBox: true, margin: 0, fontFace: "Arial", valign: "top", color: INK }, o);
+const MONO = "Courier New";
 
-function waypoint(slide, x, y, n, d = 0.42) {
-  slide.addShape(pres.shapes.OVAL, { x, y, w: d, h: d, fill: { color: INK }, line: { color: ORANGE, width: 2.25 }, objectName: `waypoint ${n}` });
-  slide.addText(String(n), T({ x, y, w: d, h: d, fontFace: "Arial", fontSize: d > 0.4 ? 15 : 12, bold: true, color: PAPER, align: "center", valign: "middle" }));
-}
-const CHIP = { FLOWN: ORANGE, SITL: STEEL, MODEL: GRAY };
-function chip(slide, x, y, kind, w = 0.62) {
-  slide.addShape(pres.shapes.ROUNDED_RECTANGLE, { x, y, w, h: 0.22, rectRadius: 0.11, fill: { color: CHIP[kind] }, line: { type: "none" }, objectName: `source ${kind}` });
-  slide.addText(kind, T({ x, y, w, h: 0.22, fontFace: "Arial", fontSize: 9, bold: true, color: PAPER, align: "center", valign: "middle", charSpacing: 1 }));
-}
-function card(slide, x, y, w, h, fill = MIST, name = "card") {
-  slide.addShape(pres.shapes.ROUNDED_RECTANGLE, { x, y, w, h, rectRadius: 0.08, fill: { color: fill }, line: { type: "none" }, objectName: name });
-}
-function content(title, section) {
-  const s = pres.addSlide({ masterName: "CONTENT", sectionTitle: section });
+function slide(n, label, title, section) {
+  const s = pres.addSlide({ masterName: "REPORT", sectionTitle: section });
+  s.addText(`${n}/${N}   ${label}`, T({ x: L, y: 0.28, w: 6, h: 0.22, fontSize: 10, bold: true, color: MUTE, charSpacing: 1 }));
   s.addText(title, { placeholder: "title" });
   return s;
 }
-
-async function build() {
-  const IC = {
-    cam: await icon(fa.FaCamera, HEX.lt1), eye: await icon(fa.FaCrosshairs, HEX.lt1), nav: await icon(fa.FaRoute, HEX.lt1),
-    gate: await icon(fa.FaShieldAlt, HEX.lt1), px4: await icon(fa.FaCogs, HEX.lt1),
-  };
-  const slides = [];
-
-  // ===== 1. Title (dark) =====
-  slides.push(() => {
-    pres.addSection({ title: "Opening" });
-    const s = pres.addSlide({ masterName: "DARK_TITLE", sectionTitle: "Opening" });
-    s.addText("TEAM 08  ·  DRONEHACKS 2026  ·  8 NOV", T({ x: 0.5, y: 0.7, w: 5.2, h: 0.3, fontFace: "Arial", fontSize: 11, bold: true, color: ORANGE, charSpacing: 2 }));
-    s.addText("Drone 11 flies the course by itself", { placeholder: "title" });
-    s.addText("Map in, route out: no GPS, no route typed into code. A stereo camera, a planner and PX4 on skybeta-11.",
-      T({ x: 0.5, y: 3.0, w: 5.0, h: 0.75, fontSize: 16, color: ICE }));
-    const stats = [["0", "course coordinates in code"], ["7", "navigation designs, measured"], ["~800", "tests across the repo"]];
-    stats.forEach(([n, l], i) => {
-      const x = 0.5 + i * 1.75;
-      s.addText(n, T({ x, y: 3.95, w: 1.6, h: 0.55, fontFace: "Arial", fontSize: 30, bold: true, color: ORANGE }));
-      s.addText(l, T({ x, y: 4.5, w: 1.55, h: 0.5, fontSize: 11, color: ICE }));
-    });
-    card(s, 6.05, 0.55, 3.45, 3.85, PAPER, "route card");
-    s.addImage({ path: path.join(HERE, "assets", "route-taped-2026-11-08.png"), x: 6.15, y: 0.65, w: 3.25, h: 3.28, altText: "Planned stop-and-go route on the taped 2026-11-08 course map: launch, corridor, tunnel, window, pad." });
-    s.addText("Our planner\u2019s route on the taped course", T({ x: 6.15, y: 4.0, w: 3.25, h: 0.45, fontSize: 11, color: SLATE }));
-    s.addNotes(
-`(45 s) We are Team 08. Our drone, skybeta-11, flies this course by itself: no GPS, and no route typed into the code.
-The one idea to remember: map in, route out. The course lives in one map file; everything else is the same code on any course.
-Three numbers: zero course coordinates in our source (a test enforces it), seven navigation designs we built and measured against each other, and about 800 tests.
-The picture is the actual route our planner produced on the course as we taped it this morning: launch, the corridor under the north wall, the tunnel, the window, the pad.`);
-  });
-
-  // ===== 2. Autonomy design =====
-  slides.push(() => {
-    pres.addSection({ title: "Autonomy design" });
-    const s = content("Four parts, one moving target", "Autonomy design");
-    const boxes = [
-      ["EYES", "OAK-D S2", "Stereo pairs, 30 per second", IC.cam, false],
-      ["SENSE OF PLACE", "cuVSLAM", "Pose from images, relative to start", IC.eye, false],
-      ["NAVIGATOR", "Our node", "Plans the route, moves the setpoint, 50 Hz", IC.nav, true],
-      ["GATEKEEPER", "Flight interface", "Organisers' limits: 0.3–3 m, ≤1.5 m/s", IC.gate, false],
-      ["REFLEXES", "PX4", "Chases the setpoint, drives motors", IC.px4, false],
-    ];
-    const w = 1.64, g = 0.2, y = 1.3, h = 1.75;
-    boxes.forEach(([role, name, det, ic, ours], i) => {
-      const x = 0.5 + i * (w + g);
-      card(s, x, y, w, h, ours ? INK : MIST, `stage ${name}`);
-      s.addShape(pres.shapes.OVAL, { x: x + 0.15, y: y + 0.15, w: 0.42, h: 0.42, fill: { color: ours ? ORANGE : SLATE }, line: { type: "none" } });
-      s.addImage({ data: ic, x: x + 0.25, y: y + 0.25, w: 0.22, h: 0.22, altText: name + " icon" });
-      s.addText(role, T({ x: x + 0.15, y: y + 0.66, w: w - 0.25, h: 0.22, fontFace: "Arial", fontSize: 9, bold: true, color: ORANGE, charSpacing: 1 }));
-      s.addText(name, T({ x: x + 0.15, y: y + 0.88, w: w - 0.25, h: 0.3, fontSize: 15, bold: true, color: ours ? PAPER : INK }));
-      s.addText(det, T({ x: x + 0.15, y: y + 1.18, w: w - 0.25, h: 0.52, fontSize: 11, color: ours ? ICE : SLATE }));
-      if (i < 4) s.addShape(pres.shapes.LINE, { x: x + w + 0.02, y: y + h / 2, w: g - 0.04, h: 0, line: { color: SLATE, width: 1.5, endArrowType: "triangle" } });
-    });
-    // phases
-    s.addText("ONE FLIGHT", T({ x: 0.5, y: 3.32, w: 2, h: 0.22, fontFace: "Arial", fontSize: 10, bold: true, color: SLATE, charSpacing: 2 }));
-    const ph = [["WAIT", "rest on mark"], ["CLIMB", "to 1.23 m"], ["FLY", "the route"], ["DESCEND", "to pad"], ["RETURN", "at 2.3 m"]];
-    const pw = 1.64;
-    ph.forEach(([p, d], i) => {
-      const x = 0.5 + i * (pw + g);
-      s.addShape(pres.shapes.ROUNDED_RECTANGLE, { x, y: 3.6, w: pw, h: 0.5, rectRadius: 0.25, fill: { color: PAPER }, line: { color: i === 2 ? ORANGE : ICE, width: 1.5 }, objectName: `phase ${p}` });
-      s.addText([{ text: p, options: { bold: true, color: INK, fontFace: "Arial", fontSize: 11 } }, { text: "  " + d, options: { color: SLATE, fontSize: 11 } }],
-        T({ x, y: 3.6, w: pw, h: 0.5, align: "center", valign: "middle" }));
-    });
-    s.addText([{ text: "We never touch the motors. ", options: { bold: true, color: INK } }, { text: "Our code only moves a target point, and PX4 chases it.", options: { color: SLATE } }],
-      T({ x: 0.5, y: 4.4, w: 4.4, h: 0.6, fontSize: 14 }));
-    s.addText([{ text: "LOST: ", options: { bold: true, color: STOP } }, { text: "a pose that jumps 0.3\u00A0m at over 3\u00A0m/s is not real, so the drone goes straight down.", options: { color: SLATE } }],
-      T({ x: 5.1, y: 4.4, w: 4.4, h: 0.6, fontSize: 14 }));
-    s.addNotes(
-`(50 s) Think of a car with four people in it, each listening only to the one next to it. The camera is the eyes. NVIDIA's cuVSLAM turns images into a pose, but only relative to where it started. Our node is the navigator: it knows the map and moves a target point along the route 50 times a second. PX4 is the reflexes.
-Between us and PX4 sits the organisers' flight interface; it clamps height to 0.3–3 m and speed to 1.5 m/s. Above everyone is the safety pilot.
-A flight: wait on the launch mark, climb to 1.23 m (the window's measured centre), fly, descend onto the pad; the return is the last ladder rung.
-Design choice: we never command motors directly (MonoRace-style direct-to-motor was assessed and rejected; it throws away PX4's tested control).
-Q: Why not a learned policy? A: The PX4 cascade is already a good controller; our problem was knowing where the walls are, not stabilising.`);
-  });
-
-  // ===== 3. Planning =====
-  slides.push(() => {
-    pres.addSection({ title: "Planning and execution" });
-    const s = content("Map in, route out", "Planning and execution");
-    const steps = [
-      ["The map is data", "Walls, goals and their order, from the STEP CAD, corrected with tape where the course differs."],
-      ["Keep 0.32 m clear", "5 cm grid; 0.28 m prop reach + 0.04 m. Rocks grow by the rangefinder's 27° cone."],
-      ["A* between goals", "Tunnel flown straight from 0.75 m outside each mouth; window crossed on its normal at 1.23 m."],
-      ["Fly it, slow first", "Stop-and-go at 0.3 m/s: hold within 0.15 m, settle 1 s, turn in place, go."],
-    ];
-    steps.forEach(([h, d], i) => {
-      const y = 1.25 + i * 0.95;
-      waypoint(s, 0.5, y, i + 1);
-      s.addText(h, T({ x: 1.1, y: y - 0.02, w: 4.3, h: 0.3, fontSize: 16, bold: true, color: INK }));
-      s.addText(d, T({ x: 1.1, y: y + 0.29, w: 4.3, h: 0.58, fontSize: 13, color: SLATE }));
-    });
-    s.addImage({ path: path.join(HERE, "assets", "route-taped-2026-11-08.png"), x: 6.03, y: 1.15, w: 3.47, h: 3.5, altText: "Stop-and-go route through the window at 1.23 m on the tape-measured 8 Nov map. Pale red is the no-fly zone for the drone's centre; purple waypoints 0 to 8; red cross where run 1 hit the north wall." });
-    chip(s, 6.03, 4.8, "SITL");
-    s.addText("109 s, window ±7 cm, pad ±7 cm", T({ x: 6.73, y: 4.8, w: 2.9, h: 0.22, fontSize: 10, color: SLATE, valign: "middle" }));
-    s.addNotes(
-`(50 s) Both of our main stacks share this planning core. The map is data: walls, goals and the order to pass them, generated from the organisers' STEP CAD by our own parser, which fails closed on anything ambiguous. Where the real course differs, we tape-measure and correct the map, which the rules allow.
-The drone's centre must stay 0.32 m from any wall: 0.28 m prop reach plus 4 cm. Rocks are inflated by the rangefinder's 27-degree cone, because if the beam sees a rock top, PX4 thinks the floor jumped 0.53 m and climbs.
-A* searches between goals. Openings are straight legs: the tunnel from 0.75 m outside each mouth, the window on its normal. In 39 SITL flights the window was the closest pass in 21 until we added the straight lead-in.
-We fly stop-and-go first. In SITL on this map: 109 s, no touches, window crossed within 7 cm of centre, landed within 7 cm of the pad.
-Q: Why A* and not RRT? A: 2-D, known map, 5 cm grid, optimal and deterministic, plans in under a second in pure Python on the stock image.`);
-  });
-
-  // ===== 4. Execution and safety =====
-  slides.push(() => {
-    const s = content("Earn speed one rung at a time", "Planning and execution");
-    const rungs = [["stop", "0.3"], ["", "0.5"], ["", "0.7"], ["", "0.85"], ["", "1.0"], ["+ return", "1.0"]];
-    const bx = 0.5, base = 4.75, bw = 0.7, gap = 0.1;
-    rungs.forEach(([tag, v], i) => {
-      const hh = 0.62 + i * 0.43, x = bx + i * (bw + gap);
-      s.addShape(pres.shapes.RECTANGLE, { x, y: base - hh, w: bw, h: hh, fill: { color: i === 0 ? ORANGE : (i === 5 ? INK : ICE) }, line: { type: "none" }, objectName: `rung ${i}` });
-      s.addText(v, T({ x, y: base - hh + 0.08, w: bw, h: 0.3, fontFace: "Arial", fontSize: 14, bold: true, color: i === 0 || i === 5 ? PAPER : INK, align: "center" }));
-      if (tag) s.addText(tag, T({ x, y: base - hh + 0.36, w: bw, h: 0.22, fontSize: 10, color: i === 0 || i === 5 ? PAPER : INK, align: "center" }));
-    });
-    s.addText("m/s, set by hand between runs", T({ x: 0.5, y: 4.82, w: 4.6, h: 0.25, fontSize: 11, color: SLATE }));
-    s.addText([{ text: "A crash never costs more than one rung. ", options: { bold: true, color: INK } }, { text: "Step 0 flies today; the next rung only after a clean landing.", options: { color: SLATE } }],
-      T({ x: 0.5, y: 1.2, w: 4.6, h: 0.7, fontSize: 14 }));
-    const guards = [
-      ["Before Offboard", "Rest 2 s within 2 cm and 1°. PX4 and camera agree within 0.3 m, or nothing is sent.", null],
-      ["In flight", "Setpoint leashed 0.3 m ahead of the drone. Any stick input hands control to the pilot for good.", null],
-      ["Our own PX4 mode", "DH Bailout stops in 0.37–0.39 m; stock Land needs 0.54–0.59 m.", "SITL"],
-    ];
-    guards.forEach(([h, d, k], i) => {
-      const y = 1.2 + i * 1.27;
-      card(s, 5.45, y, 4.05, 1.12, MIST, `guard ${h}`);
-      s.addText(h, T({ x: 5.65, y: y + 0.13, w: 2.8, h: 0.3, fontSize: 15, bold: true, color: INK }));
-      if (k) chip(s, 8.7, y + 0.16, k);
-      s.addText(d, T({ x: 5.65, y: y + 0.46, w: 3.7, h: 0.6, fontSize: 13, color: SLATE }));
-    });
-    s.addNotes(
-`(45 s) Execution rule: earn speed. The ladder is stop-and-go at 0.3 m/s, then smooth runs at 0.5, 0.7, 0.85, 1.0, then 1.0 with the return home for the 1.25 multiplier. The rung lives in a file on the drone and moves only by hand, because the stack launches our code with no arguments and the code cannot see a wall touch.
-Guards: before Offboard the drone must rest on the mark, and PX4's position must agree with the camera's within 0.3 m (that check exists because PX4 and the camera disagreed by 0.72 m in height once). In flight the setpoint is leashed 0.3 m ahead, so PX4 never sees a far target; in the organisers' lab, step setpoints overshot 38–60 cm.
-DH Bailout is our own flight mode compiled into PX4: it runs on the flight controller with no Jetson, and wins the setpoint race against the kit's 10 Hz stream. Flashed on skybeta-11, but not on the mode switch until organiser permission is recorded.`);
-  });
-
-  // ===== 5. Testing =====
-  slides.push(() => {
-    pres.addSection({ title: "Testing" });
-    const s = content("Every failure became a fix", "Testing");
-    chip(s, 7.0, 0.56, "FLOWN");
-    s.addText("skybeta-11 logs", T({ x: 7.7, y: 0.56, w: 1.8, h: 0.22, fontSize: 11, color: SLATE, valign: "middle" }));
-    const hdr = (t) => ({ text: t, options: { bold: true, color: PAPER, fill: { color: INK }, fontFace: "Arial", fontSize: 11 } });
-    const cell = (t, o = {}) => ({ text: t, options: Object.assign({ color: INK, fontSize: 13 }, o) });
-    const rows = [
-      [hdr("WHAT HAPPENED"), hdr("WHAT THE LOGS SHOWED"), hdr("WHAT WE CHANGED")],
-      [cell("Asked for 0.74 m, flew at 1.33 m", { bold: true }), cell("PX4 and camera measured height from different zeros", { color: SLATE }), cell("Measure the gap; add it to every setpoint")],
-      [cell("Run 1 hit the north wall", { bold: true }), cell("The hit was 24 inches inside the net: a wall no map had", { color: SLATE }), cell("Taped it; the map moved to the real wall")],
-      [cell("Every scored-session flight ended early", { bold: true }), cell("Each ended on a stick input; 3–8 cm from setpoint until then", { color: SLATE }), cell("Hands off in Offboard; route 0.61 m off the wall")],
-      [cell("Tracker jumped metres after a hand landing", { bold: true }), cell("Pose logs: a jump no drone can fly", { color: SLATE }), cell("LOST phase: straight down; restart after handling")],
-    ];
-    s.addTable(rows, { x: 0.5, y: 1.2, w: 9.0, colW: [2.75, 3.4, 2.85], fontFace: "Calibri", border: { type: "solid", pt: 0.75, color: HEX.accent4 }, fill: { color: HEX.lt1 }, margin: [0.06, 0.1, 0.06, 0.1], rowH: [0.34, 0.66, 0.66, 0.66, 0.66], valign: "middle" });
-    s.addText([{ text: "The map was wrong, not the localization. ", options: { bold: true, color: ORANGE } }, { text: "Until the pilot's input at 66.2 s, the drone held 3–8 cm from its setpoint.", options: { color: INK } }],
-      T({ x: 0.5, y: 4.45, w: 9.0, h: 0.55, fontSize: 15 }));
-    s.addNotes(
-`(55 s) This is our evidence of testing. Each row: what happened on the real drone, what the bag and PX4 log showed, what changed.
-Height: the first square test asked for 0.74 m and flew 1.33 m, because PX4 measures height from the rangefinder and cuVSLAM from where it started. We now measure that gap and add it to every setpoint, and refuse to fly above 0.3 m disagreement.
-Run 1 hit a wall 24 inches inside the north net that wasn't in any drawing. The log located the hit to inches, so we taped the wall and moved the map.
-In the first scored session, every flight ended because a stick moved; the organisers configured stick override. In the crash, the logs show the drone 3 to 8 cm from its setpoint, no contact, until pilot input at 66.2 s. So the localisation and controller were fine; the map and the procedure were the fixes.
-Not on the slide: run 2 turned early after the tunnel because the yaw began when the setpoint arrived while the drone trailed 0.25 m. Turns now wait for the drone itself.`);
-  });
-
-  // ===== 6. Experiments and originality =====
-  slides.push(() => {
-    pres.addSection({ title: "Experiments" });
-    const s = content("Ideas tested against each other", "Experiments");
-    // Drawn as shapes, not a chart object: Keynote's import drops pptxgenjs charts (DESIGN.md).
-    s.addText("Feed-forward velocity tracking: 59 s → 30 s", T({ x: 0.5, y: 1.2, w: 4.6, h: 0.3, fontSize: 15, bold: true, color: INK }));
-    const bars = [["Plain", "poses", 59], ["Velocity", "0.5 m/s", 42], ["Velocity", "0.8 m/s", 32], ["Velocity", "1.0 m/s", 30]];
-    const base = 4.15, scale = 2.2 / 60, bw2 = 0.85, bg = 0.3, x0 = 0.75;
-    bars.forEach(([a, b, v], i) => {
-      const x = x0 + i * (bw2 + bg), hh = v * scale;
-      s.addShape(pres.shapes.RECTANGLE, { x, y: base - hh, w: bw2, h: hh, fill: { color: i === 0 ? ICE : (i === 3 ? ORANGE : STEEL) }, line: { type: "none" }, objectName: `bar ${a} ${b}` });
-      s.addText(v + " s", T({ x: x - 0.1, y: base - hh - 0.34, w: bw2 + 0.2, h: 0.3, fontFace: "Arial", fontSize: 14, bold: true, color: INK, align: "center" }));
-      s.addText(a + "\n" + b, T({ x: x - 0.12, y: base + 0.08, w: bw2 + 0.24, h: 0.42, fontSize: 11, color: SLATE, align: "center" }));
-    });
-    s.addShape(pres.shapes.LINE, { x: 0.6, y: base, w: 4.4, h: 0, line: { color: ICE, width: 1 } });
-    chip(s, 0.5, 4.8, "SITL");
-    s.addText("Window route, dark tunnel, no touches", T({ x: 1.2, y: 4.8, w: 3.6, h: 0.22, fontSize: 10, color: SLATE, valign: "middle" }));
-    const items = [
-      ["Our own simulator", "Runs the kit's code unmodified on ported PX4 loops. Found 12 issues before the drone did, including a 0.18 s latency cliff.", "SITL"],
-      ["Through the dark tunnel", "cuVSLAM goes blind for 3.1 s. We coast 1.55 m on PX4's velocity, then re-anchor.", "SITL"],
-      ["Heading: an open question", "Fixed heading starved cuVSLAM, with the wall 0.4 m from the camera. Pathfly holds east because its 8 cm margins need it.", "SITL"],
-    ];
-    items.forEach(([h, d, k], i) => {
-      const y = 1.2 + i * 1.27;
-      waypoint(s, 5.45, y + 0.02, i + 1, 0.36);
-      s.addText(h, T({ x: 5.95, y, w: 2.75, h: 0.3, fontSize: 15, bold: true, color: INK }));
-      chip(s, 8.88, y + 0.04, k);
-      s.addText(d, T({ x: 5.95, y: y + 0.33, w: 3.55, h: 0.82, fontSize: 13, color: SLATE }));
-    });
-    s.addNotes(
-`(50 s) We built competing designs in parallel and measured them in the same simulator: seven navigation designs in all.
-Chart: plain position setpoints crawl, because PX4 trails a moving pose by v over kp, and relaxing the governor made it cut corners. Flying the trajectory by velocity, with feed-forward 0.55 s ahead (PX4's velocity-loop lag) plus a pull back onto the path, took the window route from 59 s to 30 s with no touches. Our best line is 30.9–33.7 s at 2 m/s, SITL only.
-The simulator is our own: it runs the organisers' kit code unmodified (the kit's 149 unit tests pass on it) with PX4's control loops ported, EKF2 behaviour and cuVSLAM tracking raycast against the STEP mesh. It found the dark-tunnel failure and the latency cliff before the drone did.
-Dark tunnel: every follower that held still lost Offboard. We coast on PX4's own velocity for up to 4 s; cuVSLAM comes back after 1.3–3.3 s.
-Heading: our two packages disagree, each for a measured reason. Turning costs 10–20 cm of drift; never turning made the camera stare at a wall and lose tracking; pathfly's planner margins assume a fixed rectangular footprint. That's an A/B we haven't flown yet.`);
-  });
-
-  // ===== 7. Generality =====
-  slides.push(() => {
-    pres.addSection({ title: "Generality" });
-    const s = content("A new course is a new map file", "Generality");
-    const tiles = [["12/12", "random layouts flown clean; hand route 0/12", "MODEL"], ["20/20", "boulder layouts planned clear; hand route 6/20", "SITL"], ["8/9", "never-seen layouts finished in PX4 SITL", "SITL"], ["17/17", "planted bugs caught by the tests", "MODEL"]];
-    const tw = 2.1, tg = 0.2;
-    tiles.forEach(([n, l, k], i) => {
-      const x = 0.5 + i * (tw + tg);
-      card(s, x, 1.2, tw, 1.45, MIST, `stat ${n}`);
-      s.addText(n, T({ x: x + 0.15, y: 1.3, w: tw - 0.3, h: 0.55, fontFace: "Arial", fontSize: 28, bold: true, color: i === 0 ? ORANGE : INK }));
-      s.addText(l, T({ x: x + 0.15, y: 1.86, w: tw - 0.3, h: 0.5, fontSize: 12, color: SLATE }));
-      chip(s, x + 0.15, 2.33, k);
-    });
-    const col = (x, head, colr, items) => {
-      s.addShape(pres.shapes.OVAL, { x, y: 2.95, w: 0.2, h: 0.2, fill: { color: colr }, line: { type: "none" } });
-      s.addText(head, T({ x: x + 0.32, y: 2.92, w: 4.0, h: 0.3, fontSize: 15, bold: true, color: INK }));
-      s.addText(items.map((t, i) => ({ text: t, options: { bullet: { indent: 14 }, breakLine: i < items.length - 1, paraSpaceAfter: 4 } })),
-        T({ x, y: 3.3, w: 4.3, h: 1.75, fontSize: 13, color: SLATE }));
-    };
-    col(0.5, "Carries over unchanged", GO, [
-      "No coordinate in code: a test greps our source for map numbers and wall names",
-      "Planner, tunnel and window handling, every safety gate",
-      "Clearances from the drone's size; course placed from its rest on the mark",
-    ]);
-    col(5.2, "Course-specific, and we say so", STOP, [
-      "The map file: CAD plus tape-measured corrections",
-      "The corridor goal added after the north-wall crash",
-      "Pathfly's precomputed route and east heading: rerun plan_path.py",
-    ]);
-    s.addNotes(
-`(50 s) Generality is 15 points, and the AI review will flag hard-coding, so here is the evidence and the honest list.
-No route, waypoint or timing is in code. Each package has a test that greps its own source for any coordinate in the map and any wall name; a planted literal makes it fail.
-On 21 maps through the generic package, including 12 random layouts, the planner flew all of them clean; the hand-structured waypoint version could plan none of the random ones. Pre-event, with boulders moved at random, 20 of 20 planned clear against 6 of 20 for a hand route, and the same planner finished 8 of 9 PX4 SITL flights on layouts it had never seen. Mutation testing: all 17 planted bugs were caught.
-Course-specific, said before you find it: the map file itself, including tape corrections; a corridor goal we added after the crash to keep 0.61 m off the north wall; and jsun's pathfly package flies a precomputed route at a fixed heading, which on a new course means rerunning the planner on the new STEP file. Limit: the map is trusted; nothing senses walls in flight.`);
-  });
-
-  // ===== 8. Close (dark) =====
-  slides.push(() => {
-    pres.addSection({ title: "Close" });
-    const s = pres.addSlide({ masterName: "DARK_CLOSE", sectionTitle: "Close" });
-    s.addText("What reality taught us", { placeholder: "title" });
-    const lessons = [
-      ["The course isn't the CAD", "Measure it, and let the log locate the wall."],
-      ["Earn speed", "Stop-and-go first, then one rung per clean landing."],
-      ["Reject ideas with data", "Seven designs, one simulator running the real kit code."],
-    ];
-    lessons.forEach(([h, d], i) => {
-      const y = 1.5 + i * 1.05;
-      waypoint(s, 0.5, y, i + 1);
-      s.addText(h, T({ x: 1.1, y: y - 0.03, w: 4.0, h: 0.32, fontSize: 17, bold: true, color: PAPER }));
-      s.addText(d, T({ x: 1.1, y: y + 0.32, w: 4.0, h: 0.55, fontSize: 14, color: ICE }));
-    });
-    card(s, 5.6, 1.45, 3.9, 2.75, "1B2A40", "evidence card");
-    s.addText("WHERE THE EVIDENCE STANDS", T({ x: 5.85, y: 1.62, w: 3.5, h: 0.25, fontFace: "Arial", fontSize: 10, bold: true, color: ORANGE, charSpacing: 2 }));
-    chip(s, 5.85, 2.0, "FLOWN");
-    s.addText("Square-test ladder, two stop-and-go course runs, the first scored session", T({ x: 5.85, y: 2.28, w: 3.45, h: 0.68, fontSize: 13, color: PAPER }));
-    chip(s, 5.85, 3.05, "SITL");
-    s.addText("Smooth trajectory (30.9–33.7 s), the return home, pathfly", T({ x: 5.85, y: 3.33, w: 3.45, h: 0.68, fontSize: 13, color: PAPER }));
-    s.addText("Questions welcome: decisions, experiments, failures.", T({ x: 0.5, y: 4.82, w: 9.0, h: 0.35, fontSize: 14, italic: true, color: ICE }));
-    s.addNotes(
-`(40 s) Three lessons. The course isn't the CAD: the north wall was 24 inches inside the net, the window higher than published, the pad about a metre south, and our own logs found each one. Earn speed: everything flown so far is stop-and-go, and that's deliberate. Reject ideas with data: we killed ideas we liked, such as never turning, because the simulator showed them failing.
-Where the evidence stands, honestly: on the real drone, the square-test ladder, two stop-and-go course runs and the first scored session. In simulation only: the smooth trajectory stack, the return home and the pathfly package.
-Rehearse: What's hard-coded? (one map file, plus named constants for drone size, rates and margins.) Another course? (new map and launch mark; nothing else changes.) What would you do with more time? (fly the smooth line and the heading A/B on the drone; sense walls in flight with the lidar localizer we already built.)`);
-    s.addText("Corpus: technical-corpus/TECHNICAL_CORPUS.md", T({ x: 0.5, y: 5.2, w: 5, h: 0.25, fontSize: 10, color: GRAY }));
-  });
-
-  slides.slice(0, LIMIT).forEach((f) => f());
-  await pres.writeFile({ fileName: OUT });
-  if (APPLY_THEME) await require(APPLY_THEME).applyTheme(OUT, THEME);
-  console.log("wrote", OUT, "slides", Math.min(LIMIT, slides.length));
+function head(s, x, y, w, txt) {
+  s.addText(txt, T({ x, y, w, h: 0.26, fontSize: 12, bold: true }));
 }
-build().catch((e) => { console.error(e); process.exit(1); });
+// Text block. items: string = bullet; [bold, rest] = bullet with a run-in label.
+function block(s, x, y, w, h, items, size = 11.5) {
+  const runs = [];
+  items.forEach((it, i) => {
+    const last = i === items.length - 1;
+    const base = { breakLine: !last, paraSpaceAfter: 3 };
+    if (typeof it === "string") runs.push({ text: it, options: Object.assign({ bullet: { indent: 10 }, color: GREY }, base) });
+    else {
+      runs.push({ text: it[0] + " ", options: { bullet: { indent: 10 }, bold: true, color: INK } });
+      runs.push({ text: it[1], options: Object.assign({ color: GREY }, base) });
+    }
+  });
+  s.addText(runs, T({ x, y, w, h, fontSize: size }));
+}
+// Booktabs table: bold header with a black rule under it, grey hairlines between rows, no verticals.
+// A cell is a string, {text, options}, or an array of runs.
+function table(s, x, y, colW, rows, size = 10.5) {
+  const none = { type: "none" };
+  const data = rows.map((r, ri) => r.map((c) => {
+    const cell = typeof c === "string" ? { text: c } : Array.isArray(c) ? { text: c } : c;
+    const o = Object.assign({ fontFace: "Arial", fontSize: size, color: ri === 0 ? HEX.dk1 : HEX.dk2, bold: ri === 0, valign: "top", margin: [0.03, 0.06, 0.03, 0.06] }, cell.options || {});
+    o.border = [ri === 0 ? { type: "solid", pt: 1, color: HEX.dk1 } : none, none,
+      ri === 0 ? { type: "solid", pt: 1, color: HEX.dk1 } : { type: "solid", pt: 0.5, color: HEX.accent4 }, none];
+    return { text: cell.text, options: o };
+  }));
+  s.addTable(data, { x, y, w: colW.reduce((a, v) => a + v, 0), colW });
+}
+const b = (t) => ({ text: t, options: { bold: true, color: HEX.dk1 } });
+const t_ = (t) => ({ text: t });
+const red = (t) => ({ text: t, options: { color: HEX.accent1 } });
+
+function box(s, x, y, w, h, title, sub) {
+  s.addShape(pres.shapes.RECTANGLE, { x, y, w, h, fill: { color: C.background1 }, line: { color: INK, width: 0.75 }, objectName: "box " + title });
+  const runs = [{ text: title, options: { bold: true, breakLine: !!sub, fontSize: 10.5, color: INK } }];
+  if (sub) runs.push({ text: sub, options: { fontSize: 9, color: GREY } });
+  s.addText(runs, T({ x: x + 0.06, y, w: w - 0.12, h, align: "center", valign: "middle" }));
+}
+function arrow(s, x1, y1, x2, y2, label, lx, ly, lw, align = "center") {
+  s.addShape(pres.shapes.LINE, { x: Math.min(x1, x2), y: Math.min(y1, y2), w: Math.abs(x2 - x1), h: Math.abs(y2 - y1), flipH: x2 < x1, flipV: y2 < y1, line: { color: INK, width: 0.75, endArrowType: "triangle" } });
+  if (label) s.addText(label, T({ x: lx, y: ly, w: lw, h: 0.3, fontFace: MONO, fontSize: 8.5, color: BLUE, align }));
+}
+
+// ===================== 1. Problem =====================
+{
+  pres.addSection({ title: "Problem" });
+  const s = slide(1, "PROBLEM", "Autonomous indoor course flight on skybeta-11, without GPS", "Problem");
+  const cw = 3.95, g = 0.24;
+  const x1 = L, x2 = L + cw + g, x3 = L + 2 * (cw + g);
+  head(s, x1, 1.25, cw, "1.1  Task and scoring (8 Nov rules)");
+  block(s, x1, 1.6, cw, 2.3, [
+    "The drone flies the course after one start command. There is no GPS and no pilot input.",
+    "Sequence: exit quadrant 1, dark tunnel, enter quadrant 4, window or Gate B, land on the pad.",
+    "Optional return to the launch mark. The return multiplies the run points by 1.25.",
+    "Limit 3 min per run. Each contact adds 5 s. The best run counts.",
+  ]);
+  table(s, x1, 3.3, [2.55, 1.4], [
+    ["Item", "Points"],
+    ["Exit quadrant 1", "6"], ["Tunnel", "10"], ["Enter quadrant 4", "7"], ["Window (bonus)", "+4"],
+    ["Pad: blue / ring / centre", "3 / 5 / 7"], ["Valid return", "× 1.25"],
+    ]);
+  s.addText([{ text: "Score = 65/30 × (checkpoints + window) × 1.25 + 35 × judges/40", options: { fontFace: MONO, fontSize: 10, color: INK, breakLine: true } },
+    { text: "All checkpoints, window and return: 92.1 run points. A checkpoint reached over a wall gives 15 %.", options: { fontSize: 11, color: GREY } }],
+  T({ x: x1, y: 5.15, w: cw, h: 0.9 }));
+
+  head(s, x2, 1.25, cw, "1.2  Platform");
+  table(s, x2, 1.6, [1.2, 2.75], [
+    ["Part", "Specification"],
+    ["Airframe", "7 in quad, 1.25 kg. Prop tips 0.28 m from centre"],
+    ["Computer", "Jetson Orin Nano 8 GB, ROS 2 Humble"],
+    ["Flight ctrl", "Pixhawk 6C, PX4 v1.16.2"],
+    ["Camera", "OAK-D S2 stereo, 75 mm baseline, 30 fps, IMU 200 Hz, forward"],
+    ["Height", "VL53L1X time of flight, 0–4 m, 27° cone, down"],
+    ["Odometry", "cuVSLAM stereo-only, 30 Hz, 62–69 ms latency"],
+    ["Link", "uXRCE-DDS on serial (TELEM2), DDS domain 11"],
+    ]);
+  head(s, x2, 4.45, cw, "1.3  Course as measured");
+  block(s, x2, 4.78, cw, 1.75, [
+    "Net 6.10 m square. Walls 1.727 m high. Corridors 0.93–1.07 m.",
+    "Error budget for the drone centre: ±0.18 m in the narrowest corridor.",
+    "The course differs from the CAD: north wall 0.61 m inside the net; window 0.914–1.549 m above the floor.",
+    ]);
+
+  head(s, x3, 1.25, cw, "1.4  Constraints on the software");
+  block(s, x3, 1.6, cw, 5.3, [
+    ["Interface.", "The kit flight_interface is the only write path to PX4. Pose altitude 0.3–3.0 m. Twist ≤ 1.5 m/s. Resend 10 Hz. Timeout 1 s."],
+    ["Offboard.", "Auto-Offboard occurs one time per arming: arm in Altitude, then select Position."],
+    ["Pilot.", "A stick input ends Offboard for the remainder of the flight. The kill switch always operates."],
+    ["PX4.", "Do not publish to /fmu/in/*. Write only allowlisted parameters (rule 8.5). Do not use Acro."],
+    ["Generality.", "Do not put course geometry in code (rule 9.5). An AI review flags hard-coding to the judges."],
+    ["Origins.", "cuVSLAM starts at the stack start. PX4 height starts at power-up, from the rangefinder."],
+  ]);
+  s.addNotes(
+`The task is one autonomous run per start command. There is no GPS.
+The run points come from the checkpoints. The window and the return give the largest bonuses.
+The error budget is 0.18 m. The corridor is 0.93 m and the props reach 0.28 m.
+The kit interface sets our limits. We cannot write to PX4 directly. A stick input ends autonomy.
+Two origins exist. cuVSLAM starts at the stack start. PX4 height comes from the rangefinder. This difference caused our first failure (slide 3).`);
+}
+
+// ===================== 2. Autonomy stack =====================
+{
+  pres.addSection({ title: "Autonomy stack" });
+  const s = slide(2, "AUTONOMY STACK", "Data flow, control loops and code layers", "Autonomy stack");
+  const lx = L, lw = 8.15;
+  s.addShape(pres.shapes.RECTANGLE, { x: lx, y: 1.25, w: lw, h: 2.3, fill: { color: TINT }, line: { type: "none" } });
+  s.addShape(pres.shapes.RECTANGLE, { x: lx, y: 3.95, w: lw, h: 1.7, fill: { color: TINT }, line: { type: "none" } });
+  s.addText("JETSON ORIN NANO · ROS 2 HUMBLE", T({ x: lx + 0.1, y: 1.3, w: 5, h: 0.2, fontSize: 9, bold: true, color: MUTE, charSpacing: 1 }));
+  s.addText("PIXHAWK 6C · PX4 1.16", T({ x: lx + lw - 5.1, y: 4.0, w: 5, align: "right", h: 0.2, fontSize: 9, bold: true, color: MUTE, charSpacing: 1 }));
+  const by = 1.85, bh = 0.75;
+  box(s, 0.6, by, 1.3, bh, "OAK-D S2", "depthai-ros");
+  box(s, 2.45, by, 1.35, bh, "cuVSLAM", "stereo VO, GPU");
+  box(s, 4.4, by, 1.75, bh, "Team node", "plan, follow, guard; 50 Hz");
+  box(s, 6.75, by, 1.7, bh, "flight_interface", "clamp, 10 Hz resend");
+  box(s, 2.45, 3.0, 1.35, 0.42, "px4_odom_bridge", null);
+  arrow(s, 1.9, by + 0.37, 2.45, by + 0.37, "stereo 30 Hz", 1.75, by - 0.3, 0.85);
+  arrow(s, 3.8, by + 0.37, 4.4, by + 0.37, "odom 30 Hz", 3.65, by - 0.3, 0.9);
+  arrow(s, 6.15, by + 0.37, 6.75, by + 0.37, "pose | twist", 6.0, by - 0.3, 0.9);
+  arrow(s, 3.12, by + bh, 3.12, 3.0);
+  const py = 4.5, ph = 0.8;
+  box(s, 0.6, py, 1.6, ph, "EKF2", "vision + range + IMU");
+  box(s, 2.65, py, 1.6, ph, "Position P", "MPC_XY_P 0.95");
+  box(s, 4.7, py, 1.6, ph, "Velocity PI", "P 1.8, I 0.4");
+  box(s, 6.75, py, 1.7, ph, "Attitude, rate", "allocation → motors");
+  arrow(s, 2.2, py + 0.4, 2.65, py + 0.4);
+  arrow(s, 4.25, py + 0.4, 4.7, py + 0.4);
+  arrow(s, 6.3, py + 0.4, 6.75, py + 0.4);
+  arrow(s, 3.12, 3.42, 1.4, py, "vision pose", 0.6, 3.62, 1.2, "left");
+  arrow(s, 7.6, by + bh, 3.45, py, "trajectory_setpoint (NED)", 5.3, 3.62, 2.4, "left");
+  s.addText([{ text: "Not shown: ", options: { bold: true, color: INK } },
+    { text: "the pilot RC goes directly to the Pixhawk. DH Bailout (our PX4 module) runs on the Pixhawk without the Jetson.", options: { color: GREY } }],
+  T({ x: lx, y: 5.8, w: lw, h: 0.4, fontSize: 10 }));
+  s.addText([{ text: "Decision: ", options: { bold: true, color: INK } },
+    { text: "we send setpoints and PX4 closes the loops. We rejected a direct-to-motor neural policy (MonoRace, SkyDreamer): the rules forbid writes to PX4 topics, the link latency is 68.7 ms, and there is no RPM feedback.", options: { color: GREY } }],
+  T({ x: lx, y: 6.25, w: lw, h: 0.6, fontSize: 10 }));
+
+  const rx = 8.85, rw = R - rx;
+  head(s, rx, 1.25, rw, "2.1  Node states");
+  block(s, rx, 1.58, rw, 1.55, [
+    ["Main:", "WAIT → CLIMB (1.23 m, window centre) → FLY → DESCEND (0.5 m/s) → RETURN (2.3 m, last ladder step)."],
+    ["LOST:", "pose jump > 0.3 m at > 3 m/s. Descend straight down."],
+    ["STOPPED:", "Offboard ended. Send no more setpoints."],
+    ]);
+  head(s, rx, 3.0, rw, "2.2  Code layers");
+  block(s, rx, 3.33, rw, 1.6, [
+    ["1 Logic:", "step(t, pose, …) → command. No ROS."],
+    ["2 ROS node:", "topics, parameters, QoS, recording."],
+    ["3 Launch:", "flight_interface + node, map choice."],
+    ["4 Package:", "colcon, COMPETITOR_PKG. One bad package stops all launches."],
+    ]);
+  head(s, rx, 4.95, rw, "2.3  Frames and height");
+  block(s, rx, 5.28, rw, 1.65, [
+    "course (map) → odom ENU (cuVSLAM) → PX4 NED → body.",
+    "course→odom: mean pose over 2 s at rest on the mark, ≤ 2 cm, ≤ 1°.",
+    "Every setpoint z adds the PX4 − camera offset (τ 1 s). No stream above 0.3 m.",
+    ]);
+  s.addNotes(
+`The camera sends stereo images to cuVSLAM. cuVSLAM sends odometry at 30 Hz.
+The bridge sends the same pose to EKF2. EKF2 also uses the rangefinder and the IMU.
+Our node reads the map and the pose. It sends one pose or one twist. The interface clamps it and resends it at 10 Hz.
+PX4 flies a cascade: position P, then velocity PI, then attitude and rate.
+We do not command the motors. The link has 68.7 ms latency and no RPM feedback.
+The logic layer has no ROS. The same code runs in the unit tests, our simulator and the drone.
+The course frame comes from the drone at rest on the launch mark. Nobody types a transform.`);
+}
+
+// ===================== 3. Approach: first principles and iteration =====================
+{
+  pres.addSection({ title: "Approach" });
+  const s = slide(3, "APPROACH 1/3", "First principles and the iteration timeline", "Approach");
+  const tw = 8.75;
+  table(s, L, 1.25, [1.0, 1.3, 3.3, 3.15], [
+    ["When", "Step", "Evidence", "Change"],
+    ["Fri night", "0 Model", "65 rules, 4 contracts. Pre-event Gazebo SITL [S]", "Finish first. Corners set the time. Plan from the map"],
+    ["Sat", "1 Fly at all", [b("Drone flipped:"), t_(" motor configuration overwritten. Kit 0.3.2 Offboard went to MAVLink system 1")], "Motor check before arming. Kit 0.3.3. Move to skybeta-11"],
+    ["Sat 15:30", "2a Climb", [b("003042:"), t_(" target 0.73 m, flew 1.33 m. PX4 z −0.72 m on the floor [F]")], "Add the PX4 − camera offset to every setpoint"],
+    ["Sat 17:30", "2b Box, 4 yaws", [b("013018:"), t_(" 10–18 cm drift after each 90° yaw [F]. Estimate vs odom 1.3 cm")], "Body-fixed push 0.10 m/s². Slow yaw, settle 1 s, fixed-heading option"],
+    ["Sat 17:30", "2b Relaunch", [b("013018:"), t_(" PX4 disarmed 0.8 s into the climb [F]")], "COM_DISARM_LAND 5 s, organiser approval (#40)"],
+    ["Sat 19:55", "2c All primitives", [b("035510:"), t_(" square, land, relaunch, 1 m circle, land, disarm at 107 s [F]")], "Land detection took 4 s. Push 1.0 m/s down: 4.20 → 3.58 s [S]"],
+    ["Sun 00:13", "3 Course, 0.3 m/s", [b("081345:"), t_(" hit a wall 24 in inside the net. "), b("082135:"), t_(" 13.7 m of route [F]")], "Tape the wall into the map. Turn only at the waypoint. Tunnel straight"],
+    ["Sun AM", "4 Scored runs", [b("Each run"), t_(" ended on a stick input. Error 3–8 cm until 66.2 s [F]")], "Hands off in Offboard. Route 0.61 m off the wall. LOST state"],
+    ]);
+
+  const rc = [
+    ["3.3  Height: two origins", "PX4 z comes from the rangefinder, zero at power-up. cuVSLAM z is zero at stack start. The interface sends odom z to PX4 unchanged. Fix: z_sp = z_odom + (z_PX4 − z_odom), filtered with τ 1 s."],
+    ["3.4  Yaw: body-fixed push", "A 0.10 m/s² push is fixed in the body frame. PX4's velocity integrator cancels it in world axes. After a yaw Δψ, the residual is 2·sin(Δψ/2)·push. The model predicts each corner's drift direction within 9–18°."],
+    ["3.5  Landing detection", "Ground contact needs low thrust and a commanded descent ≥ 1.1 × LNDMC_Z_VEL_MAX = 0.275 m/s. Each stage then takes about 1 s. A 1.0 m/s down command lowers the thrust at once."],
+  ];
+  const rcw = (tw - 0.4) / 3;
+  rc.forEach(([h, d], i) => {
+    const x = L + i * (rcw + 0.2);
+    head(s, x, 5.05, rcw, h);
+    s.addText(d, T({ x, y: 5.38, w: rcw, h: 1.55, fontSize: 10.5, color: GREY }));
+  });
+
+  const rx = L + tw + 0.3, rw = R - rx;
+  head(s, rx, 1.25, rw, "3.1  Method");
+  block(s, rx, 1.58, rw, 2.3, [
+    "Prove one primitive per flight: hold, move, turn, land, disarm, relaunch, curve, then the course.",
+    "Find the cause in the bag and the PX4 ULog. Then change the code.",
+    "Add code only where a test measured a failure.",
+    "Speed ladder: 0.3 stop-and-go, 0.5, 0.7, 0.85, 1.0, 1.0 + return. One step per clean run, set by hand.",
+    ]);
+  head(s, rx, 3.85, rw, "3.2  Pre-event findings that set the design");
+  block(s, rx, 4.18, rw, 2.75, [
+    "Latency is the largest cost: +50 ms doubled the error [S].",
+    "Top speed does not set the time: 1.0, 1.5, 2.0 m/s all took 27–31 s [S].",
+    "Facing a wall at 0.3 m withheld 390 of 543 frames [S]. Look 0.8 m ahead.",
+    "A course 10 cm off its map file: 5 of 5 runs touched [S]. Survey to 5 cm.",
+    "Organiser lab: step setpoints overshot 38–60 cm. Use leashed or smooth setpoints.",
+    ]);
+  s.addNotes(
+`We did not fly the course first. We proved one primitive per flight.
+Each row is one failure on the real drone, its evidence and its change.
+003042: PX4 and cuVSLAM measured height from different zeros. The drone flew 1.33 m for a 0.73 m target.
+013018: after each yaw the drone moved 10 to 18 cm. The bags show a push fixed to the airframe. PX4's integrator holds the correction in world axes, so a yaw makes it wrong.
+035510: the full primitive set flew. Square, land, relaunch, circle, land, disarm.
+The first course runs found a wall that no map had. The log located it to inches.
+In the scored session, the pilot sticks ended every run. Our tracking error was 3 to 8 cm until then.`);
+}
+
+// ===================== 4. Approach: planning and following =====================
+{
+  const s = slide(4, "APPROACH 2/3", "Planning core and three followers", "Approach");
+  const cw = 3.65;
+  head(s, L, 1.25, cw, "4.1  Shared planning core");
+  block(s, L, 1.58, cw, 5.4, [
+    ["Map.", "STEP AP214 → map file: walls, boulders, goals, goal order. The parser stops on ambiguity. Tape corrections go in the map (rule 6.4)."],
+    ["Grid.", "5 cm cells. Lethal radius 0.32 m = 0.28 m prop reach + 0.04 m. Cost exp(−3·margin) beyond it (Nav2 inflation)."],
+    ["Rocks.", "Grow by the rangefinder cone (h + 0.20)·tan 13.5° + 0.10 m. A rock top under the beam reads as a +0.53 m floor step."],
+    ["Search.", "A*, 8-connected, octile heuristic, nearest-goal targets. A diagonal step needs both side cells free."],
+    ["Openings.", "Straight legs. Tunnel from 0.75 m outside each mouth, no yaw inside. Window on its normal, ±0.7 m. Window closed → A* finds Gate B."],
+    ["Shortcut.", "A straight segment replaces grid steps if it adds no cost and no lethal cell. Exact segment-to-segment check at the end."],
+    ]);
+
+  const tx = L + cw + 0.3, tw = 5.75;
+  head(s, tx, 1.25, tw, "4.2  Followers");
+  table(s, tx, 1.58, [0.85, 1.55, 1.85, 1.5], [
+    ["", "Stop-and-go [F]", "Trajectory stack [S]", "pathfly [M]"],
+    [[b("Path")], "Polyline, hold at corners", "Fillets, 0.35 m curvature smoothing, proven clearance bound", "Footprint-exact distance, A* 2 cm, elastic band"],
+    [[b("Speed")], "0.3 m/s. Setpoint ≤ 0.3 m ahead", "Time-optimal: v ≤ √(a/κ), jerk ≤ 4 m/s³, braking room", "0.25–0.6 m/s from margin"],
+    [[b("Command")], "Pose", "Twist: v_ref(t + 0.55 s) + k·(r − x)", "Twist only (pose floor 0.3 m)"],
+    [[b("Heading")], "Turn at hold, 30°/s. Settle 1 s, 0.15 m, 10°", "Look 0.8 m ahead, ≤ 1 rad/s", "Fixed east (8 cm margins)"],
+    [[b("Tunnel")], "Straight leg, LOST guard", "Coast ≤ 4 s on PX4 velocity, re-anchor", "Not applicable"],
+    [[b("Package")], "course_follower", "planner/, nav_traj", "dronehacks_pathfly"],
+    ]);
+  head(s, tx, 4.75, tw, "4.3  Trajectory speed caps (tightest wins)");
+  table(s, tx, 5.08, [1.15, 3.05, 1.55], [
+    ["Cap", "Limit", "Reason"],
+    ["Lateral accel.", "v ≤ √(a_lat / κ), a_lat 1.0 m/s²", "Centripetal a = v²κ"],
+    ["Lateral jerk", "v ≤ (j_max / |dκ/ds|)^(1/3)", "Curvature ramps"],
+    ["Braking", "v²/2a + v·τ + margin ≤ free distance, τ 0.17 s", "Stop before a wall"],
+    ["Pass", "TOPP forward-backward pass; |a| ≤ 3 m/s²", "Time-optimal"],
+  ], 10);
+  const fx = R - 2.55, fw = 2.55;
+  s.addImage({ path: path.join(HERE, "assets", "route-taped-2026-11-08.png"), x: fx, y: 1.3, w: fw, h: 2.57, altText: "Stop-and-go route on the taped 8 Nov map with the no-fly zone, waypoints 0 to 8, and the run 1 contact point." });
+  s.addText("Stop-and-go route, taped map. Red: no-fly zone for the centre. ×: run 1 contact.", T({ x: fx, y: 3.92, w: fw, h: 0.45, fontSize: 8.5, color: GREY }));
+  s.addImage({ path: path.join(HERE, "assets", "trajectory-sitl-2026-11-07.png"), x: fx, y: 4.45, w: fw, h: 2.0, sizing: { type: "cover", w: fw, h: 2.0 }, altText: "Smooth trajectory through Gate B in the SITL GUI on the 7 Nov layout." });
+  s.addText("Trajectory stack in our SITL GUI, 7 Nov layout.", T({ x: fx, y: 6.5, w: fw, h: 0.3, fontSize: 8.5, color: GREY }));
+  s.addNotes(
+`All followers use one planning core. The map is the only course input.
+The lethal radius is 0.32 m: the prop reach plus 4 cm.
+Rocks grow by the rangefinder cone. If the beam sees a rock, PX4 sees the floor rise 0.53 m and climbs.
+Openings are straight legs. In 39 SITL flights the window was the closest pass in 21 before this rule.
+Stop-and-go flew on the drone. It moves the setpoint only while the drone is within 0.3 m of it.
+The trajectory stack computes a time-optimal speed profile. It flies by twist with feed-forward 0.55 s ahead. That is PX4's velocity-loop lag.
+In the dark tunnel cuVSLAM stops. The follower continues on PX4's velocity for up to 4 s.
+pathfly flies a route from an offline planner with the exact drone rectangle. It holds east, because the margins are 8 cm.`);
+}
+
+// ===================== 5. Approach: safety, localization, tools =====================
+{
+  const s = slide(5, "APPROACH 3/3", "Safety, localization and verification tools", "Approach");
+  const cw = 2.95, g = 0.18;
+  const xs = [0, 1, 2, 3].map((i) => L + i * (cw + g));
+  head(s, xs[0], 1.25, cw, "5.1  Fail-closed guards");
+  block(s, xs[0], 1.58, cw, 5.4, [
+    ["Before Offboard:", "rest 2 s within 2 cm and 1°. PX4 and camera agree within 0.3 m. Else send nothing."],
+    ["Start-up:", "an invalid map stops the node before it creates a publisher."],
+    ["In flight:", "the line from drone to setpoint must be clear. Else freeze the reference."],
+    ["Off path:", "> 0.35–0.5 m: hold for the pilot."],
+    ["Stale pose:", "GROUNDED sends zero twists. A pose setpoint does not expire."],
+    ["Landing:", "continue down on a stale pose. Else the drone climbs 0.27 m [S]."],
+    ["Pilot:", "Offboard end = STOPPED. The kill switch always operates."],
+    ]);
+
+  head(s, xs[1], 1.25, cw, "5.2  DH Bailout (PX4 module)");
+  block(s, xs[1], 1.58, cw, 2.6, [
+    "Brake at 3 m/s², jerk 20 m/s³. Settle below 0.15 m/s. Descend 0.7 m/s; 0.35 m/s below 0.8 m.",
+    "External mode 1 (nav_state 23). uORB only. No commander or MAVLink change.",
+    "It re-publishes its setpoint after each kit sample. Flash: 708 bytes free.",
+    "Host tests: 205,132 checks, 0 failures [M].",
+    ]);
+  table(s, xs[1], 3.5, [1.05, 0.95, 0.95], [
+    ["SIH SITL [S]", "Stop", "Kit stream on"],
+    ["DH Bailout", "0.37–0.39 m", "0.38–0.39 m"],
+    ["Stock Land", "0.54–0.59 m", [red("1.22 m, no disarm")]],
+    ]);
+  s.addText("Flashed on skybeta-11. Not on the mode switch: organiser permission pending.", T({ x: xs[1], y: 4.5, w: cw, h: 0.7, fontSize: 11, color: GREY }));
+
+  head(s, xs[2], 1.25, cw, "5.3  Localization");
+  block(s, xs[2], 1.58, cw, 5.4, [
+    ["cuVSLAM:", "2.3 % return-to-start drift on a 57 s walk [M]. Stereo-only; EKF2 fuses the IMU."],
+    ["vo_guard:", "withholds stale (> 0.5 s), failed, > 10 m/s jump, > 720°/s spin, > 3° gyro disagreement in 0.5 s."],
+    ["Lidar:", "Gauss-Newton point-to-plane scan match to the map. 0.6 cm rms vs PX4 [M]."],
+    ["pose_fusion:", "EKF on the drift (tx, ty, yaw). It corrects setpoints, not EKF2. Target error 0.208 → 0.003 m [M]."],
+    ["Latency:", "EKF2 rejects all vision at ≥ 0.18 s [S]. Measured 62–69 ms."],
+    ]);
+
+  head(s, xs[3], 1.25, cw, "5.4  Verification tools");
+  block(s, xs[3], 1.58, cw, 5.4, [
+    ["Own SITL:", "26k lines, no ROS or GPU. Runs our launch and the kit code unmodified. The kit's 149 tests pass on it."],
+    ["Models:", "PX4 position, attitude, rate and allocation loops, ported. EKF2 delayed vision. cuVSLAM from 35 rays on the STEP mesh."],
+    ["Referee:", "rules on ground truth: crossings, +5 s per contact."],
+    ["Recorder:", "one bag per flight from arming. report.md per flight. ULog triage."],
+    ["Tests:", "~800. Mutation tests: 17 of 17 caught. Independent AI review before each merge."],
+    ]);
+  head(s, L, 5.35, W, "5.5  Contracts and parameter control");
+  const cc = [
+    ["Contracts:", "frames.md, course.md, px4.md, ros-graph.md. If code disagrees with a contract, the code is wrong. A CI guard refuses a contract change without a changelog entry."],
+    ["PX4 parameters:", "we save the FC parameters and firmware before and after each change, and compare them. One parameter change only: COM_DISARM_LAND 5 s, organiser approval (#40)."],
+    ["Invariants:", "no Acro mode. No /fmu/in writes. No course literals in code. Escalate flight, spend and access decisions to a person."],
+    ["Drone identity:", "connect only to skybeta-11. The lidar installer refuses any other host name."],
+  ];
+  const ccw = (W - 3 * g) / 4;
+  cc.forEach(([h, d], i) => s.addText([{ text: h + " ", options: { bold: true, color: INK } }, { text: d, options: { color: GREY } }],
+    T({ x: L + i * (ccw + g), y: 5.68, w: ccw, h: 1.25, fontSize: 10.5 })));
+  s.addNotes(
+`Every guard fails closed. If a check fails, the node sends nothing, and PX4 does not enter Offboard.
+A pose setpoint never expires. So a stale state sends zero twists, not the last pose.
+DH Bailout is our own PX4 flight mode. It runs on the flight controller. It stops in about half the distance of stock Land.
+With the kit stream active, stock Land did not detect the landing. The stream reset the land detector.
+The lidar and pose fusion stack is built and bench tested. It is not in the flown configuration.
+Our simulator runs the organisers' code without changes. It found the dark-tunnel failure and the latency cliff before the drone did.`);
+}
+
+// ===================== 6. Results: evidence =====================
+{
+  pres.addSection({ title: "Results" });
+  const s = slide(6, "RESULTS 1/2", "Flight, simulation and bench results", "Results");
+  head(s, L, 1.25, 4.6, "6.1  Flown on skybeta-11 [F]");
+  table(s, L, 1.58, [0.95, 1.45, 2.2], [
+    ["Flight", "Task", "Result"],
+    ["003042", "Climb to 0.73 m", [red("1.33 m: height origins differ")]],
+    ["013018", "0.5 m box, 4 yaws", "Height 0.71–0.75 m. Drift 10–18 cm per yaw"],
+    ["035510", "All primitives", "Square, land, relaunch, circle, land. Disarm 107 s"],
+    ["081345", "Course, 0.3 m/s", [red("Contact: wall not in the map. Pilot kill")]],
+    ["082135", "Course, 0.3 m/s", "13.7 m of route at 0.80 m"],
+    ["Scored", "Course, 0.3 m/s", [red("Stick input ended each run. Error 3–8 cm before")]],
+    ]);
+
+  const mx = L + 4.85, mw = 4.3;
+  head(s, mx, 1.25, mw, "6.2  SITL, full course [S]");
+  const runs6 = [["Stop-and-go, taped map", 109, "109 s"], ["Smooth 0.5 m/s, taped map", 79, "79 s"], ["Trajectory, plain poses", 59, "59 s"],
+    ["Trajectory, twist 0.5 m/s", 42, "42 s"], ["Trajectory, twist 1.0 m/s", 30, "30 s"], ["Trajectory, window, 2 m/s", 32.3, "30.9–33.7 s"], ["Trajectory, Gate B, 0.8–1.0", 38.5, "38–39 s, 1–2 contacts"]];
+  const lw6 = 1.95, bw6 = mw - lw6 - 0.05, sc6 = (bw6 - 0.95) / 110;
+  runs6.forEach(([lab, v, txt], i) => {
+    const y = 1.62 + i * 0.37;
+    s.addText(lab, T({ x: mx, y, w: lw6, h: 0.3, fontSize: 10, color: GREY, valign: "middle" }));
+    s.addShape(pres.shapes.RECTANGLE, { x: mx + lw6, y: y + 0.05, w: v * sc6, h: 0.2, fill: { color: i === 5 ? BLUE : (i === 6 ? C.accent1 : GREY) }, line: { type: "none" }, objectName: "bar " + lab });
+    s.addText(txt, T({ x: mx + lw6 + v * sc6 + 0.06, y, w: 1.6, h: 0.3, fontSize: 10, color: i === 6 ? C.accent1 : INK, valign: "middle" }));
+  });
+  s.addText("Launch to pad. 0 contacts unless stated. Twist = velocity feed-forward.", T({ x: mx, y: 4.25, w: mw, h: 0.25, fontSize: 9.5, color: MUTE }));
+  block(s, mx, 4.65, mw, 2.25, [
+    "Taped map, stop-and-go: window crossed within 7 cm of centre. Landed within 7 cm of the pad centre.",
+    "Dark tunnel: tracking lost for 3.1–3.2 s. Coast 1.55 m in Offboard. No failsafe.",
+    "Return home: disarm 0.11 m from the mark (limit 0.61 m).",
+    ]);
+
+  head(s, L, 4.05, 4.6, "6.4  Tracking quality on skybeta-11 [F]");
+  block(s, L, 4.38, 4.6, 2.2, [
+    "013018: PX4 estimate vs odometry: median 1.3 cm, 95th percentile 3.3 cm, heading 0.6°.",
+    "Hold without a yaw: within 7 cm. Height 0.71–0.75 m for a 0.73 m target.",
+    "Scored-session crash: 3–8 cm from setpoint, no contact, until the pilot input at 66.2 s.",
+  ]);
+
+  const rx = mx + mw + 0.25, rw = R - rx;
+  head(s, rx, 1.25, rw, "6.3  Planner bench [M]");
+  table(s, rx, 1.58, [1.6, 0.75, 0.8], [
+    ["Method", "Time", "Closest"],
+    ["Waypoint steps", "30.0 s", "0.37 m"],
+    ["Smoothed, one speed", "65.6 s", "0.41 m"],
+    ["Speed profile + lead", "23.5 s", "0.35 m"],
+    ["Speed profile only", "51.0 s", "0.41 m"],
+    ["Lidar carrot", "54.8 s", "0.41 m"],
+    ]);
+  block(s, rx, 3.1, rw, 3.3, [
+    "One safe speed must suit the slowest corner. The speed profile saves 22 %.",
+    "PX4 trails a moving pose by v/kp. The lead removes this lag. At 10 Hz the lead touched in SITL, so it is off by default.",
+    "Velocity feed-forward replaced the lead: 59 s became 30 s.",
+    ]);
+  head(s, rx, 4.75, rw, "6.5  Pre-event SITL, 15 layouts [S]");
+  block(s, rx, 5.08, rw, 1.8, [
+    "Tunnel blinded: 12 of 14 cleared. Error 2.4–7.6 cm rms. Launch to pad 27–34 s.",
+    "With +50 ms latency: 19 of 20 cleared.",
+  ]);
+  s.addNotes(
+`Only stop-and-go has flown the course. The smooth stacks have only flown in simulation.
+The flown course runs show tracking within 3 to 8 cm. The failures came from the map and from stick input.
+In SITL on the taped map, stop-and-go takes 109 s. The smooth follower takes 79 s.
+The trajectory stack takes 30.9 to 33.7 s at 2 m/s on the 7 Nov map, with no contact.
+Velocity feed-forward took the time from 59 s to 30 s. Plain poses lag by v over kp.`);
+}
+
+// ===================== 7. Results: generality and limits =====================
+{
+  const s = slide(7, "RESULTS 2/2", "Generality, declared course-specific items and open items", "Results");
+  head(s, L, 1.25, 4.5, "7.1  Generality evidence");
+  table(s, L, 1.58, [2.3, 1.15, 1.05], [
+    ["Test", "Map planner", "Hand route"],
+    ["Published map [M]", "1 / 1", "1 / 1"],
+    ["Rotated, mirrored [M]", "2 / 2", "0 / 2"],
+    ["Walls moved ≤ 5 cm [M]", "6 / 6", "0 / 6"],
+    ["Random layouts [M]", "12 / 12", "0 / 12"],
+    ["Boulders moved [S]", "20 / 20", "6 / 20"],
+    ["Unseen layouts, PX4 SITL [S]", "8 / 9", "—"],
+    ["Planted bugs caught [M]", "17 / 17", "—"],
+    ]);
+  block(s, L, 3.6, 4.5, 1.4, [
+    "The map file is the only course input. A test searches our source for map coordinates and wall names.",
+    "A wall across the window makes A* find Gate B. No code names Gate B.",
+    "Goals come from the CAD geometry. The course frame comes from the rest on the launch mark.",
+    "Constants are drone size, rates and margins, each with a unit.",
+    ]);
+
+  const mx = L + 4.8, mw = 3.9;
+  head(s, mx, 1.25, mw, "7.2  Course-specific (declared)");
+  block(s, mx, 1.58, mw, 1.9, [
+    "The map file, with the 8 Nov tape corrections.",
+    "The corridor goal added after the north-wall contact.",
+    "pathfly: precomputed route and fixed east heading. On a new course, run plan_path.py again.",
+    "The launch mark position and heading, by tape.",
+    ]);
+  head(s, mx, 2.95, mw, "7.3  Limits");
+  block(s, mx, 3.28, mw, 1.7, [
+    "The map is trusted. No sensor finds walls in flight.",
+    "A 5 cm wall shift made a tight corner: 61 → 81 s.",
+    "The contract schema has no checkpoint-gate field.",
+    "CI runs about 6 % of the tests. The other suites run locally.",
+    ]);
+
+  const rx = mx + mw + 0.3, rw = R - rx;
+  head(s, rx, 1.25, rw, "7.4  Not yet flown");
+  block(s, rx, 1.58, rw, 2.2, [
+    "Smooth follower, trajectory stack, return home, pathfly.",
+    "yaw_comp feed-forward for the body-fixed push.",
+    "Heading A/B. A yaw adds 10–18 cm drift. A fixed heading starved cuVSLAM at 0.4 m from a wall [S]. pathfly needs a fixed heading for 8 cm margins.",
+    "DH Bailout on the mode switch.",
+    ]);
+  head(s, rx, 3.25, rw, "7.5  Credits (rule 9.1)");
+  s.addText("skybeta starter stack · NVIDIA Isaac ROS cuVSLAM · Luxonis DepthAI · PX4, QGroundControl · ROS 2, rosbag2, MCAP · Nav2 inflation cost · Pham & Pham TOPP (T-RO 2018) · NumPy, PyYAML · AI coding tools (rule 9.2): we can explain each line that flies.",
+    T({ x: rx, y: 3.58, w: rw, h: 1.5, fontSize: 10.5, color: GREY }));
+  head(s, L, 5.2, W, "7.6  Procedure for a new course");
+  const steps = [
+    "Get the course STEP file.",
+    "Run step_to_map.py. It stops if a part is ambiguous.",
+    "Measure the built course with tape. Correct the map file.",
+    "Tape the launch mark and its heading on the floor.",
+    "Run the dry run and our SITL on the new map.",
+    "Fly ladder step 0 (stop-and-go, 0.3 m/s).",
+  ];
+  const sw = (W - 5 * 0.2) / 6;
+  steps.forEach((t, i) => {
+    const x = L + i * (sw + 0.2);
+    s.addText(String(i + 1), T({ x, y: 5.55, w: 0.3, h: 0.3, fontSize: 16, bold: true, color: BLUE }));
+    s.addText(t, T({ x: x + 0.32, y: 5.58, w: sw - 0.32, h: 1.2, fontSize: 10.5, color: GREY }));
+  });
+  s.addNotes(
+`The planner holds no layout knowledge. It flew all 12 random layouts. The hand route planned none of them.
+On a new course we change one map file and tape the launch mark. The code stays the same.
+These items are course-specific. We say them first: the map file, the corridor goal, pathfly's route and heading.
+The main limit: the map is trusted. Nothing senses walls in flight. The lidar localizer is the next step for this.
+Open items: the smooth stacks, the return and pathfly have not flown. The heading question needs a flown A/B.`);
+}
+
+(async () => {
+  await pres.writeFile({ fileName: OUT });
+  if (process.env.APPLY_THEME) await require(process.env.APPLY_THEME).applyTheme(OUT, THEME);
+  console.log("wrote", OUT);
+})().catch((e) => { console.error(e); process.exit(1); });
