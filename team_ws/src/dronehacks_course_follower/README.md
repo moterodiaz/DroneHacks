@@ -149,8 +149,9 @@ ros2 run dronehacks_course_follower dry_run --no-window --steps 40
   package itself, flown in Michael Bar On's PX4 SITL through the organisers' unmodified 0.3.3
   interface at 10 Hz from the ground to disarm with no launch arguments (2026-11-07, 4 flights
   each): led poses touched a wall at the first maze corner in 2 of 4 (nearest 19-21 cm against the
-  28 cm prop reach) with route times 37-41 s; plain poses never touched on the route (nearest
-  33-41 cm), route times about 58 s, half the yaw error. With the interface at 50 Hz, led poses
+  28 cm prop reach) with route times 37-41 s; plain poses touched there in 2 of 6 (nearest
+  19-41 cm), route times 58-62 s, half the yaw error. The first maze corner is the course's
+  weak spot in every mode. With the interface at 50 Hz, led poses
   flew 27-32 s cleanly in earlier SITL runs: ask the organisers whether 50 Hz is allowed.
 - **A dark tunnel without odometry stops the setpoint.** Odometry older than 0.5 s pauses the
   pace, so the setpoint holds; in SITL with the tunnel blinded and no tracker output, PX4 then lost
