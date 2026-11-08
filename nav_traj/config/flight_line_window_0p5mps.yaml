@@ -1,25 +1,30 @@
-# Flight line "window at 0.5 m/s" (2026-11-07 course layout): a slow test of
-# flight_line_window_2mps.yaml, chosen by the team (@jsun4231). The route is the same and only
-# the speeds change (2.0 -> 0.5 m/s), so the pilot has time to take over before a touch.
-# launch/traj_nav_competitor_window_0p5mps.launch.py applies this file OVER the installed
-# config/traj_nav.example.yaml, so the measured values there (rest height, course->odom
-# transform) still apply. Numbers are floats: ROS 2 refuses an int for a float parameter.
+# Flight line "window at 0.5 m/s": a slow test of flight_line_window_2mps.yaml, chosen by the team
+# (@jsun4231). The route is the same and only the speeds change (2.0 -> 0.5 m/s), so the pilot has
+# time to take over before a touch. Since 2026-11-08 it flies the course as the team taped it:
+# launch/traj_nav_competitor_window_0p5mps.launch.py loads maps/course_arena_2026-11-08.yaml
+# (Michael Bar On's map from core/flight-iteration, see maps/README.md), unless a team map or
+# $DRONEHACKS_MAP is given. It flies at the window's taped middle, 1.23 m above the floor, and plans
+# straight over the boulders.
+# The launch file applies this file OVER the installed config/traj_nav.example.yaml, so the measured
+# values there (rest height, course->odom transform) still apply. Numbers are floats: ROS 2 refuses
+# an int for a float parameter.
 #
 # Before flying it:
 # * PX4's MPC_XY_VEL_MAX (contracts/px4.md: the organisers' 1.0 m/s, not ours to write) is above
 #   0.5 m/s, so it doesn't bind here.
 # * The window is not cleared by contracts/course.md: its clearance budget is unreviewed and
-#   unvalidated on the kit. The planner's window pass keeps 0.049 m over its inscribed radius.
-# * The dark tube takes longer at 0.5 m/s. In SITL cuVSLAM was lost for 3.1-3.2 s and the drone
-#   coasted about 1.55 m through it by dead reckoning (coast_max_s 4.0, unchanged here). If the
-#   real tube stays dark longer than 4 s, the drone stops inside it, and after EKF2_NOAID_TOUT
-#   (5 s) PX4 drops Offboard to Altitude. Be ready to take over at the tube.
-# * SITL (dark tunnel, land, PX4 at the organisers' 1.0): 31 points + window bonus,
-#   46.7 / 43.9 / 43.3 s, no touch (3 seeds), peak 0.51 m/s. Planned 13.78 m in 29.4 s.
+#   unvalidated on the kit. On the taped map the window pass keeps 0.137 m over the inscribed radius.
+# * Over the boulders, the downward rangefinder reads each rock's top as a floor step; the planner
+#   no longer keeps the rangefinder's footprint off them (avoid_boulders false).
+# * The dark tube takes about 3 s at 0.5 m/s. coast_max_s is 4.0 (unchanged here): if the real tube
+#   stays dark longer than that, the drone stops inside it, and after EKF2_NOAID_TOUT (5 s) PX4
+#   drops Offboard to Altitude. Be ready to take over at the tube.
+# * Planned 13.31 m in 36.9 s. SITL results: sitl/README.md.
 
 mission:
   ros__parameters:
     prefer: ["window"]          # CP4 through the window (+5 for a finished window run)
+    avoid_boulders: false       # plan straight over the boulders
     track_speed_mps: 0.5        # fly the whole course at this speed (the plan is capped at it)
     v_max_mps: 0.5              # the plan's speed limit (PX4's MPC_XY_VEL_MAX is above it)
     twist_speed_max_mps: 0.5    # must match flight_interface's max_speed_mps below

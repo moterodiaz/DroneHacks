@@ -4,7 +4,7 @@ import math
 import unittest
 
 from dronehacks_planner import parse_map, plan
-from dronehacks_planner.convert import ConvertError, convert
+from dronehacks_planner.convert import ConvertError, apply_edits, convert
 
 
 def wall(name, p0, p1, openings=(), t=0.1, z=(0.0, 1.7)):
@@ -159,6 +159,56 @@ class ConvertTest(unittest.TestCase):
         self.assertEqual(route.goals[:2], ["cp1", "tunnel"])
         self.assertEqual(route.goals[-1], "pad")
         self.assertGreaterEqual(route.min_margin_m, 0.0)
+
+
+def edits(**kw):
+    doc = {"format": "course-edits/1", "remove": [], "move": [], "replace": [], "add": []}
+    doc.update(kw)
+    return doc
+
+
+class EditsTest(unittest.TestCase):
+    """course-edits/1 applied before converting, on the made-up course."""
+
+    def setUp(self):
+        self.cmap, self.rules = course()
+
+    def test_remove_move_replace_add_and_restate_a_gate(self):
+        e = edits(remove=[{"name": "Rock"}],
+                  move=[{"names": ["Pad"], "from": [-1.5, 1.8], "to": [-1.0, 2.0]}],
+                  replace=[dict(wall("Middle", (-3.0, 0.0), (1.5, 0.0), openings=[{"s": [2.0, 2.9], "z": [0.9, 1.5]}]))],
+                  add=[wall("New", (-3.0, 1.0), (-2.0, 1.0))],
+                  rules={"checkpoints": {"CP1": {"gate": {"segment": [[-3, -1], [-1.0, -1]]}}}})
+        cmap, rules = apply_edits(self.cmap, self.rules, e)
+        names = [f["name"] for f in cmap["features"]]
+        self.assertNotIn("Rock", names)
+        self.assertIn("New", names)
+        self.assertIn("Rock", [f["name"] for f in self.cmap["features"]])      # the input is unchanged
+        doc = convert(cmap, rules, (0, 1), slice_height=1.2)
+        goals = {g["name"]: g for g in doc["goals"]}
+        self.assertEqual(doc["boulders"], [])
+        self.assertEqual(goals["pad"]["centre"], [-1.0, 2.0])
+        self.assertEqual((goals["window"]["params"]["bottom"], goals["window"]["params"]["top"]), (0.9, 1.5))
+        self.assertEqual(goals["cp1"]["centre"], [-2.0, -1.0])
+        self.assertTrue(any(s["start"] == [-3.0, 1.05] for s in doc["segments"]))   # the added wall's face
+
+    def test_a_checkpoint_without_a_planner_goal_is_left_to_the_route(self):
+        e = edits(rules={"checkpoints": {"CP1": {"planner_goal": False}}})
+        cmap, rules = apply_edits(self.cmap, self.rules, e)
+        doc = convert(cmap, rules, (0, 1))
+        self.assertNotIn("cp1", [g["name"] for g in doc["goals"]])
+        self.assertEqual(plan(parse_map(doc)).goals[0], "tunnel")
+
+    def test_edits_must_name_what_they_edit(self):
+        bad = [edits(remove=[{"name": "Nowhere"}]),
+               edits(move=[{"names": ["Pad"], "from": [0.0, 0.0], "to": [1.0, 1.0]}]),   # not where it says
+               edits(replace=[wall("Middle", (-2.9, 0.0), (1.5, 0.0))]),                 # moves an end
+               edits(add=[wall("Stub", (0, 0), (1, 0))]),                                # already there
+               edits(rules={"checkpoints": {"CP9": {"planner_goal": False}}}),
+               {"format": "other"}]
+        for e in bad:
+            with self.subTest(e=e), self.assertRaises(ConvertError):
+                apply_edits(self.cmap, self.rules, e)
 
 
 if __name__ == "__main__":
