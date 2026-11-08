@@ -1,0 +1,4 @@
+# Everything here is copied into a Linux PX4 tree or runs on NuttX/Linux: keep LF on every
+# checkout (core.autocrlf=true on Windows would put  into rc.board_extras and change
+# build.sh's commit SHA, v1.16.2-2-g5cc214d).
+* text=auto eol=lf
