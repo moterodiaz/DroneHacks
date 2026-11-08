@@ -76,6 +76,7 @@ class StopAndGo:
         self.along_m = 0.0
         self.held_s = 0.0
         self.settled_s = 0.0
+        self.arrived = False
         self.finished = False
 
     @property
@@ -106,18 +107,24 @@ class StopAndGo:
         return math.atan2(leg[1], leg[0]) if float(np.hypot(*leg)) > 1e-9 else self.yaw_rad
 
     def _hold(self, elapsed_s: float, drone: Drone | None) -> None:
-        """Turns toward the next leg at the turn rate, then counts the time the drone is over the
-        waypoint and facing the leg; settled long enough, or out of time, the leg begins."""
+        """Once the drone itself is over the waypoint, turns toward the next leg at the turn rate, then
+        counts the time it stays there facing the leg; settled long enough, or out of time, the leg begins."""
         self.held_s += elapsed_s
         target_rad = self._leg_heading()
-        largest_rad = math.radians(self.plan.turn_rate_dps) * elapsed_s
-        self.yaw_rad = wrap_angle(self.yaw_rad + min(max(wrap_angle(target_rad - self.yaw_rad), -largest_rad),
-                                                     largest_rad))
+        over_waypoint = (drone is not None
+                         and math.dist((drone.east, drone.north), self.points[self.index]) <= self.plan.arrive_m)
+
+        # The drone trails the pose, so the turn waits for the drone: turning short of the corner
+        # swings it onto the next leg early, as at skybeta-11's tunnel exit
+        self.arrived = self.arrived or over_waypoint
+        if self.arrived:
+            largest_rad = math.radians(self.plan.turn_rate_dps) * elapsed_s
+            self.yaw_rad = wrap_angle(self.yaw_rad + min(max(wrap_angle(target_rad - self.yaw_rad), -largest_rad),
+                                                         largest_rad))
 
         # Settled: the commanded turn done, the drone over the waypoint and facing the leg
         turned = abs(wrap_angle(target_rad - self.yaw_rad)) < 1e-9
-        steady = (turned and drone is not None
-                  and math.dist((drone.east, drone.north), self.points[self.index]) <= self.plan.arrive_m
+        steady = (turned and over_waypoint and drone is not None
                   and abs(wrap_angle(drone.yaw_rad - target_rad)) <= math.radians(self.plan.heading_deg))
         self.settled_s = self.settled_s + elapsed_s if steady else 0.0
         if self.settled_s < self.plan.settle_s and self.held_s < self.plan.hold_timeout_s:
@@ -144,4 +151,4 @@ class StopAndGo:
         self.setpoint = start + (end - start) * (self.along_m / length_m if length_m > 1e-9 else 1.0)
         if self.along_m >= length_m:
             self.index += 1
-            self.stage, self.held_s, self.settled_s = Stage.HOLD, 0.0, 0.0
+            self.stage, self.held_s, self.settled_s, self.arrived = Stage.HOLD, 0.0, 0.0, False

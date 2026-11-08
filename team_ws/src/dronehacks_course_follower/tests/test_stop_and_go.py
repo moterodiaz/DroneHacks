@@ -56,6 +56,26 @@ def test_it_yaws_only_while_holding_and_no_faster_than_its_turn_rate() -> None:
     assert abs(first_leg[2]) < 1e-9 and abs(second_leg[2] - math.pi / 2) < 1e-9
 
 
+def test_the_turn_waits_until_the_drone_itself_reaches_the_waypoint() -> None:
+    stop_and_go = StopAndGo((0.0, 0.0), _L_ROUTE, 0.0, StopPlan())
+    _fly(stop_and_go, 1.5)
+
+    # Along the first leg the drone trails the pose by 0.25 m
+    while stop_and_go.stage is Stage.MOVE:
+        stop_and_go.step(_PERIOD_S, Drone(max(stop_and_go.reference()[0] - 0.25, 0.0), 0.0, 0.8, 0.0))
+
+    assert (stop_and_go.stage, stop_and_go.index) == (Stage.HOLD, 1)
+
+    # The pose has reached the corner, but the drone trails it by 0.25 m, as on skybeta-11 at the
+    # tunnel's exit: no turn yet, so the drone is not swung round short of the corner
+    _fly(stop_and_go, 3.0, drone_at=(0.75, 0.0))
+    assert stop_and_go.yaw_rad == 0.0
+
+    # Once the drone is over the corner the turn begins
+    _fly(stop_and_go, 1.0, drone_at=(1.0, 0.0))
+    assert stop_and_go.yaw_rad > 0.0
+
+
 def test_with_a_fixed_heading_it_never_yaws() -> None:
     stop_and_go = StopAndGo((0.0, 0.0), _L_ROUTE, 2.0, StopPlan(), heading_mode=HeadingMode.FIXED)
     ticks = _fly(stop_and_go, 60.0)
