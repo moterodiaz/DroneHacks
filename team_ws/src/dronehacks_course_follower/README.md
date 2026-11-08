@@ -95,7 +95,10 @@ team]: the organisers replaced the maze's three dividers (M1-M3) with one diagon
 moved the north net 30 cm in along its whole width. The diagonal runs from the barrier's north
 face, 1.25 m east of where the barrier meets the west net, to 1.40 m short of the original north
 net at the old M2 divider's east-west position: (-1.798, 0.508) to (-0.813, 1.648), drawn
-0.10 m thick (assumed). Everything else is the published v3 map below, unchanged. The route goes
+0.10 m thick (assumed). The team's SolidWorks export of the new layout (`navigation/new-course-layout`,
+`course_v3_layout.yaml`) draws the same wall longer at both ends, (-2.133, 0.471) to (-0.693, 1.811);
+until the two are reconciled on the course, the map carries both, so the route clears either.
+Everything else is the published v3 map below, unchanged. The route goes
 from the launch mark along the diagonal's north-west side, around its top end, to the tunnel.
 The boulders are still avoided; whether to plan over them (smoother, faster, but under the
 rangefinder) is being checked.
