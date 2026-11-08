@@ -335,6 +335,22 @@ net roof, five checkpoints). The 2026-11-07 layout changes the course north of B
 route results there need re-running once the autonomy branches have new routes; findings that
 no longer apply are marked *superseded* rather than removed.
 
+**On the 2026-11-07 layout**, `traj` (`navigation/vo-traj-follower` at `0b783d9`, which routes
+through CP2 Gate A as a gate goal) with `land=land`, dark tunnel, dropout coast:
+
+| route | track speed | seed | checkpoints | time | touches | penalised |
+|---|---|---|---|---|---|---|
+| window | 0.8 m/s | 1 / 2 / 3 | 31 + window bonus | 37.1 / 34.8 / 34.3 s | 0 / 0 / 0 | 37.1 / 34.8 / 34.3 s |
+| window | 0.9 m/s | 1 | 31 + window bonus | 35.8 s | 0 | 35.8 s |
+| window | 1.0 m/s | 1 | 31 + window bonus | 35.1 s | 1 (window frame) | 40.1 s |
+| gate_b | shipped speed | 1 | 31 | 63.1 s | 0 | 63.1 s |
+| gate_b | 0.8 m/s | 1 | 31 | 38.9 s | 1 (C1) | 43.9 s |
+| gate_b | 1.0 m/s | 1 | 31 | 38.3 s | 2 (C1) | 48.3 s |
+
+The Gate B touches are on C1 in the turn after the tunnel; the chicane did not change. The lidar
+builds, `vo_nolidar` and `manual_full` still fly the 2026-11-06 layout's routes and hit the new
+walls.
+
 1. **Drone 1's 2026-10-15 parameter dump has `COM_FLTMODE6 = 0`.** The switch position the pilot
    calls "Position" is Manual there, so the arm-then-Position procedure never starts Offboard. The
    fleet baseline and drone 16 have 2. Check the live value before a test.

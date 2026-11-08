@@ -562,8 +562,11 @@ class CourseSolidTests(unittest.TestCase):
             self.assertNotIn(gone, by_name)
 
     def test_performance(self):
+        # The 2026-11-07 SolidWorks export tessellates in ~26 s on the dev laptop, idle (the
+        # Onshape file took under 15 s): ~26 % more triangles and B-spline domes and tube faces.
+        # The bound still catches a pathological slowdown; the result is cached after one run.
         _, _, seconds = course()
-        self.assertLess(seconds, 15.0)
+        self.assertLess(seconds, 45.0)
 
     def test_curved_face_tolerances(self):
         _, by_name, _ = course()
