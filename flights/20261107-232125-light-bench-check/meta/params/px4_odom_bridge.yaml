@@ -1,0 +1,10 @@
+/px4_odom_bridge:
+  ros__parameters:
+    input_topic: /visual_slam/tracking/odometry
+    min_position_variance: 0.0
+    output_topic: /fmu/in/vehicle_visual_odometry
+    pose_frame: FRD
+    publish_velocity: true
+    status_topic: /visual_slam/status
+    use_sim_time: false
+

@@ -1,0 +1,9 @@
+    128 Sat Nov  7 22:19:37 2026 /usr/bin/python3 /opt/ros/humble/bin/ros2 launch oakd_vslam_bringup oakd_vslam.launch.py camera_x:=0.1053 camera_y:=0 camera_z:=0.0304 camera_roll:=0 camera_pitch:=0 camera_yaw:=0
+    200 Sat Nov  7 22:19:40 2026 /opt/ros/humble/lib/tf2_ros/static_transform_publisher --x 0.1053 --y 0 --z 0.0304 --roll 0 --pitch 0 --yaw 0 --frame-id base_link --child-frame-id oak_parent_frame --ros-args -r __node:=base_link_to_oak
+    202 Sat Nov  7 22:19:40 2026 /opt/ros/humble/lib/rclcpp_components/component_container --ros-args --log-level info --ros-args -r __node:=oak_container -r __ns:=/
+    204 Sat Nov  7 22:19:40 2026 /opt/ros/humble/lib/rclcpp_components/component_container_mt --ros-args -r __node:=vslam_container -r __ns:=/
+    335 Sat Nov  7 22:19:45 2026 /usr/bin/python3 /opt/ros/humble/bin/ros2 launch oakd_vslam_bringup px4_bridge.launch.py
+    418 Sat Nov  7 22:19:47 2026 /usr/bin/python3 /opt/ros/humble/bin/ros2 launch competitor_example competitor.launch.py
+    431 Sat Nov  7 22:19:47 2026 /usr/bin/python3 /root/skybeta_ws/install/oakd_vslam_bringup/lib/oakd_vslam_bringup/px4_odom_bridge --ros-args -r __node:=px4_odom_bridge --params-file /tmp/launch_params_m1kgn3c7
+    503 Sat Nov  7 22:19:50 2026 /usr/bin/python3 /root/skybeta_ws/install/skybeta_flight_interface/lib/skybeta_flight_interface/flight_interface --ros-args -r __node:=flight_interface --params-file /tmp/launch_params_05zd82cf
+    505 Sat Nov  7 22:19:50 2026 /usr/bin/python3 /root/skybeta_ws/install/competitor_example/lib/competitor_example/square_mission --ros-args -r __node:=competitor_example --params-file /tmp/launch_params_lvizfg56

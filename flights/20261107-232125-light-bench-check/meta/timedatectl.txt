@@ -1,0 +1,20 @@
+               Local time: Sat 2026-11-07 15:21:26 PST
+           Universal time: Sat 2026-11-07 23:21:26 UTC
+                 RTC time: Sat 2026-11-07 23:21:26
+                Time zone: America/Los_Angeles (PST, -0800)
+System clock synchronized: yes
+              NTP service: active
+          RTC in local TZ: no
+
+LinkNTPServers=
+SystemNTPServers=
+FallbackNTPServers=0.pool.ntp.org 1.pool.ntp.org 0.fr.pool.ntp.org
+ServerName=0.fr.pool.ntp.org
+ServerAddress=
+RootDistanceMaxUSec=5s
+PollIntervalMinUSec=32s
+PollIntervalMaxUSec=34min 8s
+PollIntervalUSec=34min 8s
+NTPMessage={ Leap=0, Version=4, Mode=4, Stratum=2, Precision=-26, RootDelay=6.759ms, RootDispersion=778us, Reference=D8EF2304, OriginateTimestamp=Sat 2026-11-07 14:49:07 PST, ReceiveTimestamp=Sat 2026-11-07 14:49:08 PST, TransmitTimestamp=Sat 2026-11-07 14:49:08 PST, DestinationTimestamp=Sat 2026-11-07 14:49:08 PST, Ignored=no PacketCount=8, Jitter=2.488902s }
+Frequency=-2140113
+

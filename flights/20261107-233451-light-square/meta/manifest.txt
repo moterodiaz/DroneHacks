@@ -1,0 +1,5 @@
+run_id: 20261107-233451-light-square
+profile: light
+started_utc: 2026-11-07T23:34:51Z
+recorded_by: dronehacks_square_test launch
+exclude_regex: image|compressed|/depth|points|cloud|/visual_slam/vis/|_path$
