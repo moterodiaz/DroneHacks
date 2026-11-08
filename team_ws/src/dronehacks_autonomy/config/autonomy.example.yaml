@@ -1,0 +1,61 @@
+# Packaged defaults for the mission node. Override on the drone in
+# ~/team_ws/autonomy_params.yaml (same layout, only the keys you change), which
+# launch/competitor.launch.py reads after this file.
+#
+# No course coordinate is written here (AGENTS.md section 3.9): the route, launch mark and
+# launch heading come from the map file. Numbers are floats (write 2.0, not 2): ROS 2
+# refuses an int for a float parameter.
+
+mission:
+  ros__parameters:
+    # MUST MEASURE on drone 1. No defaults: the node refuses to start, and publishes nothing,
+    # while any of these is .nan.
+    rest_height_m: .nan              # body centre above the floor when landed, tape-measured
+    # p_odom = o_odom + R_odom_course * p_course (contracts/frames.md). Written by
+    # `ros2 run dronehacks_autonomy measure_frame` at each tracking initialisation.
+    course_to_odom_yaw: .nan         # rotation of R_odom_course, radians CCW from east
+    course_to_odom_x: .nan           # o_odom: the odom reading of the course origin, metres
+    course_to_odom_y: .nan
+    # MPC_XY_VEL_MAX on the drone. fleet/SN0001 says 1.0, 00_baseline says 12. Read the live
+    # value (QGroundControl > Parameters) and set it here: the speed profile plans to it.
+    v_max_mps: 1.0
+    # The window needs a reviewed clearance_radius in the map too (contracts/course.md).
+    use_window: false
+    state_topic: "/skybeta/state"
+    land_detected_topic: "auto"      # /fmu/out/vehicle_land_detected[_vN], read only
+    attitude_topic: "auto"           # /fmu/out/vehicle_attitude[_vN], read only: the heading gate
+    setpoint_pose_out: "/skybeta/setpoint/pose"
+    setpoint_twist_out: "/skybeta/setpoint/twist"
+    frame_id: "odom"
+    # contracts/ros-graph.md: the cadence is unvalidated. Measure freshness props-off first.
+    rate_hz: 20.0
+    state_timeout_s: 1.0
+    land_timeout_s: 2.0              # an older land-detector reading is unknown (PX4 repeats it ~1 Hz)
+    # MissionConfig: starting points, none flight-tested.
+    start_tolerance_m: 0.15          # prechecks: still on the mark...
+    heading_tolerance_deg: 5.0       # ...facing the launch heading...
+    px4_heading_gate_deg: 2.0        # ...and PX4's heading within this of vision's. 0.0 = off
+    takeoff_tolerance_m: 0.10
+    hold_before_land_s: 2.0
+    land_tolerance_m: 0.10
+    descent_mps: 0.3
+    land_xy_gain: 1.0
+    land_xy_max_mps: 0.2
+    pose_timeout_s: 0.5
+    max_prediction_s: 0.2
+    abort_cross_track_m: 0.35        # off the path by more than this: hold and wait for the pilot
+    # Fly on through a vision dropout by dead reckoning, for at most this long. 0.0 = off.
+    # contracts/ros-graph.md blocks tunnel traversal during vision loss until a measured drift bound
+    # and a pilot-approved abort procedure exist. Simulation only until then.
+    coast_max_s: 0.0
+    # false: hold over the pad for the pilot, which cannot finish a scored run (any pilot input
+    # other than abort ends it). contracts/px4.md blocks the twist descent until the organisers
+    # confirm a landing procedure. Set true in autonomy_params.yaml once they have.
+    land: false
+    # Touch the pad, lift off without disarming and land at the launch mark (needs land: true). The
+    # organisers said the drone does not disarm on the pad. contracts/px4.md still blocks this until
+    # it is updated with that answer.
+    return_leg: false
+    return_height_m: 2.2             # above the floor; must clear this course's walls (68 in here)
+    return_speed_mps: 0.5
+    return_lag_m: 0.5                # > 0 with return_leg: with 0 the return never leaves the pad
