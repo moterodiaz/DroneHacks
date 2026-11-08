@@ -1,12 +1,8 @@
 """ROS wrapper for ``mission.Mission``: cuVSLAM pose + /skybeta/state in, kit setpoints out.
 
 Same contract as the kit's ``competitor_example``: subscribes /visual_slam/tracking/odometry and
-/skybeta/state, publishes /skybeta/setpoint/pose and /skybeta/setpoint/twist. Never writes
+/skybeta/state, publishes /skybeta/setpoint/pose and /skybeta/setpoint/twist. Never touches
 /fmu/*, never arms or changes mode. Status (state + reason) on /square_test/status.
-
-It also reads (only) PX4's /fmu/out/vehicle_local_position: before Offboard, while PX4's position
-and cuVSLAM's disagree by more than ``frames_limit_m`` (``mission.frames_disagree``), it streams no
-setpoint, so the kit never takes over and the log says to power-cycle the drone on its spot.
 
 Recording (``record``, default true): at the first arming it starts a rosbag2 recording with
 dronehacks_telemetry's ``light`` profile (every topic but images, point clouds and visualisation)
@@ -24,14 +20,12 @@ import time
 
 import rclpy
 from rclpy.node import Node
-from rclpy.qos import qos_profile_sensor_data
 from geometry_msgs.msg import PoseStamped, TwistStamped
 from nav_msgs.msg import Odometry
-from px4_msgs.msg import VehicleLocalPosition
 from rcl_interfaces.msg import ParameterDescriptor
 from std_msgs.msg import String
 
-from dronehacks_square_test.mission import Config, Mission, frames_disagree
+from dronehacks_square_test.mission import Config, Mission
 
 FLIGHTS = '/root/team_ws/flights'
 LIGHT_EXCLUDE = 'image|compressed|/depth|points|cloud|/visual_slam/vis/|_path$'  # = record_flight.sh's
@@ -49,10 +43,6 @@ class SquareTest(Node):
         self.mission = Mission(Config(**cfg))
         self.declare_parameter('record', True, ParameterDescriptor(dynamic_typing=True))
         self.record = str(self.get_parameter('record').value).lower() in ('true', '1')
-        self.declare_parameter('frames_limit_m', 0.15, ParameterDescriptor(dynamic_typing=True))
-        self.frames_limit_m = float(self.get_parameter('frames_limit_m').value)
-        self.px4_ned = None
-        self.frames_problem = None
         self.recorder = None
         self.pose = None
         self.pose_t = None
@@ -60,6 +50,7 @@ class SquareTest(Node):
         self.offboard = False
         self.landed = None
         self.armed = None
+        self.px4 = None               # PX4 local position, ENU, from /skybeta/state
         self.last_status = None
         self.finished = False        # main() closes the recording and exits on it
         self.end_t = None
@@ -69,8 +60,6 @@ class SquareTest(Node):
         self.status_pub = self.create_publisher(String, '/square_test/status', 10)
         self.create_subscription(Odometry, '/visual_slam/tracking/odometry', self.odom_cb, 10)
         self.create_subscription(String, '/skybeta/state', self.state_cb, 10)
-        self.create_subscription(VehicleLocalPosition, '/fmu/out/vehicle_local_position', self.px4_cb,
-                                 qos_profile_sensor_data)
         self.create_timer(0.05, self.tick)  # 20 Hz
         c = self.mission.cfg
         self.get_logger().info(
@@ -119,18 +108,6 @@ class SquareTest(Node):
         if all(math.isfinite(v) for v in xyz + (yaw,)):
             self.pose, self.pose_t, self.yaw = xyz, self.now(), yaw
 
-    def px4_cb(self, msg):
-        if msg.xy_valid and msg.z_valid:
-            self.px4_ned = (float(msg.x), float(msg.y), float(msg.z))
-
-    def frames_check(self):
-        """Before Offboard: why PX4's frame and the tracker's disagree, or None when they agree."""
-        if self.pose is None:
-            return None
-        if self.px4_ned is None:
-            return 'no valid PX4 local position yet'
-        return frames_disagree(self.pose, self.px4_ned, self.frames_limit_m)
-
     def state_cb(self, msg):
         try:
             s = json.loads(msg.data)
@@ -139,26 +116,15 @@ class SquareTest(Node):
         self.offboard = bool(s.get('offboard_active', False))
         self.landed = s.get('landed')
         self.armed = s.get('armed')
+        local = s.get('local_enu')
+        self.px4 = tuple(local) if isinstance(local, list) and len(local) == 3 else None
         if s.get('clamped'):
             self.get_logger().warn('kit is clamping our setpoint: {}'.format(s['clamped']),
                                    throttle_duration_sec=2.0)
 
     def tick(self):
-        # Before Offboard, a pose PX4 would read in another frame is withheld: no stream, no takeover
-        pose = self.pose
-        if self.mission.state == 'WAIT':
-            problem = self.frames_check()
-            if problem != self.frames_problem:
-                if problem:
-                    self.get_logger().error('{}: not streaming, so no Offboard. Power-cycle the drone (FC and '
-                                            'stack) sitting on its take-off spot'.format(problem))
-                else:
-                    self.get_logger().info('PX4 and cuVSLAM agree: streaming')
-                self.frames_problem = problem
-            if problem:
-                pose = None
-        cmd = self.mission.step(self.now(), pose, self.pose_t, self.offboard, self.landed, self.armed,
-                                self.yaw)
+        cmd = self.mission.step(self.now(), self.pose, self.pose_t, self.offboard, self.landed, self.armed,
+                                self.yaw, self.px4)
         stamp = self.get_clock().now().to_msg()
         if cmd.kind == 'pose':
             m = PoseStamped()

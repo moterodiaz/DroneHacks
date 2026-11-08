@@ -54,6 +54,8 @@ class Config:
     stale_land_s: float = 3.0
     yaw_rate_dps: float = 20.0      # slow turn: 90 deg in 4.5 s
     yaw_tol_deg: float = 5.0
+    max_offset_m: float = 0.3       # PX4 vs camera position on the ground; more than this: refuse to fly
+    offset_tau_s: float = 1.0       # smoothing of the PX4-vs-camera offset in flight
 
 
 @dataclass
@@ -97,14 +99,21 @@ class Mission:
         self.dwell_since = None
         self.stale_since = None
         self.last_t = None
+        self.offset = (0.0, 0.0, 0.0)  # PX4 local minus camera, smoothed
 
     @property
     def step_name(self):
         return self.steps[self.i][0] if self.state == FLY else self.state
 
-    def step(self, t, pose, pose_t, offboard, landed, armed, yaw=None):
+    def step(self, t, pose, pose_t, offboard, landed, armed, yaw=None, px4=None):
         """One tick. pose: (x, y, z) or None; pose_t: when it was captured (s); yaw: its ENU
-        heading in radians, or None (then the drone holds whatever heading it has)."""
+        heading in radians, or None (then the drone holds whatever heading it has); px4: PX4's
+        own local position, ENU (``/skybeta/state`` local_enu), or None.
+
+        The kit passes pose setpoints to PX4 unanchored (``anchor_setpoints`` false), so PX4 flies
+        them in its own frame. Its height can sit off the camera's (0.73 m in one flight, 0.15 m
+        after a clean power cycle), so every setpoint carries the PX4-minus-camera offset taken at
+        Offboard, then followed (smoothed) through the flight, and all checks stay in the camera frame."""
         c = self.cfg
         fresh = pose is not None and pose_t is not None and t - pose_t <= c.pose_timeout_s
         if self.state in (DONE, STOPPED):
@@ -112,8 +121,14 @@ class Mission:
         if self.state == WAIT:
             if not fresh:
                 return NONE          # no stream: the kit will not enter Offboard
+            self.offset = (0.0, 0.0, 0.0) if px4 is None else tuple(p - o for p, o in zip(px4, pose))
+            if math.hypot(*self.offset) > c.max_offset_m:
+                self.reason = 'PX4 and camera disagree by {:.2f} m: power-cycle on the spot'.format(
+                    math.hypot(*self.offset))
+                return NONE          # no stream: no Offboard, the pilot keeps Position
+            self.reason = 'waiting for arm, then Position'
             if not offboard:
-                return Command('pose', *pose)
+                return Command('pose', *self._px4(pose))
             self.start, self.target, self.start_yaw, self.heading = pose, pose, yaw, 0.0
             self.state, self.i, self.since, self.last_t = FLY, 0, t, t
         elif armed is False and self.steps[self.i][0] in ('land', 'ground', 'disarm'):
@@ -136,6 +151,11 @@ class Mission:
             self.reason = 'pose stale: holding still'
             return Command('twist')
         self.stale_since = None
+        if px4 is not None:
+            # follow PX4's frame as it changes (its rangefinder height is wrong on the ground, right in
+            # the air); 1 s smoothing; both inputs measure the same drone, so this is not a control loop
+            a = min(1.0, dt / c.offset_tau_s)
+            self.offset = tuple(o + a * (p - q - o) for o, p, q in zip(self.offset, px4, pose))
 
         kind, offset, secs, heading = self.steps[self.i]
         self.reason = 'step {}/{}: {}'.format(self.i + 1, len(self.steps), kind)
@@ -188,7 +208,10 @@ class Mission:
         return _wrap(self.start_yaw + math.radians(self.heading))
 
     def _pose(self):
-        return Command('pose', *self.target, yaw=None if self.start_yaw is None else self._yaw_cmd())
+        return Command('pose', *self._px4(self.target), yaw=None if self.start_yaw is None else self._yaw_cmd())
+
+    def _px4(self, p):
+        return tuple(a + o for a, o in zip(p, self.offset))
 
     def _at(self, offset):
         return tuple(s + o for s, o in zip(self.start, offset))
@@ -199,26 +222,6 @@ class Mission:
     def _abort(self, why):
         self.i = len(self.steps) - 1            # the final 'disarm' landing
         self.reason = why
-
-
-def frames_disagree(odom_enu, px4_ned, limit_m=0.15):
-    """Why PX4's local position and cuVSLAM's odometry disagree by more than ``limit_m``, or None.
-
-    The kit's interface turns an odom ENU setpoint into PX4 NED by swapping x/y and negating z, so
-    it is only right when both frames started in the same place. PX4 fuses vision for x, y and yaw
-    only (EKF2_EV_CTRL 9) and takes height from the rangefinder (EKF2_HGT_REF 2): its height origin
-    is where the flight controller powered up, the tracker's where the stack started. On
-    skybeta-11 (2026-11-07) PX4 read -0.72 m on the floor while odom read 0.01 m, and the drone
-    flew to 1.33 m for a 0.74 m setpoint. Power-cycling the drone on its take-off spot fixes it."""
-    north, east, down = px4_ned
-    x, y, z = odom_enu
-    horizontal = math.hypot(east - x, north - y)
-    vertical = abs(-down - z)
-    if horizontal > limit_m:
-        return 'PX4 position and cuVSLAM disagree by {:.2f} m'.format(horizontal)
-    if vertical > limit_m:
-        return 'PX4 height and cuVSLAM disagree by {:.2f} m'.format(vertical)
-    return None
 
 
 def _wrap(a):

@@ -34,10 +34,11 @@ hold's height check never passed and the 20 s timeout landed it. In `20261108-00
 -0.76 m on the floor (the stack had started higher). **Power-cycle the drone, FC and Jetson,
 sitting on its take-off spot**, and leave it there until the stack is up.
 
-The node checks it: before Offboard it compares PX4's `/fmu/out/vehicle_local_position` (read only)
-with odom, and while they differ by over `frames_limit_m` (0.15 m) it streams nothing, so the kit
-never takes over. The log says `PX4 height and cuVSLAM disagree by 0.73 m: not streaming, so no
-Offboard. Power-cycle the drone ...`, then `PX4 and cuVSLAM agree: streaming` once fixed.
+The mission handles what remains: every setpoint carries the PX4-minus-camera offset (PX4's
+position from `/skybeta/state` `local_enu`), taken at Offboard and followed, smoothed over 1 s,
+through the flight, since the rangefinder reads wrong on the floor and right in the air. Its checks
+stay in the camera frame. Over `max_offset_m` (0.3 m) on the ground it streams nothing, so the kit
+never takes over; the status says `PX4 and camera disagree by 0.73 m: power-cycle on the spot`.
 
 ## On the drone
 

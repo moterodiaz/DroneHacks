@@ -1,7 +1,7 @@
 """Fly the mission against a crude drone model, including PX4's auto-disarm after landing."""
 import math
 
-from dronehacks_square_test.mission import DONE, STOPPED, Config, Mission, _wrap, frames_disagree
+from dronehacks_square_test.mission import DONE, STOPPED, Config, Mission, _wrap
 
 DT = 0.05
 START = (2.0, -1.0, 0.0)
@@ -9,7 +9,7 @@ COM_DISARM_LAND = 2.0
 START_YAW = 0.4                  # rad: not zero, so the test catches a missing offset
 
 
-def fly(mission, drop_pose=None, takeover_at=None, max_t=150.0, heading=True, height_bias=0.0):
+def fly(mission, drop_pose=None, takeover_at=None, max_t=150.0, heading=True, off=None, height_bias=0.0):
     """Moves toward a pose setpoint at <= 0.6 m/s (z floored 0.3 m, as the kit does), follows
     twists, sits on the ground at z 0. Disarms after COM_DISARM_LAND landed, which ends Offboard.
     `height_bias` is how far below a commanded height the drone settles in the tracker's z: PX4
@@ -31,13 +31,15 @@ def fly(mission, drop_pose=None, takeover_at=None, max_t=150.0, heading=True, he
         else:
             landed_since = None
         stale = drop_pose and drop_pose[0] <= t < drop_pose[1]
+        px4 = None if off is None else (x + off[0], y + off[1], z + off[2])
         cmd = mission.step(t, None if stale else (x, y, z), None if stale else t, offboard, landed, armed,
-                           yaw if heading and not stale else None)
+                           yaw if heading and not stale else None, px4)
         cmds.append((t, cmd))
         if not offboard:
             pass                              # PX4 ignores setpoints outside Offboard
         elif cmd.kind == 'pose':
-            d = [cmd.x - x, cmd.y - y, max(cmd.z, 0.3) - height_bias - z]
+            o = off or (0.0, 0.0, 0.0)          # PX4 flies the setpoint in its own frame
+            d = [cmd.x - o[0] - x, cmd.y - o[1] - y, max(cmd.z, 0.3) - o[2] - height_bias - z]
             n = math.sqrt(sum(v * v for v in d))
             f = min(1.0, 0.6 * DT / n) if n else 0.0
             x, y, z = x + d[0] * f, y + d[1] * f, z + d[2] * f
@@ -134,20 +136,50 @@ def test_a_height_a_little_off_the_trackers_still_flies_the_box():
     assert max(p[1] for p in track) > x0 + 0.45 and max(p[2] for p in track) > y0 + 0.45
 
 
-def test_frames_that_disagree_are_named_and_agreeing_ones_pass():
-    # PX4 NED is the tracker's ENU with x and y swapped and z negated, when both started together
-    odom = (-0.04, -0.01, 0.01)
-    assert frames_disagree(odom, (-0.01, -0.04, -0.03), limit_m=0.15) is None
-
-    # Skybeta-11 on 2026-11-07: PX4's height origin 0.73 m above the floor, the tracker's on it
-    assert 'height' in frames_disagree(odom, (-0.01, -0.04, 0.72), limit_m=0.15)
-
-    # The tracker started 3.3 m away from where PX4's position says the drone is
-    assert 'position' in frames_disagree((-3.30, 0.64, 0.0), (0.0, 0.0, 0.0), limit_m=0.15)
-
-
 def test_without_heading_it_flies_without_commanding_yaw():
     m = Mission(Config())
     _, cmds = fly(m, heading=False)
     assert m.state == DONE
     assert all(c.yaw is None for _, c in cmds)
+
+
+def test_px4_frame_offset_is_corrected():
+    for off in [(0.02, -0.03, 0.15), (0.0, 0.0, -0.25)]:
+        m = Mission(Config())
+        track, _ = fly(m, off=off)
+        assert m.state == DONE and m.reason == 'disarmed on the ground', (off, m.reason)
+        x0, y0, _ = START
+        for dx, dy in [(0, 0), (0.5, 0), (0.5, 0.5), (0, 0.5)]:
+            assert held(track, (x0 + dx, y0 + dy, 0.73)) >= 2.9, (off, dx, dy)
+
+
+def test_large_px4_offset_refuses_to_fly():
+    m = Mission(Config())
+    _, cmds = fly(m, off=(0.0, 0.0, 0.73), max_t=5.0)
+    assert m.state == 'WAIT' and 'disagree' in m.reason
+    assert all(c.kind == 'none' for _, c in cmds)
+
+
+def test_offset_that_changes_after_takeoff_is_followed():
+    """PX4's rangefinder height reads 0.14 m on the ground and right in the air."""
+    m = Mission(Config())
+    x, y, z = START
+    t, track = 0.0, []
+    while t < 150.0 and m.state not in (DONE, STOPPED):
+        t += DT
+        off = (0.0, 0.0, 0.14 if z < 0.1 else 0.0)
+        offboard = t > 1.0
+        cmd = m.step(t, (x, y, z), t, offboard, z <= 1e-6, True, None, (x, y, z + off[2]))
+        if offboard and cmd.kind == 'pose':
+            d = [cmd.x - x, cmd.y - y, max(cmd.z, 0.3) - off[2] - z]
+            n = math.sqrt(sum(v * v for v in d))
+            f = min(1.0, 0.6 * DT / n) if n else 0.0
+            x, y, z = x + d[0] * f, y + d[1] * f, z + d[2] * f
+        elif offboard and cmd.kind == 'twist':
+            x, y, z = x + cmd.x * DT, y + cmd.y * DT, max(0.0, z + cmd.z * DT)
+        track.append((t, x, y, z, True, START_YAW))
+        if m.step_name == 'land':
+            break
+    x0, y0, _ = START
+    for dx, dy in [(0, 0), (0.5, 0), (0.5, 0.5), (0, 0.5)]:
+        assert held(track, (x0 + dx, y0 + dy, 0.73), tol=0.05) >= 2.9, (dx, dy)
