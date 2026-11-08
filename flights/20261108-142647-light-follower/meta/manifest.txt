@@ -1,0 +1,5 @@
+run_id: 20261108-142647-light-follower
+profile: light
+started_utc: 2026-11-08T14:26:47Z
+recorded_by: dronehacks_course_follower launch
+exclude_regex: image|compressed|/depth|points|cloud|/visual_slam/vis/|_path$

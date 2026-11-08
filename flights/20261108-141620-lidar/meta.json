@@ -1,0 +1,8 @@
+{
+ "device": "/dev/bus/usb/001/004 (CH340 1-2.1, no driver: usbfs)",
+ "baud": 230400,
+ "armed_wall_time": 1794147380.7903826,
+ "bytes": 105216,
+ "format": "MAGIC then <dI (wall time, length) + raw MS200 bytes",
+ "closed_wall_time": 1794147386.7351527
+}

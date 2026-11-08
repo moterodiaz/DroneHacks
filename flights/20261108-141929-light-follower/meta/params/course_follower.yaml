@@ -1,0 +1,5 @@
+/course_follower:
+  ros__parameters:
+    course_to_odom_yaw: -1.573288128869152
+    course_to_odom_x: 0.008694567015302962
+    course_to_odom_y: 0.00506581598892808

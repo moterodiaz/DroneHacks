@@ -1,0 +1,3 @@
+profile: light
+recorded_by: ops.sh (jsun traj run)
+exclude_regex: image|compressed|/depth|points|cloud|/visual_slam/vis/|_path$
