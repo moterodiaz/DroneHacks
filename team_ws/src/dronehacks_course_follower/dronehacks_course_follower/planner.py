@@ -246,19 +246,21 @@ def _route_on(grid: CourseGrid, course_map: Mapping[str, Any], tunnel_lead_m: fl
 def _stop(grid: CourseGrid, goal: Mapping[str, Any], lead_m: float) -> list[tuple[float, float]]:
     """The points a route passes for one goal: a window's two lead-in points on its normal; its
     middle; or with `lead_m` and two ends, the points on its axis up to `lead_m` outside each end,
-    stepped in a cell at a time until clear of every lethal ring."""
+    or the goal's own `lead_m` for that end, stepped in a cell at a time until clear of every lethal ring."""
     if "along" in goal:
         return _window_leg(grid, goal)
 
     if lead_m <= 0 or "ends" not in goal:
         return [(float(goal["at"][0]), float(goal["at"][1]))]
 
-    # On the axis or not at all: a point moved sideways off a rock's ring leans the whole leg
+    # On the axis or not at all: a point moved sideways off a rock's ring leans the whole leg. A
+    # map's own lead for an end keeps a turning hold off a net close beyond that mouth
     middle = np.asarray(goal["at"], dtype=float)
+    end_leads_m = goal.get("lead_m", [lead_m] * len(goal["ends"]))
     points = []
-    for end in np.asarray(goal["ends"], dtype=float):
+    for end, end_lead_m in zip(np.asarray(goal["ends"], dtype=float), end_leads_m, strict=True):
         outward = (end - middle) / max(float(np.linalg.norm(end - middle)), 1e-9)
-        out_m = lead_m
+        out_m = float(end_lead_m)
         while out_m > CELL_M and not _free(grid, end + out_m * outward):
             out_m -= CELL_M
 
