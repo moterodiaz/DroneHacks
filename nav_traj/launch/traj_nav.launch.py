@@ -72,8 +72,11 @@ def _installed(package: str) -> bool:
 def _nodes(context):
     guard_package = LaunchConfiguration("guard_package").perform(context).strip()
     params = LaunchConfiguration("params_file").perform(context)
+    overrides = LaunchConfiguration("mission_overrides").perform(context).strip()
     map_file = LaunchConfiguration("map_file").perform(context)
     actions = [LogInfo(msg=f"dronehacks_traj: map {map_file}")]
+    if overrides:
+        actions.append(LogInfo(msg=f"dronehacks_traj: mission parameters overridden by {overrides}"))
     if guard_package == "auto":
         if _installed(AUTO_GUARD):
             guard_package = AUTO_GUARD
@@ -91,7 +94,8 @@ def _nodes(context):
         pose_topic = CUVSLAM
     actions.append(Node(package="dronehacks_traj", executable="mission", name="mission", output="screen",
                         emulate_tty=True,
-                        parameters=[params, {"map_file": map_file, "odometry_topic": pose_topic}]))
+                        parameters=[params] + ([overrides] if overrides else [])
+                        + [{"map_file": map_file, "odometry_topic": pose_topic}]))
     return actions
 
 
@@ -106,6 +110,9 @@ def generate_launch_description():
                                           "installed) or a package providing vo_guard"),
         DeclareLaunchArgument("params_file", default_value=os.path.join(SHARE, "config", "traj_nav.example.yaml"),
                               description="parameters for the mission node"),
+        DeclareLaunchArgument("mission_overrides", default_value="",
+                              description="optional second parameter file for the mission node, applied over "
+                                          "params_file (a flight line, e.g. config/flight_line_window_2mps.yaml)"),
     ]
     flight_interface = Node(
         package="skybeta_flight_interface",

@@ -297,6 +297,29 @@ class WholeFlightTest(unittest.TestCase):
         self.assertLess(times[0.8], 0.8 * times[0.0], times)
         self.assertTrue(any("following by velocity" in r for r in log.reasons))
 
+    def test_the_window_2mps_line_flies_the_step_map_through_the_window(self):
+        # config/flight_line_window_2mps.yaml, as the node applies it over the shipped config
+        import yaml
+        from dronehacks_planner.limits import VehicleLimits
+        from dronehacks_planner.route import PlannerConfig
+        line = yaml.safe_load((_paths.PACKAGE_ROOT / "config" / "flight_line_window_2mps.yaml")
+                              .read_text(encoding="utf-8"))["mission"]["ros__parameters"]
+        cfg = dataclasses.replace(CONFIG, twist_speed_max_mps=line["twist_speed_max_mps"])
+        prepared = prep(_paths.PACKAGE_ROOT / "maps" / "course_v3_step.yaml", cfg,
+                        limits=dataclasses.replace(VehicleLimits(), v_max_mps=line["v_max_mps"]),
+                        planner=dataclasses.replace(PlannerConfig(), prefer=tuple(line["prefer"])),
+                        track_speed_mps=line["track_speed_mps"])
+        self.assertEqual(prepared.plan.route.goals, ["cp2_gate_a", "tunnel", "window", "pad"])
+        self.assertEqual(prepared.v_max_mps, 2.0)       # verified at 2 m/s, not planned slower
+        # PX4 at MPC_XY_VEL_MAX 2.0 and the interface at max_speed_mps 2.0 (the line needs both)
+        log = fly(prepared.mission, dataclasses.replace(VehicleLimits(), v_max_mps=2.0),
+                  VehicleSimConfig(twist_speed_cap_mps=2.0))
+        checks = flight_checks(prepared, log.pos)
+        self.assertIn("disarm", log.events)
+        self.assertEqual(checks["wall_touches"], 0)
+        self.assertEqual(checks["openings"], {"cp2_gate_a": True, "tunnel": True, "window": True})
+        self.assertTrue(checks["on_pad"])
+
     def test_a_plan_that_fails_its_checks_at_a_speed_is_planned_slower_not_refused(self):
         # the 2026-10-27 STEP map's window route over the boulders breaks the jerk limit at 1.5 m/s
         # and up (the 2026-11-07 layout's routes verify at every speed, so the old map is kept as a
