@@ -1,0 +1,27 @@
+# Flight line "window at 0.5 m/s" (2026-11-07 course layout): a slow test of
+# flight_line_window_2mps.yaml, chosen by the team (@jsun4231). The route is the same and only
+# the speeds change (2.0 -> 0.5 m/s), so the pilot has time to take over before a touch.
+# launch/traj_nav_competitor_window_0p5mps.launch.py applies this file OVER the installed
+# config/traj_nav.example.yaml, so the measured values there (rest height, course->odom
+# transform) still apply. Numbers are floats: ROS 2 refuses an int for a float parameter.
+#
+# Before flying it:
+# * PX4's MPC_XY_VEL_MAX (contracts/px4.md: the organisers' 1.0 m/s, not ours to write) is above
+#   0.5 m/s, so it doesn't bind here.
+# * The window is not cleared by contracts/course.md: its clearance budget is unreviewed and
+#   unvalidated on the kit. The planner's window pass keeps 0.049 m over its inscribed radius.
+# * SITL_RESULTS
+
+mission:
+  ros__parameters:
+    prefer: ["window"]          # CP4 through the window (+5 for a finished window run)
+    track_speed_mps: 0.5        # fly the whole course at this speed (the plan is capped at it)
+    v_max_mps: 0.5              # the plan's speed limit (PX4's MPC_XY_VEL_MAX is above it)
+    twist_speed_max_mps: 0.5    # must match flight_interface's max_speed_mps below
+
+# The kit's flight interface clamps the norm of every twist setpoint to max_speed_mps
+# (competitor_guide.md section 2, default 1.5). The launch file passes this value as the kit's
+# documented max_speed_mps launch argument; the interface itself is unchanged.
+flight_interface:
+  ros__parameters:
+    max_speed_mps: 0.5
