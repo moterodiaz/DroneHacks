@@ -31,8 +31,17 @@ REACH_M = 0.28
 MARGIN_M = 0.04
 
 # The kit's VL53L1X sees a cone this wide: a boulder is lethal out to its radius plus the cone's
-# footprint at flight height, so the drone never reads a boulder as the floor rising
+# footprint at flight height, so the drone never reads a boulder as the floor rising. PX4 then
+# takes a boulder as a height error or, below about 0.3 m/s, drops to the baro (README)
 RANGEFINDER_CONE_DEG = 27.0
+
+# The cone is sized this far above the map's flight height: the height is held from the drone's
+# rest pose, so it flies higher than the map says, and a higher cone reaches wider on the floor
+BOULDER_HEIGHT_ALLOWANCE_M = 0.20
+
+# A boulder's ring adds this for the follower cutting inside the planned path at a turn, which
+# the walls' margin does not cover for a cone that must miss the rock's whole flank
+BOULDER_MARGIN_M = 0.10
 
 # A window is flown only with this much opening above and below the flight height: the airframe's
 # half-height plus the rangefinder-held height's error
@@ -152,7 +161,8 @@ def plan_course(course_map: Mapping[str, Any], tunnel_lead_m: float = 0.0) -> li
     leg on its axis, from that far outside one end to that far outside the other, each in
     whichever direction makes the shortest route.
     """
-    footprint_m = float(course_map["height_m"]) * math.tan(math.radians(RANGEFINDER_CONE_DEG / 2))
+    high_m = float(course_map["height_m"]) + BOULDER_HEIGHT_ALLOWANCE_M
+    footprint_m = high_m * math.tan(math.radians(RANGEFINDER_CONE_DEG / 2))
     grid = build_grid(np.array(course_map["segments"], dtype=float), course_map["boulders"],
                       tuple(course_map["bounds"]), footprint_m)
 
@@ -382,9 +392,9 @@ def build_grid(segments: np.ndarray, boulders: list[list[float]], bounds_m: tupl
     cost = _MAX_COST * np.exp(-COST_SCALING_PER_M * (distance - lethal_m))
     cost[distance < lethal_m] = np.inf
 
-    # Boulders: lethal under the rangefinder's footprint, with the walls' margin
+    # Boulders: lethal under the rangefinder's footprint, with the path-following margin
     for boulder_x, boulder_y, radius_m in boulders:
-        lethal_boulder_m = radius_m + boulder_clearance_m + MARGIN_M
+        lethal_boulder_m = radius_m + boulder_clearance_m + BOULDER_MARGIN_M
         cost[np.hypot(grid_x - boulder_x, grid_y - boulder_y) < lethal_boulder_m] = np.inf
 
     return CourseGrid(origin_m=(float(xs[0]), float(ys[0])), cost=cost)
