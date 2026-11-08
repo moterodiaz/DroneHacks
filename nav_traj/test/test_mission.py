@@ -346,10 +346,12 @@ class WholeFlightTest(unittest.TestCase):
         self.assertEqual(checks["wall_touches"], 0)
         self.assertEqual(checks["openings"], {"tunnel": True, "window": True})
         self.assertTrue(checks["on_pad"])
-        # the window's taped band is 0.914-1.549 m: the whole drone (+-0.10 m) stays inside it
+        # the whole drone (+-0.10 m, the planner's drone_half_height_m) stays inside the window's band
+        window = next(g for g in prepared.cmap.goals if g.name == "window")
         z = self.heights_in(prepared, log, "window", 0.4)
         self.assertGreater(len(z), 0)
-        self.assertTrue(np.all((z >= 0.9144 + 0.10) & (z <= 1.5494 - 0.10)), (z.min(), z.max()))
+        self.assertTrue(np.all((z >= window.params["bottom"] + 0.10) & (z <= window.params["top"] - 0.10)),
+                        (z.min(), z.max()))
 
     def test_the_window_0p5mps_slow_line_flies_the_same_route_at_half_a_metre_per_second(self):
         # config/flight_line_window_0p5mps.yaml: the 2 m/s line's route, every speed 0.5 m/s
@@ -392,8 +394,10 @@ class WholeFlightTest(unittest.TestCase):
                     self.assertEqual(checks["wall_touches"], 0)
                     self.assertTrue(checks["on_pad"])
                     times[key] = log.events["disarm"] - log.events["takeoff"]
-                    z = self.heights_in(p, log, "tunnel", 0.76)
-                    self.assertGreater(float(z.min()), 1.23 - 0.10 - 1e-6)        # full height in the tube
+                    tube = next(g for g in p.cmap.goals if g.name == "tunnel")
+                    z = self.heights_in(p, log, "tunnel", tube.params["length"] / 2)
+                    full = p.cmap.slice_height - p.mission.config.takeoff_tolerance_m
+                    self.assertGreater(float(z.min()), full - 1e-6)                 # full height in the tube
                 self.assertGreater(times["slow"] - times["fast"], saved, times)
 
     def test_a_plan_that_fails_its_checks_at_a_speed_is_planned_slower_not_refused(self):
