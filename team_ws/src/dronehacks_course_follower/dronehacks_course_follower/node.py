@@ -22,7 +22,7 @@ from rclpy.node import Node
 from std_msgs.msg import String
 
 from .dry_run import packaged_map
-from .follower import Drone
+from .follower import TURN_RATE_DPS, Drone, HeadingMode
 from .frames import (OFFSET_LIMIT_M, CourseToOdom, NotAtRest, Px4Offset, RestOnMark, quaternion_yaw,
                      yaw_quaternion)
 from .ladder import parse_steps, read_step, record_run
@@ -91,8 +91,13 @@ class CourseFollower(Node):
             self.ladder_step = read_step(self.ladder_path, len(self.ladder_steps)) if self.record else 0
             speed_mps = self.ladder_steps[self.ladder_step]
 
+        # Where the camera faces: the look-ahead point, turning no faster than the turn rate, or the
+        # heading at Offboard held throughout
+        heading_mode = HeadingMode(self._parameter("heading_mode", HeadingMode.AHEAD.value))
+        turn_rate_dps = self._parameter("turn_rate_dps", TURN_RATE_DPS)
         self.mission = Mission(planned.route, planned.walls, float(course_map["height_m"]), launch, speed_mps,
-                               lead=self._parameter("pose_lead", False), land=self._parameter("land", True))
+                               lead=self._parameter("pose_lead", False), land=self._parameter("land", True),
+                               heading_mode=heading_mode, turn_rate_rad_s=math.radians(turn_rate_dps))
 
         # The transform as given, or read from the rest on the mark: the map's launch heading is
         # counter-clockwise from east
@@ -131,6 +136,7 @@ class CourseFollower(Node):
                                f"{self.mission.height_m:.2f} m (odom z {self.mission.height_m - origin_height_m:.2f}); "
                                + ("course placed by the given transform" if all(given) else
                                   "the course is placed from the rest on the launch mark at arming")
+                               + f"; heading {heading_mode.value}, turns at {turn_rate_dps:.0f} deg/s"
                                + f"; top speed {speed_mps:.2f} m/s"
                                + ("" if self.ladder_step is None else
                                   f" (ladder step {self.ladder_step + 1} of {len(self.ladder_steps)})"))

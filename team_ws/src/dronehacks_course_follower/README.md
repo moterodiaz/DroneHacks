@@ -113,8 +113,24 @@ tell where the mark is, so a misplaced drone flies the whole route shifted by th
 | `allow_window` | true | false always takes Gate B |
 | `land` | true | false holds over the pad for the pilot |
 | `tunnel_lead_m` | 0.0 | > 0 flies the tunnel as one straight leg from that far outside its mouths; it touched more in SITL, so it is off |
+| `heading_mode` | ahead | `ahead` faces the point 0.8 m ahead on the route; `fixed` commands the heading at Offboard from the climb to the landing, never yawing (below) |
+| `turn_rate_dps` | 45.0 | cap on the commanded heading's turn rate (`ahead`); PX4's `MPC_YAWRAUTO_MAX` default |
 | `setpoint_rate_hz` | 10 | the interface's own rate, the kit default |
 | `record` | true | record the run (below); false keeps the follower up for another attempt after a disarm |
+
+### Heading mode: does yawing drift the drone?
+
+In the square test (`flights/20261108-013018-light-square`) the drone drifted 10-20 cm off each
+corner after an in-place yaw and took about 10 s to crawl back; a hold without a yaw stayed within
+about 5 cm. `heading_mode:=fixed` flies the route without yawing at all, the camera facing the
+launch heading throughout, so the pace never waits on a turn; `turn_rate_dps:=20.0` keeps the
+look-ahead heading but turns slower. Compare one run each against the default. The stack passes
+no arguments, so set the default in the drone's copy of `launch/competitor.launch.py`, or launch
+by hand:
+
+```bash
+ros2 launch dronehacks_course_follower competitor.launch.py heading_mode:=fixed
+```
 
 ### Power up on the launch mark: PX4 and the tracker must share a frame
 
@@ -166,6 +182,7 @@ Plan and print without ROS or a drone:
 ```bash
 ros2 run dronehacks_course_follower dry_run            # or: python3 -m dronehacks_course_follower.dry_run
 ros2 run dronehacks_course_follower dry_run --no-window --steps 40
+ros2 run dronehacks_course_follower dry_run --heading-mode fixed
 ```
 
 ## Known risks
@@ -247,6 +264,6 @@ python3 -m pytest team_ws/src/dronehacks_course_follower/tests -q
 ```
 
 They pin the planner on the packaged map and on that map turned a quarter turn, the follower's
-led pose, pace limits and heading rate, the course-to-odom transform, the mission's phases and the
+led pose, pace limits, heading rate and fixed heading, the course-to-odom transform, the mission's phases and the
 landing trigger, a dry run to a landing, and a guard that no course coordinate or wall name
 appears in the package's code.

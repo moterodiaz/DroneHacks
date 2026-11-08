@@ -49,6 +49,9 @@ FOLLOWER_ARGUMENTS = [
     ("speed_ladder", "0.5,0.7,0.85,1.0", str, "the ladder's rising top speeds, m/s: a recorded run that lands "
                                               "on the pad moves the next run up a step"),
     ("ladder_file", "/root/team_ws/course_follower_ladder.json", str, "where the ladder's step is kept across runs"),
+    ("heading_mode", "ahead", str, "ahead = face the point 0.8 m ahead on the route; fixed = hold the heading at "
+                                   "Offboard from the climb to the landing, never yawing"),
+    ("turn_rate_dps", "45.0", float, "cap on the commanded heading's turn rate, deg/s"),
     ("pose_lead", "false", bool, "lead the pose by the setpoint's velocity and acceleration; only with "
                                  "the interface at 50 Hz: at its default 10 Hz led poses cut the first maze corner"),
     ("allow_window", "true", bool, "fly the window when the map says it is passable"),

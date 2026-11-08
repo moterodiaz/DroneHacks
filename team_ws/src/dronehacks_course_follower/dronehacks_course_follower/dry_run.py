@@ -9,7 +9,7 @@ import argparse
 import math
 from pathlib import Path
 
-from .follower import Drone
+from .follower import Drone, HeadingMode
 from .frames import CourseToOdom
 from .mission import Mission, Phase, PoseCommand, TwistCommand
 from .planner import load_course_map, plan_flight
@@ -44,6 +44,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--steps", type=int, default=20, help="setpoints to print (default 20)")
     parser.add_argument("--no-window", action="store_true", help="never fly through the window")
     parser.add_argument("--no-lead", action="store_true", help="send the plain setpoint, not the led pose")
+    parser.add_argument("--heading-mode", choices=[mode.value for mode in HeadingMode], default=HeadingMode.AHEAD.value,
+                        help="face the point ahead on the route, or hold the heading at Offboard (default ahead)")
     parser.add_argument("--tunnel-lead-m", type=float, default=0.0, metavar="M",
                         help="fly each two-ended goal straight, from this far outside its mouths")
     parser.add_argument("--course-to-odom", type=float, nargs=3, default=(0.0, 0.0, 0.0), metavar=("YAW", "X", "Y"),
@@ -65,7 +67,7 @@ def main(argv: list[str] | None = None) -> int:
 
     print_route(planned.route, planned.window_flown, course_map["order"])
     mission = Mission(planned.route, planned.walls, float(course_map["height_m"]), launch, args.speed,
-                      lead=not args.no_lead)
+                      lead=not args.no_lead, heading_mode=HeadingMode(args.heading_mode))
     fly_ideal(mission, launch, math.radians(float(course_map["launch"][2])), transform, args.rate_hz, args.steps)
     return 0 if mission.phase is Phase.DONE else 1
 

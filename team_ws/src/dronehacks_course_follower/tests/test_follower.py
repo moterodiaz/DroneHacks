@@ -7,8 +7,8 @@ import numpy as np
 
 from dronehacks_course_follower.follower import (ACCEL_M_S2, JERK_M_S3, LOOKAHEAD_M, PX4_XY_P, PX4_XY_VEL_P_ACC,
                                                  PX4_YAW_P, TURN_ACCEL_SCALE, TURN_RATE_DPS, Drone, EasedSpeed,
-                                                 Follower, LedPose, PathMotion, _curvature, eased_speed, led_pose,
-                                                 speed_profile)
+                                                 Follower, HeadingMode, LedPose, PathMotion, _curvature, eased_speed,
+                                                 led_pose, speed_profile)
 
 # The follower's tick, as the node runs it at 50 Hz
 _PERIOD_S = 0.02
@@ -87,6 +87,28 @@ def test_the_heading_turns_no_faster_than_the_turn_rate_and_faces_ahead_on_a_str
     # On the first leg, before the corner comes within the look-ahead, it faced east
     index = next(index for index, (_, drone) in enumerate(steps) if drone.east > 3.0 - CORNER_LEEWAY_M)
     assert abs(headings[index]) < math.radians(1.0)
+
+
+def test_a_slower_turn_rate_caps_the_heading_and_the_route_is_still_flown() -> None:
+    # Starting north on a route that leaves east: a quarter turn at the slower rate before the pace frees
+    turn_rate_rad_s = math.radians(20.0)
+    follower = Follower((0.0, 0.0), _L_ROUTE, np.empty((0, 4)), math.pi / 2, top_speed_mps=1.0,
+                        turn_rate_rad_s=turn_rate_rad_s, lead=False)
+    steps = _follow_ideally(follower, 20.0)
+    headings = np.unwrap([pose.yaw_rad for pose, _ in steps])
+    assert np.abs(np.diff(headings)).max() <= turn_rate_rad_s * _PERIOD_S + 1e-9
+    assert follower.finished
+
+
+def test_a_fixed_heading_never_turns_and_the_pace_never_waits_for_a_turn() -> None:
+    # Facing north-west on a route that leaves east then turns north: a look-ahead heading would turn
+    # twice, and its turn lag would hold the setpoint until the camera came round
+    follower = Follower((0.0, 0.0), _L_ROUTE, np.empty((0, 4)), 3 * math.pi / 4, top_speed_mps=1.0,
+                        heading_mode=HeadingMode.FIXED)
+    steps = _follow_ideally(follower, 15.0)
+    assert all(math.isclose(pose.yaw_rad, 3 * math.pi / 4) for pose, _ in steps)
+    assert follower.finished
+    assert math.dist(follower.reference(), _L_ROUTE[-1]) < 0.05
 
 
 def test_the_follower_reaches_the_end_of_its_route_and_stops() -> None:

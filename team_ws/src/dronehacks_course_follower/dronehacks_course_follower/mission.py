@@ -14,7 +14,7 @@ from typing import NamedTuple
 
 import numpy as np
 
-from .follower import Drone, Follower
+from .follower import TURN_RATE_DPS, Drone, Follower, HeadingMode
 
 # The climb is done within this much of the flight height
 CLIMBED_M = 0.1
@@ -78,9 +78,15 @@ class Mission:
     """Flies `route` among `walls` at `height_m`, from the launch mark `launch` to a landing."""
 
     def __init__(self, route: list[tuple[float, float]], walls: np.ndarray, height_m: float,
-                 launch: tuple[float, float], top_speed_mps: float, lead: bool = True, land: bool = True) -> None:
+                 launch: tuple[float, float], top_speed_mps: float, lead: bool = True, land: bool = True,
+                 heading_mode: HeadingMode = HeadingMode.AHEAD,
+                 turn_rate_rad_s: float = math.radians(TURN_RATE_DPS)) -> None:
         """Keeps the plan; the follower is built at the start of the route, once the drone is up.
-        Without `land`, the mission holds over the route's end for the pilot to land."""
+        Without `land`, the mission holds over the route's end for the pilot to land. With
+        `heading_mode` fixed, the heading at Offboard is commanded from the climb to the landing."""
+        if turn_rate_rad_s <= 0.0:
+            raise ValueError(f"turn rate must be positive, not {turn_rate_rad_s} rad/s")
+
         self.route = route
         self.walls = walls
         self.height_m = height_m
@@ -88,6 +94,9 @@ class Mission:
         self.top_speed_mps = top_speed_mps
         self.lead = lead
         self.land = land
+        self.heading_mode = heading_mode
+        self.turn_rate_rad_s = turn_rate_rad_s
+        self.held_yaw_rad = math.nan
         self.phase = Phase.WAIT
         self.follower: Follower | None = None
         self.start: tuple[float, float] | None = None
@@ -143,6 +152,7 @@ class Mission:
                 return None
 
             self.start = (drone.east, drone.north)
+            self.held_yaw_rad = drone.yaw_rad if self.heading_mode is HeadingMode.FIXED else math.nan
             self.flown = True
             self.offboard_at_s = now_s
             self._enter(Phase.CLIMB, f"Offboard: climbing to {self.height_m:.2f} m")
@@ -150,15 +160,17 @@ class Mission:
         return PoseCommand(drone.east, drone.north, self.height_m, math.nan)
 
     def _climb(self, now_s: float, drone: Drone | None) -> PoseCommand:
-        """The pose over the start at the flight height; once there, or settled short of it, the
-        route begins."""
+        """The pose over the start at the flight height, its heading not commanded, or Offboard's with
+        a fixed heading; once there, or settled short of it, the route begins."""
         east, north = self.start
         if drone is not None and (abs(drone.height_m - self.height_m) < CLIMBED_M or self._settled(now_s, drone)):
-            self.follower = Follower(self.start, self.route, self.walls, drone.yaw_rad, self.top_speed_mps,
-                                     lead=self.lead)
+            yaw_rad = drone.yaw_rad if math.isnan(self.held_yaw_rad) else self.held_yaw_rad
+            self.follower = Follower(self.start, self.route, self.walls, yaw_rad, self.top_speed_mps,
+                                     turn_rate_rad_s=self.turn_rate_rad_s, lead=self.lead,
+                                     heading_mode=self.heading_mode)
             self._enter(Phase.FLY, f"at height: flying {float(self.follower.lengths[-1]):.1f} m of route")
 
-        return PoseCommand(east, north, self.height_m, math.nan)
+        return PoseCommand(east, north, self.height_m, self.held_yaw_rad)
 
     def _settled(self, now_s: float, drone: Drone) -> bool:
         """Whether the climb has stopped rising, high enough to be off the floor."""

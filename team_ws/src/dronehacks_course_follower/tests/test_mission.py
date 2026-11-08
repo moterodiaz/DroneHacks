@@ -4,9 +4,10 @@ from __future__ import annotations
 import math
 
 import numpy as np
+import pytest
 
 from dronehacks_course_follower import dry_run
-from dronehacks_course_follower.follower import Drone
+from dronehacks_course_follower.follower import Drone, HeadingMode
 from dronehacks_course_follower.mission import (LANDING_CORRECTION_MPS, Mission, Phase, PoseCommand, TwistCommand,
                                                 landing_twist)
 
@@ -156,5 +157,36 @@ def test_the_landing_twist_steers_back_over_the_pad_no_faster_than_its_cap() -> 
     assert landing_twist((0.0, 0.0), None)[:2] == (0.0, 0.0)
 
 
+def test_a_fixed_heading_commands_the_heading_at_offboard_from_the_climb_to_the_landing() -> None:
+    # Not the route's bearing, east, so a look-ahead heading would turn; the drone has wandered off
+    # it a little by the time it reaches the height, and the route still holds the Offboard heading
+    offboard_yaw_rad, wandered_yaw_rad = 1.0, 1.05
+    mission = Mission(_ROUTE, np.empty((0, 4)), _HEIGHT_M, (0.0, 0.0), top_speed_mps=1.0,
+                      heading_mode=HeadingMode.FIXED)
+    mission.tick(0.0, offboard=True, armed=True, drone=Drone(0.0, 0.0, 0.0, offboard_yaw_rad))
+    climb = mission.tick(_PERIOD_S, offboard=True, armed=True, drone=Drone(0.0, 0.0, 0.3, wandered_yaw_rad))
+    assert climb.yaw_rad == offboard_yaw_rad
+
+    mission.tick(2 * _PERIOD_S, offboard=True, armed=True, drone=Drone(0.0, 0.0, _HEIGHT_M, wandered_yaw_rad))
+    now_s, commands = 3 * _PERIOD_S, []
+    while mission.phase is Phase.FLY and now_s < 20.0:
+        commands.append(mission.tick(now_s, offboard=True, armed=True, drone=_airborne(mission)))
+        now_s += _PERIOD_S
+
+    assert mission.phase is Phase.DESCEND
+    poses = [command for command in commands if isinstance(command, PoseCommand)]
+    assert poses and all(math.isclose(pose.yaw_rad, offboard_yaw_rad) for pose in poses)
+    assert isinstance(commands[-1], TwistCommand) and commands[-1].yaw_rate_rad_s == 0.0
+
+
+def test_a_turn_rate_that_is_not_positive_is_refused() -> None:
+    with pytest.raises(ValueError, match="turn rate"):
+        Mission(_ROUTE, np.empty((0, 4)), _HEIGHT_M, (0.0, 0.0), top_speed_mps=1.0, turn_rate_rad_s=0.0)
+
+
 def test_the_dry_run_flies_the_packaged_map_to_a_landing() -> None:
     assert dry_run.main(["--steps", "0"]) == 0
+
+
+def test_the_dry_run_flies_the_packaged_map_to_a_landing_with_a_fixed_heading() -> None:
+    assert dry_run.main(["--steps", "0", "--heading-mode", "fixed"]) == 0

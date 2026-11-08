@@ -1,6 +1,6 @@
 """Follows a planned route with a setpoint that slides along it: corners rounded into arcs, a speed
 profile within PX4's own acceleration and jerk limits, the camera facing a point ahead on the
-path, and the pose led so that PX4's proportional position loops fly the setpoint's own motion.
+path or held on one heading, and the pose led so that PX4's proportional position loops fly the setpoint's own motion.
 
 Everything is in the course frame: (east, north) metres and headings counter-clockwise from east,
 in radians. A path is an (n, 2) array of samples; "along" is the distance along it from its start.
@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
+from enum import Enum
 from typing import NamedTuple
 
 import numpy as np
@@ -59,6 +60,13 @@ PX4_YAW_P = 2.8
 _MOTION_STEP_M = 0.05
 
 
+class HeadingMode(str, Enum):
+    """Where the commanded heading points along the route."""
+
+    AHEAD = "ahead"           # the look-ahead point's bearing, turning at the turn rate
+    FIXED = "fixed"           # the heading the follower started with, held: it never yaws
+
+
 class EasedSpeed(NamedTuple):
     """The setpoint's speed along the path and its rate of change."""
 
@@ -96,8 +104,9 @@ class Follower:
 
     def __init__(self, start: tuple[float, float], route: list[tuple[float, float]], walls: np.ndarray,
                  yaw_rad: float, top_speed_mps: float, turn_rate_rad_s: float = math.radians(TURN_RATE_DPS),
-                 lead: bool = True) -> None:
-        """Rounds the route among `walls` and plans its speed profile; `yaw_rad` is the drone's heading now."""
+                 lead: bool = True, heading_mode: HeadingMode = HeadingMode.AHEAD) -> None:
+        """Rounds the route among `walls` and plans its speed profile; `yaw_rad` is the heading to start
+        from, held throughout with `heading_mode` fixed."""
         if top_speed_mps <= 0.0:
             raise ValueError(f"top speed must be positive, not {top_speed_mps}")
 
@@ -107,6 +116,7 @@ class Follower:
         self.walls = walls
         self.turn_rate_rad_s = turn_rate_rad_s
         self.lead = lead
+        self.heading_mode = heading_mode
         self.yaw_rad = yaw_rad
         self.along_m = 0.0
         self.motion = EasedSpeed(0.0, 0.0)
@@ -127,8 +137,11 @@ class Follower:
         estimate allows; with no estimate the setpoint waits."""
         setpoint = point_along(self.path, self.along_m)
 
-        # The heading closes on the look-ahead point's bearing, no faster than the turn rate
-        target_rad = target_heading(self.path, self.along_m, LOOKAHEAD_M)
+        # The heading closes on the look-ahead point's bearing, no faster than the turn rate. A fixed
+        # heading has no target: no turn, and no turn lag for the pace to wait on
+        target_rad = None
+        if self.heading_mode is HeadingMode.AHEAD:
+            target_rad = target_heading(self.path, self.along_m, LOOKAHEAD_M)
         turn_rad, yaw_rate = 0.0, 0.0
         if target_rad is not None:
             turn_rad = wrap_angle(target_rad - self.yaw_rad)
