@@ -351,7 +351,7 @@ class CourseFollower(Node):
             self.over_at_s = now_s
             self.get_logger().info(f"flight over and disarmed: exiting in {RECORDING_TAIL_S:.0f} s to close the "
                                    "recording; restart the stack on the mark to fly again")
-            self._climb_ladder()
+            self._record_ladder_run()
 
     def _compensate(self, now_s: float) -> bool:
         """Steps the push compensator on the measured heading and speed, logging and publishing it;
@@ -389,20 +389,21 @@ class CourseFollower(Node):
             "push_body_m_s2": None if push is None else list(push), "offset_odom_m": list(self.yaw_comp_offset),
             "learned_odom_m_s2": list(self.yaw_comp.learned)})))
 
-    def _climb_ladder(self) -> None:
-        """Records the run on the speed ladder: a landing on the pad moves the next run up a step."""
+    def _record_ladder_run(self) -> None:
+        """Records the run and its outcome on the speed ladder; the step stays for the team to move."""
         if self.ladder_step is None:
             return
 
         landed = self.mission.landed_on_pad
         try:
-            next_step = record_run(self.ladder_path, self.ladder_step, self.ladder_steps, landed)
+            record_run(self.ladder_path, self.ladder_step, self.ladder_steps, landed)
         except OSError as failure:
             self.get_logger().error(f"speed ladder not written to {self.ladder_path}: {failure}")
             return
 
-        self.get_logger().info(f"speed ladder: {'landed on the pad' if landed else 'did not land on the pad'}, "
-                               f"next run {self.ladder_steps[next_step]}")
+        self.get_logger().info(f"speed ladder: {'landed on the pad' if landed else 'did not land on the pad'}; "
+                               f"the next run flies step {self.ladder_step} ({self.ladder_steps[self.ladder_step]}) "
+                               f"again until the step is changed by hand")
 
     def finished(self) -> bool:
         """Whether the recorded flight is over and its tail kept, so the node can exit."""

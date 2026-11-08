@@ -48,7 +48,7 @@ FOLLOWER_ARGUMENTS = [
     ("speed_mps", "nan", float, "top speed along the route, m/s; NaN flies the speed ladder's current step"),
     ("speed_ladder", "stop:0.3,0.5,0.7,0.85,1.0,1.0+return", str,
      "the ladder's rising steps: m/s for the smooth follower, stop:<m/s> for stop-and-go, +return adds the "
-     "return; a recorded run that lands on the pad moves the next run up a step"),
+     "return; the step is ladder_file's, moved only by hand between runs"),
     ("route_mode", "", str, "stop or smooth forces stop-and-go or the smooth follower; empty = the ladder's step"),
     ("stop_speed_mps", "0.3", float, "stop-and-go's leg speed when route_mode forces it, m/s"),
     ("stop_turn_rate_dps", "30.0", float, "stop-and-go's in-place yaw at each hold, deg/s"),

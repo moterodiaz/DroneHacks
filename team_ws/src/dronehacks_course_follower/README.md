@@ -239,20 +239,20 @@ rangefinder reads wrong on the floor and true in the air. Over 0.3 m at rest it 
 the kit never takes over: the log says `PX4 and cuVSLAM disagree by 0.73 m: not streaming, so no
 Offboard. Power-cycle ...`, then `PX4 offset from cuVSLAM 0.16 m: streaming`.
 
-### The speed ladder: each clean run flies the next one faster
+### The speed ladder: the team chooses each run's step
 
 With no `speed_mps` given, a recorded run flies the ladder's current step, read from `ladder_file`
-at launch; when it ends, a landing on the pad (PX4 disarmed in the descent, or landed before a
-return) moves the next run up a step, anything else keeps it. The default ladder is
-`stop:0.3,0.5,0.7,0.85,1.0,1.0+return`: step 0 is stop-and-go at 0.3 m/s (below), then the smooth
-follower at each top speed, and at the top the same 1.0 m/s with the return to the launch mark;
-the top stays the top, even when a return fails but the pad landing counted. An entry is a speed
-(smooth), `stop:<m/s>` (stop-and-go), either with `+return`. `route_mode:=stop|smooth` and
+at launch. **The step only moves by hand**: a run records its outcome (landed on the pad or not)
+and leaves the step alone, so the team decides between runs whether to repeat it, test something
+else at the same speed, or go up. The default ladder is `stop:0.3,0.5,0.7,0.85,1.0,1.0+return`:
+step 0 is stop-and-go at 0.3 m/s (below), then the smooth follower at each top speed, and at the
+top the same 1.0 m/s with the return to the launch mark. An entry is a speed (smooth),
+`stop:<m/s>` (stop-and-go), either with `+return`. `route_mode:=stop|smooth` and
 `return_home:=true|false` override the step. The log names it at launch (`stop-and-go at 0.30
-m/s ... (ladder step 1 of 6)`) and at the end (`speed ladder: landed on the pad, next run 0.5`).
-The file keeps every run. To repeat or go back a step, edit its `step` (0 is the first) on the
-host, `~/team_ws/course_follower_ladder.json`; delete it to start again at stop-and-go. **A file
-left from the old four-speed ladder points at the wrong step: delete it before the first run.**
+m/s ... (ladder step 1 of 6)`) and at the end. The file, `~/team_ws/course_follower_ladder.json`
+on the host, keeps every run; set its `step` (0 is the first) to choose the next run, or delete
+it to go back to stop-and-go. **A file left from an older ladder points at the wrong step: delete
+it before the first run.**
 The ladder cannot see wall touches: watch each run, and step back by hand after one.
 
 ### Stop-and-go: the safe bottom step

@@ -1,5 +1,5 @@
-"""The speed ladder across runs: each run of the course flies the ladder's current step, and a run
-that lands and disarms on the pad moves the next one up a step.
+"""The speed ladder across runs: each run of the course flies the ladder's current step, which only
+the team moves, by hand, between runs; a run records its outcome and leaves the step alone.
 
 A step is a top speed for the smooth follower, or `stop:<m/s>` for stop-and-go: straight legs at
 that speed with a hold at every waypoint; a `+return` suffix adds the return to the launch mark
@@ -94,18 +94,16 @@ def read_step(path: Path, count: int) -> int:
     return min(max(step, 0), count - 1)
 
 
-def record_run(path: Path, step: int, steps: Sequence[LadderStep], landed: bool) -> int:
-    """Records a run flown at `step` and returns the next run's step: one up after a landing on the
-    pad, the same otherwise."""
+def record_run(path: Path, step: int, steps: Sequence[LadderStep], landed: bool) -> None:
+    """Records a run flown at `step` and its outcome, leaving the step where it is: the team moves it
+    by hand, so no run flies faster than they chose."""
     try:
         runs = list(json.loads(path.read_text(encoding="utf-8")).get("runs", []))
     except (OSError, ValueError, AttributeError):
         runs = []
 
-    next_step = min(step + 1, len(steps) - 1) if landed else step
     runs.append({"utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "step": step,
                  "speed_mps": steps[step].speed_mps, "mode": "stop" if steps[step].stop else "smooth",
                  "return": steps[step].return_home, "landed": landed})
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps({"step": next_step, "runs": runs}, indent=1), encoding="utf-8")
-    return next_step
+    path.write_text(json.dumps({"step": step, "runs": runs}, indent=1), encoding="utf-8")

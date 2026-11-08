@@ -17,19 +17,22 @@ def test_with_no_file_the_first_run_flies_the_slowest_step(tmp_path: Path) -> No
     assert read_step(tmp_path / "ladder.json", len(_STEPS)) == 0
 
 
-def test_a_clean_landing_moves_the_next_run_up_one_step_and_stops_at_the_top(tmp_path: Path) -> None:
+def test_a_run_never_moves_the_step_landed_or_not_so_the_team_escalates_by_hand(tmp_path: Path) -> None:
     path = tmp_path / "ladder.json"
-    for expected in (1, 2, 3, 3):
-        step = read_step(path, len(_STEPS))
-        assert record_run(path, step, _STEPS, landed=True) == expected
+    for landed in (True, True, False):
+        record_run(path, read_step(path, len(_STEPS)), _STEPS, landed=landed)
+        assert read_step(path, len(_STEPS)) == 0
 
-    assert read_step(path, len(_STEPS)) == 3
+    # A step set by hand is the one flown and kept
+    path.write_text(json.dumps({"step": 2, "runs": []}), encoding="utf-8")
+    record_run(path, read_step(path, len(_STEPS)), _STEPS, landed=True)
+    assert read_step(path, len(_STEPS)) == 2
 
 
-def test_a_run_that_did_not_land_keeps_its_speed_and_every_run_is_kept(tmp_path: Path) -> None:
+def test_every_run_is_kept_with_its_step_and_outcome(tmp_path: Path) -> None:
     path = tmp_path / "ladder.json"
     record_run(path, 0, _STEPS, landed=True)
-    assert record_run(path, 1, _STEPS, landed=False) == 1
+    record_run(path, 1, _STEPS, landed=False)
 
     runs = json.loads(path.read_text(encoding="utf-8"))["runs"]
     assert [(run["speed_mps"], run["landed"]) for run in runs] == [(0.5, True), (0.7, False)]
@@ -52,13 +55,13 @@ def test_steps_are_read_from_a_comma_list_and_must_rise() -> None:
         parse_steps("0.7,0.5")
 
 
-def test_a_stop_entry_is_a_stop_and_go_step_and_climbs_like_any_other(tmp_path: Path) -> None:
+def test_a_stop_entry_is_a_stop_and_go_step_and_is_recorded_as_one(tmp_path: Path) -> None:
     steps = parse_steps("stop:0.3,0.5,0.7")
     assert steps == (LadderStep(0.3, True), LadderStep(0.5, False), LadderStep(0.7, False))
     assert [str(step) for step in steps] == ["stop:0.3", "0.5", "0.7"]
 
     path = tmp_path / "ladder.json"
-    assert record_run(path, read_step(path, len(steps)), steps, landed=True) == 1
+    record_run(path, read_step(path, len(steps)), steps, landed=True)
     assert json.loads(path.read_text(encoding="utf-8"))["runs"][0]["mode"] == "stop"
     with pytest.raises(ValueError, match="stop"):
         parse_steps("stop:fast,0.5")
@@ -77,10 +80,9 @@ def test_the_default_ladder_starts_stop_and_go_and_ends_with_the_return(tmp_path
     assert steps[0] == LadderStep(0.3, stop=True) and steps[-1].return_home
     assert not any(step.return_home for step in steps[:-1])
 
-    # At the top it stays there, even when the return failed but the pad landing counted
+    # Set by hand to the top, it flies the return
     path = tmp_path / "ladder.json"
-    top = len(steps) - 1
-    assert record_run(path, top, steps, landed=True) == top
+    path.write_text(json.dumps({"step": len(steps) - 1}), encoding="utf-8")
     assert chosen_run(steps[read_step(path, len(steps))], float("nan"), 0.3, "", "").return_home
 
 
