@@ -18,6 +18,7 @@ from typing import NamedTuple
 import numpy as np
 
 from .follower import PATH_STEP_M, TURN_RATE_DPS, Drone, EasedSpeed, Follower, HeadingMode, eased_speed
+from .stop_and_go import StopAndGo, StopPlan
 
 # The climb is done within this much of the flight height
 CLIMBED_M = 0.1
@@ -136,11 +137,12 @@ class Mission:
                  launch: tuple[float, float], top_speed_mps: float, lead: bool = True, land: bool = True,
                  heading_mode: HeadingMode = HeadingMode.AHEAD,
                  turn_rate_rad_s: float = math.radians(TURN_RATE_DPS),
-                 return_plan: ReturnPlan | None = None) -> None:
+                 return_plan: ReturnPlan | None = None, stop_plan: StopPlan | None = None) -> None:
         """Keeps the plan; the follower is built at the start of the route, once the drone is up.
         Without `land`, the mission holds over the route's end for the pilot to land. With
         `heading_mode` fixed, the heading at Offboard is commanded from the climb to the landing.
-        With `return_plan`, the pad landing is followed by the return to the launch mark."""
+        With `return_plan`, the pad landing is followed by the return to the launch mark. With
+        `stop_plan`, the route is flown stop-and-go: straight legs with a hold at every waypoint."""
         if turn_rate_rad_s <= 0.0:
             raise ValueError(f"turn rate must be positive, not {turn_rate_rad_s} rad/s")
 
@@ -157,8 +159,9 @@ class Mission:
         self.heading_mode = heading_mode
         self.turn_rate_rad_s = turn_rate_rad_s
         self.held_yaw_rad = math.nan
+        self.stop_plan = stop_plan
         self.phase = Phase.WAIT
-        self.follower: Follower | None = None
+        self.follower: Follower | StopAndGo | None = None
         self.start: tuple[float, float] | None = None
         self.finished_at_s: float | None = None
         self.previous_s: float | None = None
@@ -266,9 +269,13 @@ class Mission:
                                                or self._settled(now_s, drone, CLIMB_MIN_FRACTION * self.height_m))
         if self.hovering and not hold_climb:
             yaw_rad = drone.yaw_rad if math.isnan(self.held_yaw_rad) else self.held_yaw_rad
-            self.follower = Follower(self.start, self.route, self.walls, yaw_rad, self.top_speed_mps,
-                                     turn_rate_rad_s=self.turn_rate_rad_s, lead=self.lead,
-                                     heading_mode=self.heading_mode)
+            if self.stop_plan is not None:
+                self.follower = StopAndGo(self.start, self.route, yaw_rad, self.stop_plan, self.heading_mode,
+                                          events=self.events)
+            else:
+                self.follower = Follower(self.start, self.route, self.walls, yaw_rad, self.top_speed_mps,
+                                         turn_rate_rad_s=self.turn_rate_rad_s, lead=self.lead,
+                                         heading_mode=self.heading_mode)
             self._enter(Phase.FLY, f"at height: flying {float(self.follower.lengths[-1]):.1f} m of route")
 
         return PoseCommand(east, north, self.height_m, self.held_yaw_rad)

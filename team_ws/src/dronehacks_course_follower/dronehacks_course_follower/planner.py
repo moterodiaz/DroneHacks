@@ -96,6 +96,7 @@ class PlannedCourse(NamedTuple):
     route: list[tuple[float, float]]    # (east, north) waypoints from the launch mark to the last goal
     walls: np.ndarray                   # (n, 4) wall and net segments the route keeps clear of
     window_flown: bool                  # whether the route passes through the window
+    stop_route: list[tuple[float, float]]   # the route with every straight leg clear of the lethal ring
 
 
 def load_course_map(path: Path) -> dict[str, Any]:
@@ -121,9 +122,37 @@ def plan_flight(course_map: Mapping[str, Any], allow_window: bool, tunnel_lead_m
     if WINDOW_GOAL in course_map["goals"] and not window_flown:
         course_map = without_window(course_map)
 
-    route = plan_course(course_map, tunnel_lead_m)
+    grid = course_grid(course_map)
+    route = _route_on(grid, course_map, tunnel_lead_m)
+    launch = (float(course_map["launch"][0]), float(course_map["launch"][1]))
     return PlannedCourse(route=route, walls=wall_segments(course_map),
-                         window_flown=window_flown and WINDOW_GOAL in course_map["order"])
+                         window_flown=window_flown and WINDOW_GOAL in course_map["order"],
+                         stop_route=straight_legs(grid, launch, route))
+
+
+def straight_legs(grid: CourseGrid, launch: tuple[float, float],
+                  route: list[tuple[float, float]]) -> list[tuple[float, float]]:
+    """The route from `launch` with every straight leg clear of the lethal ring (prop reach plus
+    margin, boulders' footprints included): a leg that crosses it, as a turn folded onto a straight
+    leg can, gets the A* path's own corners between its ends. Checked cell to cell, as the A*
+    shortcut checks its own legs."""
+    flown, start = [], launch
+    for end in route:
+        if not leg_clear(grid, start, end):
+            try:
+                flown += plan_route(grid, start, [end])[:-1]
+            except ValueError:
+                pass
+
+        flown.append(end)
+        start = end
+
+    return flown
+
+
+def leg_clear(grid: CourseGrid, start: tuple[float, float], end: tuple[float, float]) -> bool:
+    """Whether the straight line between the cells of two points crosses no lethal cell."""
+    return math.isfinite(_line_cost(grid, _rounded_cell(grid, start), _rounded_cell(grid, end)))
 
 
 def window_passable(course_map: Mapping[str, Any]) -> bool:
@@ -161,11 +190,19 @@ def plan_course(course_map: Mapping[str, Any], tunnel_lead_m: float = 0.0) -> li
     leg on its axis, from that far outside one end to that far outside the other, each in
     whichever direction makes the shortest route.
     """
+    return _route_on(course_grid(course_map), course_map, tunnel_lead_m)
+
+
+def course_grid(course_map: Mapping[str, Any]) -> CourseGrid:
+    """The course map's cost grid, boulders lethal under the rangefinder's footprint."""
     high_m = float(course_map["height_m"]) + BOULDER_HEIGHT_ALLOWANCE_M
     footprint_m = high_m * math.tan(math.radians(RANGEFINDER_CONE_DEG / 2))
-    grid = build_grid(np.array(course_map["segments"], dtype=float), course_map["boulders"],
+    return build_grid(np.array(course_map["segments"], dtype=float), course_map["boulders"],
                       tuple(course_map["bounds"]), footprint_m)
 
+
+def _route_on(grid: CourseGrid, course_map: Mapping[str, Any], tunnel_lead_m: float) -> list[tuple[float, float]]:
+    """The route through the course map's goals on its grid, as `plan_course` gives it."""
     stops = [_stop(grid, course_map["goals"][name], tunnel_lead_m) for name in course_map["order"]]
     launch = (float(course_map["launch"][0]), float(course_map["launch"][1]))
     return _shortest(grid, launch, stops)

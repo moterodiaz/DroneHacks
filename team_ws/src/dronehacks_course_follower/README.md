@@ -130,7 +130,11 @@ tell where the mark is, so a misplaced drone flies the whole route shifted by th
 | `course_to_odom_yaw`, `_x`, `_y` | NaN | a measured transform, all three or none; none reads it from the rest on the mark at arming |
 | `odom_origin_height_m` | 0.0 | the odom origin's height above the floor; 0 flies odom z = map height, as the manual navigator's `hover_altitude_m` does |
 | `speed_mps` | NaN | a fixed top speed; NaN flies the speed ladder's current step (below) |
-| `speed_ladder` | 0.5,0.7,0.85,1.0 | rising top speeds, m/s; 1.0 is the kit's `MPC_XY_VEL_MAX` |
+| `speed_ladder` | stop:0.3,0.5,0.7,0.85,1.0,1.0+return | rising steps: stop-and-go, smooth top speeds (1.0 is the kit's `MPC_XY_VEL_MAX`), the return on top (below) |
+| `route_mode` | empty | `stop` or `smooth` forces the mode; empty takes the ladder's step |
+| `stop_speed_mps` | 0.3 | stop-and-go's leg speed when `route_mode:=stop` forces it |
+| `stop_turn_rate_dps` | 30 | stop-and-go's in-place yaw at each hold |
+| `stop_arrive_m`, `stop_settle_s`, `stop_hold_timeout_s` | 0.15, 1.0, 15 | a hold waits until the drone is this near its waypoint and steady this long, or goes on after the timeout |
 | `ladder_file` | /root/team_ws/course_follower_ladder.json | the ladder's step across runs (host: `~/team_ws/`) |
 | `rate_hz` | 50 | follower publish rate |
 | `pose_lead` | false | true leads the pose by velocity and acceleration: faster, but only safe with the interface at 50 Hz (Known risks) |
@@ -146,7 +150,7 @@ tell where the mark is, so a misplaced drone flies the whole route shifted by th
 | `yaw_comp_push_gain` | 1.25 | the push per unit of hover accelerometer reading, fitted on the corners of two flights |
 | `setpoint_rate_hz` | 10 | the interface's own rate, the kit default |
 | `record` | true | record the run (below); false keeps the follower up for another attempt after a disarm |
-| `return_home` | false | true flies the return to the launch mark after the pad landing (below); not yet flown on the drone |
+| `return_home` | empty | `true`/`false` forces the return to the launch mark after the pad landing (below); empty takes the ladder's step, on only at its top; not yet flown on the drone |
 | `return_height_m` | 2.3 | the return's height above the floor, over the 1.727 m walls; must stay under 3.0 m above the odom origin |
 | `return_rest_s` | 2.0 | the rest on the pad after PX4 reports landed; over 3.0 is refused |
 | `return_speed_mps` | 0.5 | the return's straight slide to over the launch mark |
@@ -229,12 +233,49 @@ Offboard. Power-cycle ...`, then `PX4 offset from cuVSLAM 0.16 m: streaming`.
 ### The speed ladder: each clean run flies the next one faster
 
 With no `speed_mps` given, a recorded run flies the ladder's current step, read from `ladder_file`
-at launch; when it ends, a landing on the pad (PX4 disarmed in the descent) moves the next run up a
-step, anything else keeps the speed. The log names it at launch (`top speed 0.70 m/s (ladder step 2
-of 4)`) and at the end (`speed ladder: landed on the pad, next run 0.85 m/s`). The file keeps every
-run. To repeat or go back a speed, edit its `step` (0 is the first) on the host,
-`~/team_ws/course_follower_ladder.json`; delete it to start again at the slowest. The ladder cannot
-see wall touches: watch each run, and step back by hand after one.
+at launch; when it ends, a landing on the pad (PX4 disarmed in the descent, or landed before a
+return) moves the next run up a step, anything else keeps it. The default ladder is
+`stop:0.3,0.5,0.7,0.85,1.0,1.0+return`: step 0 is stop-and-go at 0.3 m/s (below), then the smooth
+follower at each top speed, and at the top the same 1.0 m/s with the return to the launch mark;
+the top stays the top, even when a return fails but the pad landing counted. An entry is a speed
+(smooth), `stop:<m/s>` (stop-and-go), either with `+return`. `route_mode:=stop|smooth` and
+`return_home:=true|false` override the step. The log names it at launch (`stop-and-go at 0.30
+m/s ... (ladder step 1 of 6)`) and at the end (`speed ladder: landed on the pad, next run 0.5`).
+The file keeps every run. To repeat or go back a step, edit its `step` (0 is the first) on the
+host, `~/team_ws/course_follower_ladder.json`; delete it to start again at stop-and-go. **A file
+left from the old four-speed ladder points at the wrong step: delete it before the first run.**
+The ladder cannot see wall touches: watch each run, and step back by hand after one.
+
+### Stop-and-go: the safe bottom step
+
+Flown as the square test flew its box on skybeta-11: the planner's waypoints (its A* route after
+its own shortcutting, not the rounded arcs) as straight legs. A pose slides along each leg at
+`stop_speed_mps` (0.3) with the heading held, never more than 0.3 m ahead of the drone; at every
+waypoint a hold first yaws in place to face the next leg at `stop_turn_rate_dps` (30°/s; none with
+`heading_mode:=fixed`), then waits until the drone is within `stop_arrive_m` (0.15 m), within 10°
+of the leg's heading and steady for `stop_settle_s` (1 s), so the 10-20 cm drift a yaw leaves dies
+out before the leg. A hold that never settles goes on after `stop_hold_timeout_s` (15 s) and logs
+it. Every leg is checked clear of the lethal ring (prop reach 0.28 m + 0.04 m, boulders' footprints
+included) cell to cell, as the A* shortcut checks its own; a leg that is not gets the A* path's
+corners in between. The window's lead-in point is a waypoint, so the drone holds there facing
+through the window before crossing. yaw_comp, PX4's offset, the placement on the mark, the landing
+and the return work as in the smooth mode.
+
+Dry runs (ideal drone: no climb, arrives at once, so a hold is its yaw at 30°/s plus 1 s), from
+Offboard to the final disarm, against the 3-minute limit:
+
+| Map | Course and pad landing | With the return (COM_DISARM_LAND 5 s) |
+|---|---|---|
+| packaged | 80 s | 95 s |
+| older v3 (SITL) | 113 s | 128 s |
+
+A real hold also waits for the drift to settle, a few seconds after each turn, so a real run is
+longer; the return at the bottom step is off by default (the ladder adds it only at its top).
+
+```bash
+ros2 launch dronehacks_course_follower competitor.launch.py route_mode:=stop
+ros2 run dronehacks_course_follower dry_run --route-mode stop --return-home
+```
 
 ### Every run is recorded
 

@@ -46,14 +46,21 @@ FOLLOWER_ARGUMENTS = [
     ("odometry_topic", "/visual_slam/tracking/odometry", str, "drone pose source, odom frame"),
     ("rate_hz", "50.0", float, "follower setpoint rate"),
     ("speed_mps", "nan", float, "top speed along the route, m/s; NaN flies the speed ladder's current step"),
-    ("speed_ladder", "0.5,0.7,0.85,1.0", str, "the ladder's rising top speeds, m/s: a recorded run that lands "
-                                              "on the pad moves the next run up a step"),
+    ("speed_ladder", "stop:0.3,0.5,0.7,0.85,1.0,1.0+return", str,
+     "the ladder's rising steps: m/s for the smooth follower, stop:<m/s> for stop-and-go, +return adds the "
+     "return; a recorded run that lands on the pad moves the next run up a step"),
+    ("route_mode", "", str, "stop or smooth forces stop-and-go or the smooth follower; empty = the ladder's step"),
+    ("stop_speed_mps", "0.3", float, "stop-and-go's leg speed when route_mode forces it, m/s"),
+    ("stop_turn_rate_dps", "30.0", float, "stop-and-go's in-place yaw at each hold, deg/s"),
+    ("stop_arrive_m", "0.15", float, "a hold waits until the drone is this near its waypoint, metres"),
+    ("stop_settle_s", "1.0", float, "and steady there, facing the next leg within 10 deg, this long"),
+    ("stop_hold_timeout_s", "15.0", float, "a hold that never settles goes on after this, logged"),
     ("ladder_file", "/root/team_ws/course_follower_ladder.json", str, "where the ladder's step is kept across runs"),
     ("heading_mode", "ahead", str, "ahead = face the point 0.8 m ahead on the route; fixed = hold the heading at "
                                    "Offboard from the climb to the landing, never yawing"),
     ("turn_rate_dps", "45.0", float, "cap on the commanded heading's turn rate, deg/s"),
-    ("return_home", "false", bool, "after the pad landing, take off again and land on the launch mark (rule 7.10); "
-                                   "needs COM_DISARM_LAND 5 s"),
+    ("return_home", "", str, "true or false forces the return to the launch mark after the pad landing (rule 7.10; "
+                             "needs COM_DISARM_LAND 5 s); empty = the ladder's step"),
     ("return_height_m", "2.3", float, "the return's height above the course floor, over the 1.727 m walls"),
     ("return_rest_s", "2.0", float, "the rest on the pad after PX4 reports landed, at most 3.0 s"),
     ("return_speed_mps", "0.5", float, "the return's straight slide to over the launch mark, m/s"),

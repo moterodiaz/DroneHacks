@@ -27,10 +27,12 @@ from .dry_run import packaged_map
 from .follower import TURN_RATE_DPS, Drone, HeadingMode
 from .frames import (OFFSET_LIMIT_M, CourseToOdom, NotAtRest, Px4Offset, RestOnMark, quaternion_yaw,
                      yaw_quaternion)
-from .ladder import parse_steps, read_step, record_run
+from .ladder import DEFAULT_LADDER, LadderStep, chosen_run, parse_steps, read_step, record_run
 from .mission import (DEFAULT_RETURN_HEIGHT_M, DEFAULT_RETURN_REST_S, DEFAULT_RETURN_SPEED_MPS, Mission, Phase,
                       PoseCommand, ReturnPlan, TwistCommand)
 from .planner import load_course_map, plan_flight
+from .stop_and_go import (DEFAULT_STOP_ARRIVE_M, DEFAULT_STOP_HOLD_TIMEOUT_S, DEFAULT_STOP_SETTLE_S,
+                          DEFAULT_STOP_SPEED_MPS, DEFAULT_STOP_TURN_RATE_DPS, StopPlan)
 from .yaw_comp import (DEFAULT_GAIN_PER_S2, DEFAULT_MAX_M, DEFAULT_PUSH_GAIN, DEFAULT_TAU_S, MEASURE_S,
                        HorizontalSpeed, Vector, YawCompensator)
 
@@ -39,10 +41,6 @@ if TYPE_CHECKING:
 
 # An odometry message older than this counts as no estimate: the setpoint waits for it
 ODOMETRY_STALE_S = 0.5
-
-# The speed ladder's top speeds, m/s: a recorded run that lands on the pad moves the next up a step.
-# It stops at PX4's MPC_XY_VEL_MAX on the kit, 1.0 m/s
-DEFAULT_LADDER = "0.5,0.7,0.85,1.0"
 
 # Where the ladder's step lives across stack restarts: the team workspace, the host's ~/team_ws
 LADDER_FILE = "/root/team_ws/course_follower_ladder.json"
@@ -97,24 +95,31 @@ class CourseFollower(Node):
         self.run_dir = self._parameter("run_dir", "")
         self.over_at_s: float | None = None
 
-        # The top speed: given, or, for a recorded run, the speed ladder's current step
+        # The run: given, or, for a recorded run, the speed ladder's current step, with the route
+        # mode and the return forced where the launch gives them
         self.ladder_steps = parse_steps(self._parameter("speed_ladder", DEFAULT_LADDER))
         self.ladder_path = Path(self._parameter("ladder_file", LADDER_FILE))
         self.ladder_step: int | None = None
         speed_mps = self._parameter("speed_mps", math.nan)
         if not math.isfinite(speed_mps):
             self.ladder_step = read_step(self.ladder_path, len(self.ladder_steps)) if self.record else 0
-            speed_mps = self.ladder_steps[self.ladder_step]
+        run = chosen_run(None if self.ladder_step is None else self.ladder_steps[self.ladder_step], speed_mps,
+                         self._parameter("stop_speed_mps", DEFAULT_STOP_SPEED_MPS),
+                         str(self._parameter("route_mode", "")).lower(),
+                         str(self._parameter("return_home", "")).lower())
 
         # Where the camera faces: the look-ahead point, turning no faster than the turn rate, or the
         # heading at Offboard held throughout
         heading_mode = HeadingMode(self._parameter("heading_mode", HeadingMode.AHEAD.value))
         turn_rate_dps = self._parameter("turn_rate_dps", TURN_RATE_DPS)
-        return_plan = self._return_plan(origin_height_m)
-        self.mission = Mission(planned.route, planned.walls, float(course_map["height_m"]), launch, speed_mps,
+        return_plan = self._return_plan(origin_height_m, run.return_home)
+        stop_plan = self._stop_plan(run) if run.stop else None
+        self.mission = Mission(planned.stop_route if run.stop else planned.route, planned.walls,
+                               float(course_map["height_m"]), launch, run.speed_mps,
                                lead=self._parameter("pose_lead", False), land=self._parameter("land", True),
                                heading_mode=heading_mode, turn_rate_rad_s=math.radians(turn_rate_dps),
-                               return_plan=return_plan)
+                               return_plan=return_plan, stop_plan=stop_plan)
+        speed_mps = run.speed_mps
         self.landed = False
 
         # The feed-forward against the airframe's push, off until flown; it reads PX4's accelerometer
@@ -175,7 +180,8 @@ class CourseFollower(Node):
                                   if self.yaw_comp else "; yaw_comp off")
                                + (f"; return home at {return_plan.height_m:.2f} m after {return_plan.rest_s:.1f} s "
                                   f"on the pad, {return_plan.speed_mps:.2f} m/s" if return_plan else "; no return")
-                               + f"; top speed {speed_mps:.2f} m/s"
+                               + (f"; stop-and-go at {speed_mps:.2f} m/s, {len(planned.stop_route)} waypoints"
+                                  if stop_plan else f"; smooth, top speed {speed_mps:.2f} m/s")
                                + ("" if self.ladder_step is None else
                                   f" (ladder step {self.ladder_step + 1} of {len(self.ladder_steps)})"))
 
@@ -185,10 +191,17 @@ class CourseFollower(Node):
         value = self.get_parameter(name).value
         return float(value) if isinstance(default, float) else value
 
-    def _return_plan(self, origin_height_m: float) -> ReturnPlan | None:
+    def _stop_plan(self, run: LadderStep) -> StopPlan:
+        """Stop-and-go's legs and holds, at the run's speed."""
+        return StopPlan(speed_mps=run.speed_mps,
+                        turn_rate_dps=self._parameter("stop_turn_rate_dps", DEFAULT_STOP_TURN_RATE_DPS),
+                        arrive_m=self._parameter("stop_arrive_m", DEFAULT_STOP_ARRIVE_M),
+                        settle_s=self._parameter("stop_settle_s", DEFAULT_STOP_SETTLE_S),
+                        hold_timeout_s=self._parameter("stop_hold_timeout_s", DEFAULT_STOP_HOLD_TIMEOUT_S))
+
+    def _return_plan(self, origin_height_m: float, return_home: bool) -> ReturnPlan | None:
         """The return to the launch mark after the pad landing, with `return_home`; raises if its
         height would reach the interface's ceiling above the odom origin."""
-        return_home = self._parameter("return_home", False)
         plan = ReturnPlan(height_m=self._parameter("return_height_m", DEFAULT_RETURN_HEIGHT_M),
                           rest_s=self._parameter("return_rest_s", DEFAULT_RETURN_REST_S),
                           speed_mps=self._parameter("return_speed_mps", DEFAULT_RETURN_SPEED_MPS))
@@ -389,7 +402,7 @@ class CourseFollower(Node):
             return
 
         self.get_logger().info(f"speed ladder: {'landed on the pad' if landed else 'did not land on the pad'}, "
-                               f"next run {self.ladder_steps[next_step]:.2f} m/s")
+                               f"next run {self.ladder_steps[next_step]}")
 
     def finished(self) -> bool:
         """Whether the recorded flight is over and its tail kept, so the node can exit."""

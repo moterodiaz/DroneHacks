@@ -14,13 +14,16 @@ from .frames import CourseToOdom
 from .mission import (DEFAULT_RETURN_HEIGHT_M, DEFAULT_RETURN_REST_S, DEFAULT_RETURN_SPEED_MPS, Mission, Phase,
                       PoseCommand, ReturnPlan, TwistCommand)
 from .planner import load_course_map, plan_flight
+from .stop_and_go import StopPlan
 
 # This package's name, under which the course map is installed, and the map's file in the source tree
 PACKAGE = "dronehacks_course_follower"
 SOURCE_MAP = Path(__file__).resolve().parents[1] / "maps" / "course_map.json"
 
-# The ideal drone gives up after this long, so a stuck follower ends the run
-_RUN_LIMIT_S = 180.0
+# The ideal drone gives up after this long, so a stuck follower ends the run; the rules allow a
+# run 3 minutes from take-off to the last disarm
+_RUN_LIMIT_S = 400.0
+_RULE_LIMIT_S = 180.0
 
 # With the return, PX4 disarms this long after it reports landed: COM_DISARM_LAND as raised on skybeta-11
 _COM_DISARM_LAND_S = 5.0
@@ -50,6 +53,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--no-lead", action="store_true", help="send the plain setpoint, not the led pose")
     parser.add_argument("--heading-mode", choices=[mode.value for mode in HeadingMode], default=HeadingMode.AHEAD.value,
                         help="face the point ahead on the route, or hold the heading at Offboard (default ahead)")
+    parser.add_argument("--route-mode", choices=("smooth", "stop"), default="smooth",
+                        help="the smooth follower at --speed, or stop-and-go at its defaults (0.3 m/s, 30 deg/s turns, "
+                             "1 s settle at every waypoint)")
     parser.add_argument("--return-home", action="store_true",
                         help="after the pad landing, return to the launch mark (PX4 disarms 5 s after landing)")
     parser.add_argument("--tunnel-lead-m", type=float, default=0.0, metavar="M",
@@ -71,18 +77,23 @@ def main(argv: list[str] | None = None) -> int:
     yaw, odom_x, odom_y = args.course_to_odom
     transform = CourseToOdom(yaw_rad=yaw, odom_origin=(odom_x, odom_y), course_origin=launch, origin_height_m=0.0)
 
-    print_route(planned.route, planned.window_flown, course_map["order"])
+    stop = args.route_mode == "stop"
+    route = planned.stop_route if stop else planned.route
+    print_route(route, planned.window_flown, course_map["order"])
     return_plan = None
     if args.return_home:
         return_plan = ReturnPlan(height_m=DEFAULT_RETURN_HEIGHT_M, rest_s=DEFAULT_RETURN_REST_S,
                                  speed_mps=DEFAULT_RETURN_SPEED_MPS)
-    mission = Mission(planned.route, planned.walls, float(course_map["height_m"]), launch, args.speed,
-                      lead=not args.no_lead, heading_mode=HeadingMode(args.heading_mode), return_plan=return_plan)
+    mission = Mission(route, planned.walls, float(course_map["height_m"]), launch, args.speed,
+                      lead=not args.no_lead, heading_mode=HeadingMode(args.heading_mode), return_plan=return_plan,
+                      stop_plan=StopPlan() if stop else None)
     disarm_after_s = _COM_DISARM_LAND_S if args.return_home else 0.0
-    drone = fly_ideal(mission, launch, math.radians(float(course_map["launch"][2])), transform, args.rate_hz,
-                      args.steps, disarm_after_s)
+    drone, run_s = fly_ideal(mission, launch, math.radians(float(course_map["launch"][2])), transform, args.rate_hz,
+                             args.steps, disarm_after_s)
     if args.return_home:
         print(f"landed {math.dist((drone.east, drone.north), launch):.3f} m from the launch mark")
+    print(f"run {run_s:.1f} s from Offboard to the final disarm, ideal drone (no climb, no settling): "
+          f"{'within' if run_s <= _RULE_LIMIT_S else 'OVER'} the {_RULE_LIMIT_S:.0f} s limit")
     return 0 if mission.phase is Phase.DONE else 1
 
 
@@ -94,10 +105,10 @@ def print_route(route: list[tuple[float, float]], window_flown: bool, order: lis
 
 
 def fly_ideal(mission: Mission, launch: tuple[float, float], yaw_rad: float, transform: CourseToOdom,
-              rate_hz: float, steps: int, disarm_after_s: float = 0.0) -> Drone:
+              rate_hz: float, steps: int, disarm_after_s: float = 0.0) -> tuple[Drone, float]:
     """Runs the mission at `rate_hz` against a drone that is wherever the reference is, printing
     the first `steps` commands as the node sends them and each phase change; PX4 disarms the drone
-    `disarm_after_s` after it lands. Returns where the drone ends."""
+    `disarm_after_s` after it lands. Returns where the drone ends and when, seconds from Offboard."""
     period_s = 1.0 / rate_hz
     drone = Drone(launch[0], launch[1], 0.0, yaw_rad)
     seen_events, printed, now_s = 0, 0, 0.0
@@ -127,7 +138,7 @@ def fly_ideal(mission: Mission, launch: tuple[float, float], yaw_rad: float, tra
 
     if mission.phase is not Phase.DONE:
         print(f"no landing within {_RUN_LIMIT_S:g} s: the mission is in {mission.phase.value}")
-    return drone
+    return drone, now_s
 
 
 def _odom_text(command: PoseCommand | TwistCommand, transform: CourseToOdom) -> str:
