@@ -31,6 +31,13 @@ The safety pilot can take over at any moment and lands the drone by hand.
 > the drone's top edge clears the wall by about 1 cm instead of 8 cm.
 > Tape-measure it near map x ≈ 2 m (see 3.1). If it is not 0.54 ± 0.01 m,
 > re-plan in the path-planning repo and reload the path (README, "Path data").
+> The 2026-11-08 map update (path-planning 11db65f) kept it at y = 5.556.
+
+> **Open item. Settle it before stage 3: the tunnel.** Path 11db65f runs down
+> the centre of the tightened tunnel corridor, x = 5.46, 0.23 m further east
+> than the line that struck the tube twice on 2026-11-08. Those strikes were
+> on the **east** side, above the drone, at 1.17 m. The STEP has no tube roof
+> or curved sides. Do the tunnel carry check in 4.3, step 3.
 
 ---
 
@@ -121,8 +128,12 @@ pointing exactly east. Every error in that pose carries into the whole flight:
 | 1° of heading mismatch between the camera and PX4 (section 4.3) | Velocity commands are rotated by 1°; the controller corrects it, at the cost of a few cm |
 
 The planner leaves only **8 cm** of margin in two places:
-- about 0.8 m of the top corridor under the north wall, at map x 1.8–2.3 m;
+- about 0.8 m of the top corridor under the north wall, at map x 1.8–2.6 m
+  (path metres 1.4–2.2);
 - the GOAL.
+
+These are the most those corridors allow with the nose east. Everywhere else
+the path is on the line of maximum margin.
 
 Placement and heading are therefore worth more than any tuning: aim for
 **±1 cm and ±0.5°**.
@@ -228,7 +239,7 @@ docker exec -it skybeta-stack tmux attach -t skybeta   # Ctrl-b d to leave
 
 - [ ] In the `competitor` window, the build succeeded and the node printed its
       summary:
-      - `path 12.27 m, 124 points ...`
+      - `path 13.31 m, 135 points ...`
       - `NOSE AT LIFT-OFF: 0.0 deg ... (east, along arena +x)`
       - for stages, a `STAGED TEST: ...` line.
 
@@ -294,8 +305,14 @@ Ctrl-C prints a summary.
      drift numbers mean nothing for the arena.
 3. **Carry test.** One person carries the drone along the path at about
    1.25 m, nose kept east, walking slowly. Put tape marks at a few path
-   points to compare against: (1.81, 5.21) and (2.31, 5.22) in the tight
-   corridor, (5.23, 2.90), and the GOAL (0.90, 1.35).
+   points to compare against: (1.93, 5.23) and (2.43, 5.21) in the tight
+   corridor, (5.46, 4.25) at the tunnel mouth, (5.46, 2.85), and the GOAL
+   (0.90, 1.35).
+   - **Tunnel check (required before stage 3).** At the mouth mark and inside
+     the tunnel, hold the drone at 1.25 m on the path, nose east, and look at
+     the props. Each prop tip should clear the tube by about 0.3 m on both
+     sides and above. If the east or upper side is closer than about 15 cm,
+     do not fly stage 3: re-measure the tube and re-plan.
    - At each mark, the printed map position should agree with the mark
      within a few cm.
    - The camera and PX4 "from start" distances should agree.
@@ -367,10 +384,10 @@ towards centre takes over.
 
 | Stage | `~/team_ws/pathfly_stage` | What it flies | Lands at (map) | Arm to disarm |
 |---|---|---|---|---|
-| 1 | `1` | Lift-off to 0.2 m, then 0.4 m of path while climbing to ~0.37 m | (0.93, 4.79) | ~14 s |
-| 2 | `2` | Climb to 1.25 m, through the 8 cm stretch under the north wall | (3.03, 5.14), in the top corridor | ~21 s |
-| 3 | `3` | The whole path | GOAL (0.90, 1.35) | ~39 s |
-| 4 | `full` (or no file) | Full mission: GOAL, then 2 m return over the walls | START (0.58, 4.60) | ~60 s |
+| 1 | `1` | Lift-off to 0.2 m, then 0.4 m of path while climbing to ~0.37 m | (0.92, 4.81) | ~14 s |
+| 2 | `2` | Climb to 1.25 m, through the 8 cm stretch under the north wall | (3.03, 5.16), in the top corridor | ~26 s |
+| 3 | `3` | The whole path | GOAL (0.90, 1.35) | ~60 s |
+| 4 | `full` (or no file) | Full mission: GOAL, then 2 m return over the walls | START (0.58, 4.60) | ~81 s |
 
 **Stage 1 (tethered, low).** This checks:
 - lift-off at 0.2 m (close to the rangefinder's minimum range: watch for
@@ -379,16 +396,19 @@ towards centre takes over.
 - touchdown detection;
 - auto-disarm.
 
-Measure where it landed against (0.93, 4.79). If you set a heading offset,
+Measure where it landed against (0.92, 4.81). If you set a heading offset,
 compare the landing against a stage 1 flight without it. If it lands further
 off with the offset, the sign is wrong: negate it.
 
 **Stage 2.** This is the first pass through the tight stretch. The spotter
 stands beside the corridor, out of the camera's view, and watches the gap to
 the north wall. In `pathfly_check`, "left" should stay above 3 cm through
-path metres 1.4–1.9.
+path metres 1.4–2.2.
 
-**Stage 3.** The whole path. Check the GOAL touchdown against the marker:
+**Stage 3.** The whole path. Only after the tunnel check (4.3, step 3).
+A second spotter stands south of the tunnel's north mouth, out of the
+camera's view, and watches the east and upper side of the tube. Check the
+GOAL touchdown against the marker:
 - **lands short along the corridor:** fine;
 - **lands sideways off it:** heading error. Redo the jig, the offset check
   and the carry test.
@@ -406,7 +426,8 @@ START.
       says `full` (or is deleted). The `competitor` window shows
       `[pathfly] FULL MISSION`, and the summary shows no `STAGED TEST` and no
       `WARNING`.
-- [ ] North wall position confirmed (open item). Map checked (3.1).
+- [ ] North wall position confirmed (open item). Tunnel carry check done
+      (4.3). Map checked (3.1).
 - [ ] Jig on START, drone centred, nose east, battery plugged in **after**
       placing, 60 s or more untouched, clock synchronised.
 - [ ] `px4_link: true`, `vo_state` 1, `pose_frame` 2.
@@ -431,7 +452,7 @@ START.
 5. **Carry test before flying:** closure under 5 cm, nose drift under 1°.
 6. **Short flights, fresh battery, fresh start each time.** Drift grows with
    distance travelled and with tracking hiccups.
-7. **Do not fly faster than the defaults** (0.6 m/s, 0.25 m/s in tight
+7. **Do not fly faster than the defaults** (0.4 m/s, 0.10 m/s in tight
    places). Motion blur costs tracking, and slow is what keeps the error
    inside 8 cm.
 8. **Do not change the heading.** The planner's 8 cm margins are only valid

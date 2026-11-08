@@ -34,12 +34,13 @@ def dist_to_polyline(p, pts):
 class TestPath(unittest.TestCase):
     def test_loads_planner_output(self):
         pts, margins = load_path_csv(DEFAULT_PATH)
-        # path-planning e0f22d8 (north wall moved in, east-facing footprint)
-        self.assertEqual(len(pts), 124)
+        # path-planning 11db65f (tunnel walls tightened, margin-first plan,
+        # east-facing footprint)
+        self.assertEqual(len(pts), 135)
         self.assertEqual(pts[0], (0.580, 4.596))
         self.assertEqual(pts[-1], (0.900, 1.350))
         self.assertIsNotNone(margins)
-        self.assertAlmostEqual(Polyline(pts).length, 12.27, delta=0.05)
+        self.assertAlmostEqual(Polyline(pts).length, 13.31, delta=0.05)
 
     def test_warns_when_flown_off_the_planned_heading(self):
         pts, margins = load_path_csv(DEFAULT_PATH)
@@ -412,12 +413,16 @@ class TestFaults(unittest.TestCase):
     def test_height_divergence_over_the_walls_is_ignored(self):
         """On the return leg the rangefinder reads the wall tops (1.65 m),
         so PX4's height jumps; that must not stop the mission."""
+        # The window CLIMB_2 .. FORWARD_END, from a clean run of the same path.
+        _, _, clean, _ = run(Config(), quiet=True)
+        ph0 = {p: t for t, p in clean}
+        t0, t1 = ph0['CLIMB_2'] + 0.5, ph0['LAND_2'] - 0.5
         mission, veh, phases, track = run(
-            Config(), divergence=lambda t: (0.0, 0.0, 1.65) if 38.0 < t < 50.0
-            else (0.0, 0.0, 0.0), quiet=True)     # CLIMB_2 .. FORWARD_END
+            Config(), divergence=lambda t: (0.0, 0.0, 1.65) if t0 < t < t1
+            else (0.0, 0.0, 0.0), quiet=True)
         ph = {p: t for t, p in phases}
-        self.assertLess(ph['CLIMB_2'], 38.0)
-        self.assertGreater(ph['LAND_2'], 50.0)
+        self.assertLess(ph['CLIMB_2'], t0)
+        self.assertGreater(ph['LAND_2'], t1)
         self.assertEqual([p for _, p in phases], EXPECTED_PHASES)
 
     def test_rejects_bad_config(self):

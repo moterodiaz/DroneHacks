@@ -21,7 +21,7 @@ drift, ground checks with `pathfly_check`, staged test flights
 **Nose direction at lift-off: east**, along the map's +x axis (to the right in
 `path.png`, the CAD X direction). That is `start_yaw_deg: 0.0`.
 
-**East is required for this path.** The path-planning repo (e0f22d8) computed
+**East is required for this path.** The path-planning repo (11db65f) computed
 its wall margins for the 0.50 × 0.40 m drone held facing east the whole way.
 Those margins are as low as 8 cm.
 
@@ -43,8 +43,10 @@ flight interface floors every pose at `min_altitude_m` (0.3 m), so a pose
 cannot hold 0.2 m and cannot land. Twists are not floored. The interface still
 caps their speed at 1.5 m/s; this node itself stays under 1.0 m/s.
 
-On the path the speed is 0.25–0.6 m/s, lower where the planner's wall margin
-is thin. The flight from arming to final disarm takes about 60 s.
+On the path the speed is 0.10–0.4 m/s, lower where the planner's wall margin
+is thin (full speed only from 0.40 m of margin). This is slow on purpose: the
+path is planned for maximum margin, and speed is what eats it. The flight from
+arming to final disarm takes about 80 s.
 
 ## Load it onto the drone
 
@@ -81,7 +83,7 @@ is thin. The flight from arming to final disarm takes about 60 s.
    summary line, for example:
 
    ```text
-   path 12.27 m, 124 points, start (0.580, 4.596), end (0.900, 1.350); ...
+   path 13.31 m, 135 points, start (0.580, 4.596), end (0.900, 1.350); ...
    NOSE AT LIFT-OFF: 0.0 deg CCW from arena +x (east, along arena +x).
    Last leg: goal -> take-off point, 3.26 m at 95.6 deg = 95.6 deg counter-clockwise of the nose
    ```
@@ -150,25 +152,39 @@ The simulator runs the real mission code against a simple PX4 model:
 - the land detector;
 - `COM_DISARM_PRFLT` and `COM_DISARM_LAND`.
 
-Wall clearance is estimated from the planner margins in the path CSV, not from
-the arena map. Results:
-- **No noise:** the drone stays within 29 mm of the path. The worst
-  estimated clearance is 65 mm, under the north wall.
-- **2 cm odometry noise plus 5 cm/s of drift PX4 does not see:** within
-  42 mm. The worst estimated clearance is 52–64 mm, under the north wall.
-- **10 cm/s of unseen drift** is too much: in the 8 cm corridor under the
-  north wall the estimated clearance drops to −20 mm, which is a wall touch.
+Path 11db65f, measured against the STEP walls with the real footprint at
+the simulated heading (lift-off to the GOAL, 3 seeds each):
+- **No noise:** worst clearance 68 mm, under the north wall. Tunnel 0.40 m,
+  open areas 0.24 m or more.
+- **PX4 lag 0.7 s (as measured in flight), 2 cm noise, 5 cm/s push north or
+  east:** worst 10–24 mm, in the north corridor. The tunnel keeps 0.30 m.
+- **The same with a 5 cm/s push south or west:** −8 to −10 mm, at the GOAL
+  itself. The GOAL marker sits in a 0.4 m-radius pocket where the footprint
+  has 80 mm by construction. No path can change that.
+- At the previous speeds (0.6 / 0.25 m/s, full speed from 0.30 m) the same
+  cases touched the north wall by up to 25 mm. That is why the speeds are
+  now lower.
 
 The simulator is not the airframe. Its numbers say nothing about VIO quality
 on the real course.
 
 ## Known limits
 
-- **Two stretches are tight.** The planner leaves 79–82 mm of margin over
-  about 0.8 m under the north wall and at the goal. That is measured for the
+- **Two stretches are tight.** The planner leaves 79–112 mm of margin over
+  path metres 1.4–2.2 under the north wall, and 80–117 mm over the last
+  0.5 m into the goal. That is the most those corridors allow with the nose
+  east: they are only 16–20 cm wider than the drone. Everywhere else the
+  path sits on the line of maximum margin (0.43 m in the tunnel, up to
+  0.71 m in the south-east room). That is measured for the
   real 0.50 × 0.40 m footprint, **nose held east**. VIO error and any heading
   error eat into it directly. The node warns at start-up if it is configured
   for any other heading or to yaw.
+- **The tunnel line moved 0.23 m east.** On the 2026-11-08 map the tunnel
+  corridor is x 4.83–6.10, and the path runs down its centre at x = 5.46.
+  The two prop strikes on 2026-11-08 flew x ≈ 5.28–5.33 and hit with the
+  **east** (front-right) prop, above, at 1.17 m. The STEP models the tube as
+  vertical walls with no roof. Do the tunnel carry check (BRINGUP 4.3) before
+  flying stage 3.
 - **Check the north wall's position.** The path assumes the north wall is
   0.54 m inside the outer boundary (y = 5.556). If the taped wall is 0.61 m in
   (y = 5.486), the drone's top edge passes it with about 1 cm, not 8 cm.

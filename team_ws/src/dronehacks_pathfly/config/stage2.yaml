@@ -1,5 +1,5 @@
 # Stage 2: climb to 1.25 m and fly through the tight stretch under the north
-# wall (8 cm planned margin, path metres ~1.4-1.9). Lands at path metre 2.6 in
+# wall (8 cm planned margin, path metres ~1.4-2.2). Lands at path metre 2.6 in
 # the top corridor and stops. No hop.
 dronehacks_pathfly:
   ros__parameters:

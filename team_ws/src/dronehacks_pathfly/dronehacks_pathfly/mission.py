@@ -10,7 +10,7 @@
     GROUND_1    sit for touchdown_dwell_s
     CLIMB_2     straight up to hop_height_m above the touchdown point
     YAW         only with hold_heading false: turn to face the take-off point
-                (95.6 deg counter-clockwise with the nose east; 66.6 deg
+                (95.6 deg counter-clockwise with the nose east; 66.8 deg
                 clockwise with the nose along the final approach)
     FORWARD     fly straight back over the take-off point at hop_height_m
                 (by default without yawing: the heading is held throughout)
@@ -45,12 +45,12 @@ class Config:
     # as long as it matches how the drone is placed: the path is rotated by
     # it and the last leg ends over the take-off point regardless.
     # 0.0 (default) = arena +x ("east" on the map). NaN = parallel to the
-    # path's final approach into the goal (162.3 deg for this path), which
-    # makes the leg back to START exactly 66.6 deg clockwise of the nose.
+    # path's final approach into the goal (162.5 deg for this path), which
+    # makes the leg back to START 66.8 deg clockwise of the nose.
     start_yaw_deg: float = 0.0
     approach_chord_m: float = 1.0
     # The nose direction the path's wall margins were computed for. The
-    # path-planning repo (e0f22d8) plans for the 0.50 x 0.40 m drone held
+    # path-planning repo (11db65f) plans for the 0.50 x 0.40 m drone held
     # facing east, so its margins only hold at this heading.
     planned_nose_deg: float = 0.0
 
@@ -73,9 +73,13 @@ class Config:
 
     # --- speeds ----------------------------------------------------------
     takeoff_speed_mps: float = 0.3
-    path_speed_mps: float = 0.6
-    path_min_speed_mps: float = 0.25
-    full_speed_margin_m: float = 0.30   # planner margin at which full speed is allowed
+    # Slow, for margin: the narrow corridors leave only 8-11 cm, and PX4
+    # lags the velocity command (~0.7 s measured), so tracking error grows
+    # with speed. Sim with 0.7 s lag, 2 cm noise, 5 cm/s push: 0.6/0.25/0.30
+    # touched the north wall (-25 mm); these keep +10 mm there.
+    path_speed_mps: float = 0.4
+    path_min_speed_mps: float = 0.10
+    full_speed_margin_m: float = 0.40   # planner margin at which full speed is allowed
     accel_mps2: float = 0.5
     lateral_accel_mps2: float = 0.6
     climb_speed_mps: float = 0.5

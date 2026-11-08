@@ -22,6 +22,9 @@ Method:
          cost = integral of [1 + W * ((T - margin)/T)^2]_(margin<T) ds
                 (+ a much steeper second tier below CRITICAL_MARGIN)
      i.e. path length, plus a penalty that grows as the margin drops below T.
+     T = 1.0 m and W = 60 make this margin-first: T exceeds every margin the
+     arena allows, so the path rides the ridge of maximum margin everywhere
+     and length only breaks ties.
   3. Elastic-band refinement of the grid path with exact margin gradients
      plus a small curvature term (smooth, fast-to-fly curve).
   4. Douglas-Peucker simplification into straight-line waypoints, re-verified.
@@ -50,8 +53,14 @@ DRONE_RADIUS = 0.5 * math.hypot(DRONE_WIDTH, DRONE_LENGTH)  # 0.320 m
 FOOTPRINT = "east"
 EAST = np.array([1.0, 0.0])
 
-MARGIN_TARGET = 0.40  # m: margins above this carry no penalty
-MARGIN_WEIGHT = 3.0   # how strongly to trade length for margin below the target
+# Margin first: the target is above the widest margin anywhere in the arena
+# (~0.71 m), so every extra millimetre of margin is always worth having, and the
+# weight makes length only a tie-breaker. The path follows the ridge of maximum
+# margin through every corridor and room (the shortest path is still planned,
+# with weight 0, for reference in path.png).
+MARGIN_TARGET = 1.0   # m: margins above this carry no penalty
+MARGIN_WEIGHT = 60.0  # how strongly to trade length for margin below the target
+BAND_ITERS = 12000    # elastic-band iterations (a heavy weight converges slowly)
 CRITICAL_MARGIN = 0.10  # m: below this an extra, much steeper penalty applies
 CRITICAL_WEIGHT = 30.0
 
@@ -259,8 +268,11 @@ class Walls:
         return np.where(self.inside(P), d, -d)
 
 
-def margin_cost(m, weight=MARGIN_WEIGHT, target=MARGIN_TARGET):
-    """Cost per metre as a function of margin m, plus its derivative."""
+def margin_cost(m, weight=None, target=None):
+    """Cost per metre as a function of margin m, plus its derivative.
+    Defaults are read at call time (a default argument would freeze them)."""
+    weight = MARGIN_WEIGHT if weight is None else weight
+    target = MARGIN_TARGET if target is None else target
     m = np.asarray(m, float)
     c = np.ones_like(m)
     dc = np.zeros_like(m)
@@ -365,7 +377,8 @@ def resample(P, h):
     return np.column_stack([np.interp(si, s, P[:, 0]), np.interp(si, s, P[:, 1])])
 
 
-def elastic_band(walls, P, weight, iters=6000, step=1.0, max_move=0.003):
+def elastic_band(walls, P, weight, iters=None, step=1.0, max_move=0.003):
+    iters = BAND_ITERS if iters is None else iters
     P = resample(P, BAND_SPACING)
     for it in range(iters):
         seg = P[1:] - P[:-1]
