@@ -20,14 +20,16 @@ Rules applied (numbers from the rulebook digest):
 * the clock starts when the drone leaves the launch mark and stops when it
   disarms with the whole drone inside the pad's outer ring (``inside_radius_m``);
 * the run ends on a crash, ground contact outside the pad, leaving the net, or
-  3 minutes (rule 7.9).
+  3 minutes (rule 7.9).  "The net" is the nets' bounding box (``Course.net_hi``):
+  its top is the net panels' top, so with no roof solid in the STEP model
+  climbing above the panels is leaving the course.
 """
 from __future__ import annotations
 
 import json
 import math
 
-WALL_TOP_M = 1.7272
+from ..world.course import WALL_TOP_M  # the 68 in wall top (rule 7.7)
 
 
 def _hull(points):

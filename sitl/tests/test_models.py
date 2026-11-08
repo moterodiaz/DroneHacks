@@ -116,21 +116,27 @@ class RefereeTests(unittest.TestCase):
         self.assertAlmostEqual(tube['a'][1], -0.3048, places=3)
 
     def test_whole_drone_must_pass(self):
+        # the first checkpoint (CP2 Gate A since the 2026-11-07 layout) is a segment: fly east
+        # across it, heading east
         ref = self.Referee(self.course, self.rules, self.af)
         ref.t_start = 0.0
-        y_turn = 2.70                      # centre beyond the CP1 line, tail not yet
-        path = [(-2.5, 2.3 + 0.01 * i) for i in range(int((y_turn - 2.3) / 0.01))]
+        gate = ref.checkpoints[0]['gates']['main'][0]
+        self.assertEqual(ref.checkpoints[0]['id'], 2)
+        x_line = gate.a[0]
+        y = 0.5 * (gate.a[1] + gate.b[1])
+        x_past = x_line + 0.10                 # centre beyond the line, tail not yet
         t = 0.0
-        for p in path:
+        for i in range(int(round(0.4 / 0.01)) + 1):
             t += 0.02
-            ref.update(t, (p[0], p[1], 0.8), math.pi / 2, 0.73, True, False, [], [], 0.0)
-        cp1 = ref.checkpoints[0]
-        self.assertIsNotNone(cp1['centre_t'])
-        self.assertIsNone(cp1['whole_t'])
-        for i in range(30):
+            ref.update(t, (x_past - 0.4 + 0.01 * i, y, 0.8), 0.0, 0.73, True, False, [], [], 0.0)
+        cp = ref.checkpoints[0]
+        self.assertIsNotNone(cp['centre_t'])
+        self.assertIsNone(cp['whole_t'])
+        for i in range(40):
             t += 0.02
-            ref.update(t, (-2.5, y_turn + 0.01 * i, 0.8), math.pi / 2, 0.73, True, False, [], [], 0.0)
-        self.assertIsNotNone(cp1['whole_t'])
+            ref.update(t, (x_past + 0.01 * i, y, 0.8), 0.0, 0.73, True, False, [], [], 0.0)
+        self.assertIsNotNone(cp['whole_t'])
+        self.assertEqual(ref.next_cp, 1)       # counted in order
 
 
 if __name__ == '__main__':

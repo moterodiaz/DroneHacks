@@ -61,7 +61,7 @@ class MeshIndex:
     """Uniform-grid acceleration structure over the triangles of several solids.
 
     ``exclude`` drops solids whose name matches any of the given ``fnmatch``
-    patterns (e.g. ``exclude=["Net roof"]`` or ``["Net *"]``).
+    patterns (e.g. ``exclude=["Net side north"]`` or ``["Net *"]``).
     ``solid_names[i]`` is the name of solid id ``i``; ``tri_solid[t]`` is the
     solid id of triangle ``t``.
     """

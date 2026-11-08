@@ -10,6 +10,7 @@ file is the normative statement; where they disagree, this file wins
 |---|---|---|
 | Net | 6.096 × 6.096 m (20 ft), 3.048 m tall | `organisers` |
 | Walls | 1.727 m (68 in) tall, 0.102 m thick | `organisers` |
+| Walls added 2026-11-07 | 1.727 m tall; one 0.100 m thick, one a 0.350 m deep block (see Layout revision) | `team` |
 | Corridors | 1.02–1.07 m; narrowest passage 0.93 m | `organisers` |
 | Tunnel | oval, 58 × 72 × 60 in, against the east net | `organisers` |
 | Window | 0.914 m square, 0.305–1.219 m up, in wall C2a | `organisers` |
@@ -22,25 +23,58 @@ Coordinates are course-frame `(east, north)` metres, origin at the floor
 centre. See `contracts/frames.md` for the measured transform into competitor
 odom-frame setpoints; the kit alone performs the PX4 conversion.
 
+`team` rows come from the team's 2026-11-07 update of the course CAD and its
+checkpoint list (@jsun4231), described under Layout revision below.
+
+## Layout revision 2026-11-07
+
+The course model is `dronehacks-course-v3.step` at the repository root,
+SHA-256 `2194664e852e341f86fb63a19ecc4f8f0ef34da6a51867e49beb3157cb90b876`
+(a SolidWorks export; it replaces the 2026-10-27 Onshape export
+`b0e52800ad77e7f173b328601e466083aad32a163ec035b8090e43bb624d4500`). Source:
+`team`. Changes from the 2026-10-27 model:
+
+- **Removed:** the maze dividers M1, M2 and M3 (hidden in the CAD assembly,
+  so absent from the export).
+- **Added**, both in CAD part `Part67`, floor to wall top (1.727 m):
+  - `Part67 / Boss-Extrude1[1]`: a block, footprint
+    `(−3.049, 2.698)`–`(−1.249, 3.048)` (1.800 × 0.350 m), against the west
+    and north nets;
+  - `Part67 / Boss-Extrude1[2]`: a diagonal wall 0.100 m thick, footprint
+    `(−2.167, 0.508)`, `(−2.020, 0.508)`, `(−0.659, 1.775)`, `(−0.727, 1.848)`,
+    running north-east from Barrier 1's north face at 42.9° from east.
+- The narrowest gap the new walls make is **0.998 m**, between the two of them
+  near `(−0.99, 2.27)` (`derived` from the CAD at 0.8 m).
+- The net roof is not in the export either. The net is unchanged: its sides
+  are still 3.048 m tall (Net row).
+- Every other part is where it was, to 0.1 mm.
+
 ## Checkpoints
 
 | order | name | line | points |
 |---|---|---|---|
-| 1 | First corridor | end of first corridor, where the floor line turns east | 4 |
-| 2 | Maze | leave the maze through Gate A, where the line ends | 7 |
+| ~~1~~ | ~~First corridor~~ | **removed 2026-11-07** (`team`) | — |
+| 2 | Maze | leave the maze through Gate A: the line `(0.3048, 2.1209)`–`(0.3048, 3.048)` | 7 |
 | 3 | Tunnel | out of the south end of the dark tunnel | 10 |
 | 4 | Chicane | into the landing area through Gate B or the window, without landing | 7 |
 | 5 | Landing | land and disarm with the whole drone inside the pad's outer ring | 7 |
 
 A checkpoint counts only when the **whole drone** crosses its line, in order.
-Source: `organisers`.
+Source: `organisers`; the 2026-11-07 changes: `team`. Checkpoints 2–5 are
+unchanged and keep their numbers; the four that remain are worth 31 points.
+Gate A was the gap between M3's north end and the north net. M3 is gone, so
+the same line is now given explicitly, on M3's old centreline. Nothing stops a
+route passing south of it any more: a planner must route through the line,
+not just through open space.
 
 ## Derived error budget
 
 Drone 0.37 × 0.48 m, props reach 0.28 m from centre. In the 0.93 m narrowest
 passage that leaves **±0.18 m** for all error (planner + estimator + control).
 This is derived from the geometry row above, not an independent fact — if the
-corridor or drone dimensions change, re-derive it.
+corridor or drone dimensions change, re-derive it. The 2026-11-07 layout's new
+0.998 m gap leaves ±0.22 m; the 0.93 m figure still binds elsewhere (Gate B's
+neighbourhood measures 0.936 m in the CAD).
 
 ## Map-file format (planner input)
 
