@@ -1,0 +1,9 @@
+### nsh> dh_bailout status
+INFO  [dh_bailout] mode 1 (nav 23) arm_chk 0 req 1 | inactive act 0 foreign 0 replies 614
+### nsh> commander status   (excerpt)
+INFO  [commander] Disarmed
+INFO  [commander] External Mode 1: nav_state: 23, name: DH Bailout
+### nsh> param show COM_MODE0_HASH
+x + COM_MODE0_HASH [266,505] : -1819584171
+### nsh> param show COM_FLTMODE1
+x + COM_FLTMODE1 [248,487] : 0

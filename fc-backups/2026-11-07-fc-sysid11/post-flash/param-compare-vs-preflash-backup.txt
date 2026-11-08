@@ -1,0 +1,20 @@
+live 1116 params (sysid 11), backup 1108
+expected differences: 8
+  COM_MODE0_HASH: backup MISSING -> live -1819584171
+  COM_MODE1_HASH: backup MISSING -> live 0
+  COM_MODE2_HASH: backup MISSING -> live 0
+  COM_MODE3_HASH: backup MISSING -> live 0
+  COM_MODE4_HASH: backup MISSING -> live 0
+  COM_MODE5_HASH: backup MISSING -> live 0
+  COM_MODE6_HASH: backup MISSING -> live 0
+  COM_MODE7_HASH: backup MISSING -> live 0
+flight counters: 1
+  COM_FLIGHT_UUID: backup 40 -> live 42
+UNEXPECTED differences: 6
+  CAL_ACC0_XOFF: backup -0.0993206799030304 -> live -0.08232207596302032
+  CAL_ACC0_YOFF: backup -0.13022437691688538 -> live -0.07560040056705475
+  CAL_ACC0_ZOFF: backup 0.12243533134460449 -> live 0.141065314412117
+  CAL_ACC1_XOFF: backup -0.04270533472299576 -> live -0.010065846145153046
+  CAL_ACC1_YOFF: backup 0.015026681125164032 -> live 0.0894402340054512
+  CAL_ACC1_ZOFF: backup 0.009395226836204529 -> live 0.0372542068362236
+changed between two reads: 0
