@@ -15,6 +15,9 @@ The sequence (``plan``), every hold 3 s once within ``arrive_m`` of the target:
       the start, then pressing down gently once PX4 reports landed
     wait on the ground ``ground_s``, still pressing down (motors at idle, not off: see below)
     take off again to height_m, hold
+    a circle of diameter ``circle_d_m`` inside the box (centre r forward, r left): forward r to the
+      middle of the box's right side, round counter-clockwise from there (forward first) back to
+      it, heading held; then back over the start and hold
     land the same way, and keep pressing down until PX4 disarms (COM_DISARM_LAND)
 
 Motors cannot actually stop between the two landings: stopping them is a disarm, a disarm ends
@@ -53,6 +56,7 @@ class Config:
     yaw_tol_deg: float = 5.0
     max_offset_m: float = 0.3       # PX4 vs camera position on the ground; more than this: refuse to fly
     offset_tau_s: float = 1.0       # smoothing of the PX4-vs-camera offset in flight
+    circle_d_m: float = 1.0
 
 
 @dataclass
@@ -70,12 +74,14 @@ NONE = Command('none')
 def plan(c):
     """Steps as (kind, (forward, left, up) offsets from the start, seconds, heading in degrees
     counter-clockwise from the take-off heading, unwrapped)."""
-    s, h = c.side_m, c.height_m
+    s, h, r = c.side_m, c.height_m, c.circle_d_m / 2.0
     box = [(0, 0, h), (s, 0, h), (s, s, h), (0, s, h), (0, 0, h)]
     steps = []
     for k, p in enumerate(box):
         steps += [('move', p, 0, None), ('hold', p, c.hold_s, 90.0 * k)]
     steps += [('land', None, 0, None), ('ground', None, c.ground_s, None),
+              ('move', (0, 0, h), 0, None), ('hold', (0, 0, h), c.hold_s, 360.0),
+              ('move', (r, 0, h), 0, None), ('circle', (r, 0, h), 0, None),
               ('move', (0, 0, h), 0, None), ('hold', (0, 0, h), c.hold_s, 360.0),
               ('land', None, 0, None), ('disarm', None, 0, None)]
     return steps
@@ -97,6 +103,7 @@ class Mission:
         self.stale_since = None
         self.last_t = None
         self.offset = (0.0, 0.0, 0.0)  # PX4 local minus camera, smoothed
+        self.arc = 0.0               # radians of the circle covered
 
     @property
     def step_name(self):
@@ -170,6 +177,16 @@ class Mission:
             if math.dist(self.target, goal) < 1e-6:
                 self._next(t)
             return self._pose()
+        if kind == 'circle':
+            r = c.circle_d_m / 2.0
+            if math.dist(pose, self.target) < c.lead_m:
+                self.arc = min(2.0 * math.pi, self.arc + c.speed_mps * dt / r)
+            a = -math.pi / 2 + self.arc             # round the centre (r, r); the entry (r, 0) is at -pi/2
+            self.target = self._at((r + r * math.cos(a), r + r * math.sin(a), offset[2]))
+            if self.arc >= 2.0 * math.pi:
+                self.target = self._at(offset)
+                self._next(t)
+            return self._pose()
         if kind == 'hold':
             turn = heading - self.heading
             self.heading += max(-c.yaw_rate_dps * dt, min(c.yaw_rate_dps * dt, turn))
@@ -212,7 +229,7 @@ class Mission:
         return tuple(s + o for s, o in zip(self.start, offset))
 
     def _next(self, t):
-        self.i, self.since, self.dwell_since = self.i + 1, t, None
+        self.i, self.since, self.dwell_since, self.arc = self.i + 1, t, None, 0.0
 
     def _abort(self, why):
         self.i = len(self.steps) - 1            # the final 'disarm' landing
