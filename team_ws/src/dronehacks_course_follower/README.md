@@ -115,10 +115,12 @@ the window sits about a foot from the south net, and the pad's centre 36 in from
 48 in from the south net, about a metre south of the published pad (both taped roughly by the team).
 Stop-and-go's legs keep off the rocks' rangefinder rings without the corner-cutting margin, since
 it holds at every corner, and it drops a corner crowding the hold before or after it.
-The shortest path ran the leg after the diagonal-wall gap and the turning hold above the tunnel's
-north mouth along the north wall, and skybeta-11 hit that wall there on 2026-11-08. The map's first
-goal, `corridor`, is a point midway between Barrier 3 and the north wall that the route must pass,
-and the tunnel's `lead_m` `[south, north]` puts the north hold midway between the mouth and the wall.
+The tunnel's `lead_m` `[south, north]` puts the north hold midway between the mouth and the north
+wall, so the leg from the diagonal-wall gap runs straight to it, angling away from the wall.
+A `corridor` goal midway between Barrier 3 and the north wall was tried after skybeta-11 hit that
+wall on 2026-11-08 and removed: the hit followed the pilot's stick input, not the route, and the
+goal only added three holds. SITL (taped world, seed 3) flew both maps clean; the straight leg
+was the faster in stop-and-go and in smooth 0.5.
 The diagonal-wall gap itself stays the tightest place on the route; taping its narrowest width
 settles how tight.
 The boulders are still avoided; whether to plan over them (smoother, faster, but under the
