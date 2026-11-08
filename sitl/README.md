@@ -354,6 +354,12 @@ The **window-at-2-m/s flight line** (`--option line=window_2mps`: the real
 The drone peaks at 1.40 m/s: the planner's unvalidated cornering limit (`a_lat_mps2` 1.0) binds
 before the 2.0 caps on this course.
 
+The **slow test line** (`--option line=window_0p5mps`) is the same line with every speed at
+0.5 m/s. With `land=land`, the organisers' PX4 cap of 1.0 and seeds 1/2/3, it scored 31 + window
+bonus in 46.7 / 43.9 / 43.3 s with no touches. Its peak speed was 0.51 m/s. In the dark tube,
+cuVSLAM was lost for 3.1-3.2 s. The drone coasted about 1.55 m through it and stayed in Offboard,
+with 0.8 s left of the 4 s `coast_max_s`.
+
 The Gate B touches are on C1 in the turn after the tunnel; the chicane did not change. The lidar
 builds, `vo_nolidar` and `manual_full` still fly the 2026-11-06 layout's routes and hit the new
 walls.
