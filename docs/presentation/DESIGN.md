@@ -6,15 +6,17 @@ These are the standing rules for Team 08's judging deck. `build_deck.js` follows
 
 - Audience: two judging panels on 8 Nov, run as a technical interview. The talk is 5–7 min and the questions take 5–6 min.
 - Points: 25 for the presentation (autonomy design, technical execution, originality, evidence of testing) and 15 for generality. An AI review of the repository flags hard-coding to the judges.
-- Structure: a title slide, then 7 slides covering the autonomy stack, the approach and the results.
+- Structure: a research talk. A title slide, then 8 slides:
   0. Title: team, drone, flown package and its SITL result, route figure from `route_fig.py`.
-  1. Problem: task, platform, constraints.
-  2. Autonomy stack.
-  3. Approach 1: first principles and the iteration timeline.
-  4. Approach 2: planning and the followers.
-  5. Approach 3: safety, localization, tools and contracts.
-  6. Results 1: flight, SITL and bench results.
-  7. Results 2: generality, course-specific items, open items and credits.
+  1. Problem: task, scoring, constraints.
+  2. System: data flow and control loops.
+  3. Method: planning (map in, route out) and the followers.
+  4. Method: safety guards and verification tools.
+  5. Experiments: the iterative flight-test timeline.
+  6. Results: flown and SITL results.
+  7. Generality: planner vs hand route, declared course-specific items, new-course procedure, credits.
+  8. Limitations and future work, with the speed ladder.
+- Slides are recall cues, not the script. Each block has 3–5 bullets of at most about 8 words. Each slide has one visual (diagram, figure, table or bars). All detail goes in the speaker notes.
 - Content: every slide carries technical facts from `technical-corpus/TECHNICAL_CORPUS.md`. Nothing goes on a slide that has no fact in it: no slogans, no taglines and no closing slide. Rehearsal questions and the do-not-claim list go in the speaker notes.
 
 ## Text: ASD-STE100 (Simplified Technical English)
@@ -36,11 +38,11 @@ These are the standing rules for Team 08's judging deck. `build_deck.js` follows
 - Two accents only:
   - red `B42318` for failures and contacts;
   - dark blue `1F3A5F` for diagram topic labels, the best SITL result and step numbers.
-- Each content slide has a grey `SECTION n/m` label, a 22 pt title stating the content (not a slogan), and numbered sub-headings `n.m`.
+- Each content slide has a grey `n  SECTION` label, a 28 pt title that states the finding (not a slogan), and short unnumbered sub-headings.
 - Tables are booktabs style: a bold header between black rules, grey hairlines between rows, no vertical lines and no fills.
 - Diagrams use square boxes with thin black lines and plain arrows labelled with topic names and rates. Do not use icons, rounded cards, pills, shadows, gradients or decorative stripes.
 - Charts are drawn as shapes, because Keynote's PPTX import drops pptxgenjs charts.
-- Sizes: body 11.5 pt and tables 10.5 pt on the 13.33 × 7.5 in layout (wide). The source-tag legend is in the footer.
+- Sizes: bullets 17–18 pt, sub-headings 17 pt, tables 15 pt, nothing on a slide below 11 pt, on the 13.33 × 7.5 in layout (wide). The source-tag legend is in the footer.
 
 ## Process
 
