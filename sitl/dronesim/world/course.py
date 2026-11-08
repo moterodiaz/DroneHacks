@@ -9,10 +9,19 @@ Frames
 
 Every solid keeps its STEP product name and gets a ``kind`` (wall, net, tunnel,
 tunnel_support, boulder, floor, pad, marking) used for contact rules, sensor
-models and scoring.  Two caches speed up the hot loop and are stored next to
-the tessellation cache, keyed by the STEP file's SHA-256: a layered heightmap
-of upward-facing surfaces (landing gear, ground effect) and a coarse distance
-field (collision broadphase).
+models and scoring.  The kind comes from the name first (``KINDS``); a solid
+whose name says nothing (``other``, e.g. a CAD default name such as ``Part67``)
+that stands on the floor and reaches the wall top is a wall, so a newly added,
+unnamed wall still counts as a touch (rule 7.8).
+
+The net box (``net_lo`` / ``net_hi``, the bounding box of the net solids) is the
+course volume: leaving it ends a run.  Its top is the net panels' top, so it is
+also the height limit when the export has no roof solid.
+
+Two caches speed up the hot loop and are stored next to the tessellation
+cache, keyed by the STEP file's SHA-256 and the tessellation version: a layered
+heightmap of upward-facing surfaces (landing gear, ground effect) and a coarse
+distance field (collision broadphase).
 """
 from __future__ import annotations
 
@@ -24,7 +33,7 @@ import tempfile
 import numpy as np
 
 from .mesh_query import MeshIndex
-from .step_mesh import load_step_cached
+from .step_mesh import MESH_VERSION, load_step_cached
 
 KINDS = (
     ('Net', 'net'), ('Floor', 'floor'), ('Tube cradle', 'tunnel_support'), ('Tube', 'tunnel'),
@@ -37,18 +46,42 @@ TOUCH_KINDS = {'wall', 'tunnel', 'tunnel_support', 'boulder'}
 #: surfaces a landing gear may rest on
 SUPPORT_KINDS = {'floor', 'pad', 'marking', 'boulder', 'tunnel', 'tunnel_support', 'wall'}
 
+#: the rulebook's wall height (68 in); the floor top is z = 0 (contracts/course.md)
+WALL_TOP_M = 1.7272
+#: geometry fallback (``classify_solid``): how close to the floor a wall's base and to
+#: WALL_TOP_M its top must be, and the least horizontal extent (thinner is a sheet, e.g. a net)
+FLOOR_TOL_M = 0.02
+WALL_TOP_TOL_M = 0.03
+SHEET_MAX_M = 0.01
+
 HEIGHTMAP_RES = 0.02
 HEIGHTMAP_LAYERS = 4
 DF_RES = 0.10
 DF_CLAMP = 0.6
-CACHE_VERSION = 2
+CACHE_VERSION = 3
 
 
 def classify(name):
+    """Kind of a solid from its name alone (``'other'`` if no keyword matches)."""
     for key, kind in KINDS:
         if key.lower() in name.lower():
             return kind
     return 'other'
+
+
+def classify_solid(solid):
+    """Kind of a solid: by name, else by shape.  A solid the name leaves as ``'other'``
+    that stands on the floor and reaches the wall top is a ``'wall'`` (its touches
+    count, rule 7.8), unless it is a thin sheet.  Nets are named, so they are
+    classified before the fallback."""
+    kind = classify(solid.name)
+    if kind != 'other' or not len(solid.triangles):
+        return kind
+    lo, hi = solid.bbox_min, solid.bbox_max
+    on_floor = abs(float(lo[2])) <= FLOOR_TOL_M
+    tall = float(hi[2]) >= WALL_TOP_M - WALL_TOP_TOL_M
+    sheet = float(min(hi[0] - lo[0], hi[1] - lo[1])) < SHEET_MAX_M
+    return 'wall' if on_floor and tall and not sheet else kind
 
 
 def ned_to_course(p):
@@ -66,20 +99,25 @@ class Course:
         with open(self.step_path, 'rb') as fh:
             self.sha256 = hashlib.sha256(fh.read()).hexdigest()
         self.solids = load_step_cached(self.step_path, cache_dir)
-        self.kinds = [classify(s.name) for s in self.solids]
+        self.kinds = [classify_solid(s) for s in self.solids]
         self.by_name = {s.name: s for s in self.solids}
+        self.kind_by_name = {s.name: k for s, k in zip(self.solids, self.kinds)}
         self.index = MeshIndex(self.solids)
         # per-solid kind, in the index's solid order
-        self.solid_kind = [classify(n) for n in self.index.solid_names]
+        self.solid_kind = [self.kind_by_name[n] for n in self.index.solid_names]
         tris = self.index.triangles
         self.tri_lo = tris.min(axis=1)
         self.tri_hi = tris.max(axis=1)
         lo = np.min([s.bbox_min for s in self.solids], axis=0)
         hi = np.max([s.bbox_max for s in self.solids], axis=0)
         self.bounds = (lo, hi)
-        net = [s for s in self.solids if classify(s.name) == 'net']
+        # the course volume: the nets' bounding box (its top is the panels' top: no roof needed)
+        net = [s for s, k in zip(self.solids, self.kinds) if k == 'net']
         self.net_lo = np.min([s.bbox_min for s in net], axis=0) if net else lo
         self.net_hi = np.max([s.bbox_max for s in net], axis=0) if net else hi
+        # heightmap rays start just below the net box top (a roof, if the export has one, and
+        # the panels' top edges are no landing surfaces), or above everything without nets
+        self._hm_top = float(self.net_hi[2]) - 0.01 if net else float(hi[2]) + 0.01
         self._load_or_build_caches()
 
     # -- geometry facts used elsewhere ---------------------------------------------------------
@@ -99,7 +137,7 @@ class Course:
 
     # -- caches -----------------------------------------------------------------------------------
     def _cache_path(self):
-        return os.path.join(self.cache_dir, f'course_{self.sha256[:16]}_v{CACHE_VERSION}.npz')
+        return os.path.join(self.cache_dir, f'course_{self.sha256[:16]}_v{CACHE_VERSION}m{MESH_VERSION}.npz')
 
     def _load_or_build_caches(self):
         path = self._cache_path()
@@ -141,7 +179,7 @@ class Course:
         gx, gy = gx.ravel(), gy.ravel()
         hm = np.full((HEIGHTMAP_LAYERS, gx.size), -np.inf, dtype=np.float32)
         kind = np.full((HEIGHTMAP_LAYERS, gx.size), -1, dtype=np.int16)
-        zmax = np.full(gx.size, 3.0, dtype=float)          # below the net roof
+        zmax = np.full(gx.size, self._hm_top, dtype=float)
         chunk = 4096
         for layer in range(HEIGHTMAP_LAYERS):
             for s in range(0, gx.size, chunk):
@@ -160,7 +198,7 @@ class Course:
         x0, y0, z0 = float(lo[0]) - 0.2, float(lo[1]) - 0.2, -0.2
         nx = int(math.ceil((float(hi[0]) + 0.2 - x0) / DF_RES)) + 1
         ny = int(math.ceil((float(hi[1]) + 0.2 - y0) / DF_RES)) + 1
-        nz = int(math.ceil((3.3 - z0) / DF_RES)) + 1
+        nz = int(math.ceil((float(self.net_hi[2]) + 0.25 - z0) / DF_RES)) + 1
         xs = x0 + np.arange(nx) * DF_RES
         ys = y0 + np.arange(ny) * DF_RES
         zs = z0 + np.arange(nz) * DF_RES
@@ -217,12 +255,16 @@ class Course:
     def inside_net(self, p, margin=0.0):
         return bool(np.all(np.asarray(p) >= self.net_lo - margin) and np.all(np.asarray(p) <= self.net_hi + margin))
 
+    def kind(self, name):
+        return self.kind_by_name[name]
+
     def describe(self):
         counts = {}
         for k in self.solid_kind:
             counts[k] = counts.get(k, 0) + 1
         return {'step': os.path.basename(self.step_path), 'sha256': self.sha256, 'solids': len(self.solids),
-                'triangles': int(self.index.triangles.shape[0]), 'kinds': counts}
+                'triangles': int(self.index.triangles.shape[0]), 'kinds': counts,
+                'net_top_m': round(float(self.net_hi[2]), 4)}
 
 
 def closest_points_on_triangles(p, a, b, c):

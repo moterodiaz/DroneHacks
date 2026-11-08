@@ -6,9 +6,13 @@ Run from the ``sitl`` directory::
 
 The course tests read ``dronehacks-course-v3.step`` from the repository root
 (override with the ``DRONESIM_COURSE_STEP`` environment variable) and are
-skipped if it is missing.  Reference numbers come from two independent
-extractions of the same file (the 2.5-D ``course-map/1`` JSON and the task
-brief); tolerance is 2 mm unless stated.
+skipped if it is missing.  They expect the 2026-11-07 layout (SolidWorks 2023
+export): 31 solids, the maze dividers M1-M3 and the net roof gone, two new
+walls in one multi-body part.  Reference numbers for the unchanged parts come
+from two independent extractions of the earlier (Onshape) export, whose parts
+match this one to 0.1 mm (the 2.5-D ``course-map/1`` JSON and the task brief);
+those of the new walls from the SolidWorks model.  Tolerance is 2 mm unless
+stated.
 """
 
 from __future__ import annotations
@@ -19,12 +23,12 @@ import tempfile
 import time
 import unittest
 from pathlib import Path
-from typing import Dict, List, Sequence, Tuple
+from typing import Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 
 from dronesim.world.mesh_query import MeshIndex
-from dronesim.world.step_mesh import Solid, StepMeshError, load_step, load_step_cached
+from dronesim.world.step_mesh import Solid, StepMeshError, load_step, load_step_cached, product_label
 from dronesim.world.step_parser import DERIVED, Enum, Ref, StepFile, StepSyntaxError, Typed
 
 STEP_PATH = Path(os.environ.get("DRONESIM_COURSE_STEP",
@@ -39,10 +43,23 @@ WALLS: Dict[str, Tuple[Tuple[float, float], Tuple[float, float]]] = {
     "C1 chicane wall": ((0.97338, -1.12852), (1.52502, 0.38711)),
     "C2a chicane wall (window)": ((-0.74676, -3.02971), (-0.19512, -1.51408)),
     "C2b chicane wall": ((-0.19503, -1.51387), (0.15681, -0.54721)),
-    "M1 maze divider": ((-1.9304, 0.508), (-1.9304, 2.1209)),
-    "M2 maze divider": ((-0.8128, 1.4351), (-0.8128, 3.048)),
-    "M3 maze divider": ((0.3048, 0.508), (0.3048, 2.1209)),
 }
+#: the two walls added on 2026-11-07, one SolidWorks part with two bodies: footprint corners
+#: (counter-clockwise), from 0 to the wall top
+NEW_WALLS: Dict[str, List[Tuple[float, float]]] = {
+    "Part67 / Boss-Extrude1[1]": [(-3.04927, 2.698), (-1.24927, 2.698), (-1.24927, 3.048), (-3.04927, 3.048)],
+    "Part67 / Boss-Extrude1[2]": [(-2.16664, 0.508), (-2.01985, 0.508), (-0.65859, 1.77479), (-0.72672, 1.848)],
+}
+COURSE_NAMES = {
+    "A1 approach wall", "Approach ring (stage 4 line)", "Barrier 1", "Barrier 2", "Barrier 3 (cut to 55 in)",
+    "Boulder 1", "Boulder 2", "Boulder 3", "Boulder 4", "Boulder 5", "C1 chicane wall",
+    "C2a chicane wall (window)", "C2b chicane wall", "Floor 20 x 20 ft", "Guideline (zone 1)",
+    "Landing pad 5 ft", "Landing pad cross", "Landing pad ring r20", "Landing pad ring r30",
+    "Landing pad ring r9", "Launch mark", "Net side east", "Net side north", "Net side south", "Net side west",
+    "Tube cradle 1", "Tube cradle 2", "Tube cradle 3", "Tube oval 58 x 72 x 60", *NEW_WALLS,
+}
+#: one boulder's volume in the earlier (Onshape) export at the default tolerances, m^3
+OLD_BOULDER_VOLUME = 0.05718
 BOULDER_CENTRES = [(2.01168, -2.46888), (2.52984, -1.55448), (0.79248, -2.34696),
                    (-2.56032, -2.49936), (-1.34112, -2.37744)]
 TUBE = "Tube oval 58 x 72 x 60"
@@ -243,6 +260,90 @@ def assembly_step(swapped: bool) -> str:
     return w.text()
 
 
+def parts_step(parts: Sequence[Tuple[str, Sequence[str]]], root: str = "Assy",
+               nauo_name: Optional[str] = " ") -> str:
+    """A root assembly of parts named the way a CAD exporter writes them.  Each part is a
+    PRODUCT ``name`` whose ADVANCED_BREP_SHAPE_REPRESENTATION holds one unit box
+    MANIFOLD_SOLID_BREP per body name (side by side along x), placed by an identity
+    transformation.  Occurrence (NAUO) names are ``nauo_name``: SolidWorks writes them
+    blank, Onshape repeats the product name (``None`` here)."""
+    w = StepWriter()
+    app = w.add("APPLICATION_CONTEXT('automotive design')")
+    pctx = w.add(f"PRODUCT_CONTEXT('',{app},'mechanical')")
+    pdctx = w.add(f"PRODUCT_DEFINITION_CONTEXT('part definition',{app},'design')")
+
+    def product(name: str) -> Tuple[str, str]:
+        p = w.add(f"PRODUCT('{name}','{name}','',({pctx}))")
+        f = w.add(f"PRODUCT_DEFINITION_FORMATION('','',{p})")
+        pd = w.add(f"PRODUCT_DEFINITION('design','',{f},{pdctx})")
+        return pd, w.add(f"PRODUCT_DEFINITION_SHAPE('','',{pd})")
+
+    root_pd, root_pds = product(root)
+    root_origin = w.axis((0, 0, 0))
+    root_sr = w.add(f"SHAPE_REPRESENTATION('{root}',({root_origin}),{w.ctx})")
+    w.add(f"SHAPE_DEFINITION_REPRESENTATION({root_pds},{root_sr})")
+    x = 0.0
+    for k, (name, bodies) in enumerate(parts):
+        pd, pds = product(name)
+        origin = w.axis((0, 0, 0))
+        sr = w.add(f"SHAPE_REPRESENTATION('{name}',({origin}),{w.ctx})")
+        w.add(f"SHAPE_DEFINITION_REPRESENTATION({pds},{sr})")
+        msbs = []
+        for body in bodies:
+            msbs.append(box_brep(w, (x, 0.0, 0.0), (x + 1.0, 1.0, 1.0), body))
+            x += 2.0
+        absr = w.add(f"ADVANCED_BREP_SHAPE_REPRESENTATION('',({','.join(msbs)}),{w.ctx})")
+        w.add(f"SHAPE_REPRESENTATION_RELATIONSHIP('','',{sr},{absr})")
+        occ = name if nauo_name is None else nauo_name
+        nauo = w.add(f"NEXT_ASSEMBLY_USAGE_OCCURRENCE('NAUO{k + 1}','{occ}',' ',{root_pd},{pd},$)")
+        nauo_pds = w.add(f"PRODUCT_DEFINITION_SHAPE('','',{nauo})")
+        idt = w.add(f"ITEM_DEFINED_TRANSFORMATION('','',{origin},{root_origin})")
+        rr = w.add(f"(REPRESENTATION_RELATIONSHIP('','',{sr},{root_sr})"
+                   f"REPRESENTATION_RELATIONSHIP_WITH_TRANSFORMATION({idt})SHAPE_REPRESENTATION_RELATIONSHIP())")
+        w.add(f"CONTEXT_DEPENDENT_SHAPE_REPRESENTATION({rr},{nauo_pds})")
+    return w.text()
+
+
+def pole_loops_step(r: float = 0.5) -> str:
+    """Bare geometry, metres: spheres whose faces have edge loops *through* a pole, the way
+    SolidWorks writes the course boulders (no VERTEX_LOOP).
+
+    * "split hemisphere" (centre at the origin): two dome faces, each bounded by half the
+      equator and the two meridians that meet at the pole, and a planar base;
+    * "two-lune sphere" (centre (3, 0, 0)): two faces, each bounded by two meridians running
+      from pole to pole (each loop visits both poles)."""
+    w = StepWriter()
+    items = []
+
+    def arc(va: str, vb: str, centre, z, x) -> str:
+        c = w.add(f"CIRCLE('',{w.axis(centre, z, x)},{_real(r)})")
+        return w.add(f"EDGE_CURVE('',{va},{vb},{c},.T.)")
+
+    c = np.zeros(3)
+    e0, e1, top = w.vertex(c + (r, 0, 0)), w.vertex(c + (-r, 0, 0)), w.vertex(c + (0, 0, r))
+    eq_n = arc(e0, e1, c, (0, 0, 1), (1, 0, 0))       # equator through +y
+    eq_s = arc(e1, e0, c, (0, 0, 1), (1, 0, 0))       # equator through -y
+    m0 = arc(e0, top, c, (0, -1, 0), (1, 0, 0))       # meridian in the xz-plane, +x side
+    m1 = arc(top, e1, c, (0, -1, 0), (1, 0, 0))       # meridian in the xz-plane, -x side
+    sph = w.add(f"SPHERICAL_SURFACE('',{w.axis(c)},{_real(r)})")
+    north = w.face([(w.loop([(eq_n, True), (m1, False), (m0, False)]), True, "FACE_OUTER_BOUND")], sph, True)
+    south = w.face([(w.loop([(eq_s, True), (m0, True), (m1, True)]), True, "FACE_OUTER_BOUND")], sph, True)
+    base = w.face([(w.loop([(eq_s, False), (eq_n, False)]), True, "FACE_OUTER_BOUND")],
+                  w.add(f"PLANE('',{w.axis(c)})"), False)
+    items.append(w.solid("split hemisphere", [north, south, base]))
+
+    c = np.array([3.0, 0.0, 0.0])
+    vn, vs = w.vertex(c + (0, 0, r)), w.vertex(c + (0, 0, -r))
+    ma = arc(vs, vn, c, (0, -1, 0), (1, 0, 0))        # south to north through +x
+    mb = arc(vn, vs, c, (0, -1, 0), (1, 0, 0))        # north to south through -x
+    sph = w.add(f"SPHERICAL_SURFACE('',{w.axis(c)},{_real(r)})")
+    f1 = w.face([(w.loop([(ma, True), (mb, True)]), True, "FACE_BOUND")], sph, True)
+    f2 = w.face([(w.loop([(mb, False), (ma, False)]), True, "FACE_BOUND")], sph, True)
+    items.append(w.solid("two-lune sphere", [f1, f2]))
+    w.add(f"ADVANCED_BREP_SHAPE_REPRESENTATION('',({','.join(items)}),{w.ctx})")
+    return w.text()
+
+
 def curved_solids_step(r: float = 0.5, h: float = 0.8, R: float = 1.0, rt: float = 0.25) -> str:
     """Bare geometry (no product structure), metres: a cone with an apex VERTEX_LOOP, a
     hemisphere with a pole VERTEX_LOOP, a cylinder whose side face has a seam edge, and a
@@ -417,14 +518,16 @@ END-ISO-10303-21;
         if not STEP_PATH.exists():
             self.skipTest(f"{STEP_PATH} not found")
         sf = StepFile.parse(STEP_PATH)
-        expected = {"PLANE": 164, "CYLINDRICAL_SURFACE": 10, "B_SPLINE_SURFACE_WITH_KNOTS": 10, "LINE": 312,
-                    "CIRCLE": 25, "ELLIPSE": 10, "VERTEX_LOOP": 5, "STYLED_ITEM": 33, "MANIFOLD_SOLID_BREP": 33,
-                    "NEXT_ASSEMBLY_USAGE_OCCURRENCE": 33, "ITEM_DEFINED_TRANSFORMATION": 33,
-                    "CONTEXT_DEPENDENT_SHAPE_REPRESENTATION": 33}
+        # SolidWorks writes the tube, its cradles and the boulders as B-splines (no ELLIPSE, no
+        # VERTEX_LOOP); 30 parts, one of them (Part67) with two bodies
+        expected = {"PLANE": 152, "CYLINDRICAL_SURFACE": 20, "B_SPLINE_SURFACE_WITH_KNOTS": 17, "LINE": 308,
+                    "CIRCLE": 40, "ELLIPSE": 0, "VERTEX_LOOP": 0, "B_SPLINE_CURVE_WITH_KNOTS": 38,
+                    "STYLED_ITEM": 31, "MANIFOLD_SOLID_BREP": 31, "PRODUCT": 31,
+                    "NEXT_ASSEMBLY_USAGE_OCCURRENCE": 30, "ITEM_DEFINED_TRANSFORMATION": 30,
+                    "CONTEXT_DEPENDENT_SHAPE_REPRESENTATION": 30}
         for name, n in expected.items():
             self.assertEqual(sf.count(name), n, name)
-        ext = [e for e in sf.by_type("B_SPLINE_SURFACE_WITH_KNOTS") if e.args[4] == "SURF_OF_LINEAR_EXTRUSION"]
-        self.assertEqual(len(ext), 5)
+        self.assertEqual({str(e.args[4]) for e in sf.by_type("B_SPLINE_SURFACE_WITH_KNOTS")}, {"UNSPECIFIED"})
         self.assertEqual(sorted({(e.args[1], e.args[2]) for e in sf.by_type("B_SPLINE_SURFACE_WITH_KNOTS")}),
                          [(3, 1), (3, 3)])
         rr = sf.get(sf.by_type("CONTEXT_DEPENDENT_SHAPE_REPRESENTATION")[0].args[0])
@@ -440,8 +543,8 @@ END-ISO-10303-21;
 class CourseSolidTests(unittest.TestCase):
     def test_count_watertight_positive(self):
         solids, by_name, _ = course()
-        self.assertEqual(len(solids), 33)  # the root product carries no geometry
-        self.assertEqual(len(by_name), 33)
+        self.assertEqual(len(solids), 31)  # 29 single-body parts + Part67's two bodies; the root has none
+        self.assertEqual(len(by_name), 31)
         for s in solids:
             rep = s.watertight_report()
             self.assertTrue(rep.watertight, f"{s.name}: {rep}")
@@ -449,6 +552,14 @@ class CourseSolidTests(unittest.TestCase):
             self.assertEqual(s.notes, (), s.name)
             self.assertIsNotNone(s.color, s.name)
             np.testing.assert_allclose(np.linalg.norm(s.normals, axis=1), 1.0, atol=1e-9)
+
+    def test_names_come_from_the_products(self):
+        # SolidWorks names products after their files ('Barrier 1.step') and the multi-body virtual
+        # component 'Part67^dronehacks-course-v3.step'; its bodies are 'Boss-Extrude1[1]' and '[2]'
+        _, by_name, _ = course()
+        self.assertEqual(set(by_name), COURSE_NAMES)
+        for gone in ("M1 maze divider", "M2 maze divider", "M3 maze divider", "Net roof"):
+            self.assertNotIn(gone, by_name)
 
     def test_performance(self):
         _, _, seconds = course()
@@ -501,10 +612,11 @@ class CourseGeometryTests(unittest.TestCase):
 
     def test_boulders(self):
         # The B-rep boulders are domes, not cylinders: a planar disc of radius 0.2286 at
-        # z = 0 capped by a revolved B-spline that closes at a pole (VERTEX_LOOP) at
-        # z = 0.5334, approximating a half-ellipsoid.  The reference volume pi r^2 h
-        # (0.0876 m^3) is a 2.5-D footprint x height model; the solid's volume converges
-        # to (2/3) pi r^2 h = 0.05838 m^3 (checked here at default and fine tolerances).
+        # z = 0 capped by two B-spline halves (SolidWorks; Onshape wrote one revolved
+        # B-spline with a VERTEX_LOOP) whose meridian edges meet at the pole, z = 0.5334,
+        # approximating a half-ellipsoid.  The reference volume pi r^2 h (0.0876 m^3) is a
+        # 2.5-D footprint x height model; the solid's volume converges to
+        # (2/3) pi r^2 h = 0.05838 m^3 (checked here at default and fine tolerances).
         r, h = 0.2286, 0.5334
         dome = 2.0 / 3.0 * math.pi * r * r * h
         centres = []
@@ -516,6 +628,7 @@ class CourseGeometryTests(unittest.TestCase):
             self.assertAlmostEqual(s.bbox_min[2], 0.0, delta=TOL)
             self.assertAlmostEqual(s.bbox_max[2], h, delta=TOL)
             self.assertAlmostEqual(s.volume() / dome, 1.0, delta=0.03)  # inscribed mesh is ~2 % low
+            self.assertAlmostEqual(s.volume() / OLD_BOULDER_VOLUME, 1.0, delta=0.01)
             v = s.triangles.reshape(-1, 3)
             top = v[np.abs(v[:, 2] - 0.4) < 0.02]
             radius_04 = np.hypot(top[:, 0] - c[0], top[:, 1] - c[1]).max()
@@ -535,6 +648,27 @@ class CourseGeometryTests(unittest.TestCase):
             self.assertAlmostEqual(s.bbox_max[2], 1.7272, delta=TOL, msg=name)
             ends = sorted([tuple(p0), tuple(p1)])
             np.testing.assert_allclose(ends, sorted([r0, r1]), atol=TOL, err_msg=name)
+
+    def test_new_walls(self):
+        # 2026-11-07: a 1.8 x 0.35 m block against the west and north nets, and a 0.10 m diagonal
+        # wall at 42.9 deg from east whose south end is cut along Barrier 1's north face
+        for name, corners in NEW_WALLS.items():
+            s = self.solid(name)
+            self.assertTrue(s.is_watertight, name)
+            self.assertAlmostEqual(s.bbox_min[2], 0.0, delta=TOL, msg=name)
+            self.assertAlmostEqual(s.bbox_max[2], 1.7272, delta=TOL, msg=name)
+            v = s.triangles.reshape(-1, 3)
+            xy = np.unique(np.round(v[:, :2], 5), axis=0)
+            self.assertEqual(len(xy), 4, name)        # a prism over a quadrilateral
+            for c in corners:
+                self.assertLess(np.linalg.norm(xy - c, axis=1).min(), 1e-4, (name, c))
+        diag = np.array(NEW_WALLS["Part67 / Boss-Extrude1[2]"])
+        along = diag[2] - diag[1]
+        self.assertAlmostEqual(math.degrees(math.atan2(along[1], along[0])), 42.94, delta=0.05)
+        normal = np.array([-along[1], along[0]]) / np.linalg.norm(along)
+        self.assertAlmostEqual(abs(float((diag[3] - diag[2]) @ normal)), 0.100, delta=0.001)
+        b1 = self.solid("Barrier 1")
+        self.assertAlmostEqual(float(diag[:2, 1].max()), b1.bbox_max[1], delta=1e-4)  # cut along its north face
 
     def test_barrier_3_is_cut_in_length_not_height(self):
         # "cut to 55 in" is the length (1.397 m = 55 in); its height is the full 68 in.
@@ -604,8 +738,10 @@ class CourseGeometryTests(unittest.TestCase):
             self.assertAlmostEqual(inner, sign * 3.048, delta=TOL, msg=name)
             self.assertAlmostEqual(s.bbox_max[axis] - s.bbox_min[axis], 0.00127, delta=0.0005, msg=name)
             self.assertAlmostEqual(s.bbox_max[2], 3.048, delta=TOL, msg=name)
-        roof = self.solid("Net roof")
-        self.assertAlmostEqual(roof.bbox_min[2], 3.048, delta=TOL)
+        # the net roof is hidden in the 2026-11-07 assembly, so not exported: nothing is above the
+        # panels' top, which is the course's height limit (world.course.Course.net_hi)
+        self.assertNotIn("Net roof", course()[1])
+        self.assertAlmostEqual(max(s.bbox_max[2] for s in course()[0]), 3.048, delta=TOL)
         floor = self.solid("Floor 20 x 20 ft")
         np.testing.assert_allclose(floor.bbox_max[:2] - floor.bbox_min[:2], (6.096, 6.096), atol=TOL)
         np.testing.assert_allclose(floor.bbox_min[:2], (-3.048, -3.048), atol=TOL)
@@ -648,7 +784,7 @@ class SyntheticStepTests(unittest.TestCase):
         # then + (1, 2, 3) m.  The inverse interpretation would put the box at x in [-2, 0].
         for swapped in (False, True):
             (s,) = self.load(assembly_step(swapped))
-            self.assertEqual(s.name, "Box instance")
+            self.assertEqual(s.name, "Box")     # the product's name, not the occurrence's
             np.testing.assert_allclose(s.bbox_min, (-1.0, 2.0, 3.0), atol=1e-9)
             np.testing.assert_allclose(s.bbox_max, (1.0, 3.0, 6.0), atol=1e-9)
             self.assertAlmostEqual(s.volume(), 6.0, places=9)
@@ -682,6 +818,53 @@ class SyntheticStepTests(unittest.TestCase):
         self.assertAlmostEqual(solids["revolved hemisphere"].bbox_max[2], r, places=9)
         self.assertAlmostEqual(solids["lower hemisphere"].bbox_min[2], -r, delta=tol)
         self.assertAlmostEqual(solids["lower hemisphere"].bbox_max[2], 0.0, places=9)
+
+    def test_product_label(self):
+        cases = {"Barrier 1.step": "Barrier 1", "Tube oval 58 x 72 x 60.step": "Tube oval 58 x 72 x 60",
+                 "Part67^dronehacks-course-v3.step": "Part67", "Part1^Assem1": "Part1",
+                 "Bracket.SLDPRT": "Bracket", "Frame.Stp": "Frame", "Course v3.SLDASM": "Course v3",
+                 " Launch mark.STEP ": "Launch mark", "Barrier 3 (cut to 55 in)": "Barrier 3 (cut to 55 in)",
+                 "M3 maze divider": "M3 maze divider", "v1.5 step": "v1.5 step", "notes.txt": "notes.txt",
+                 "": "", None: ""}
+        for raw, want in cases.items():
+            self.assertEqual(product_label(raw), want, raw)
+
+    def test_solidworks_product_names_and_multibody_suffix(self):
+        solids = self.load(parts_step([
+            ("Barrier 1.step", ["Assy.step<1>"]),
+            ("Part67^Assy.step", ["Boss-Extrude1[1]", "Boss-Extrude1[2]"]),
+            ("Bracket.SLDPRT", ["", ""]),                  # blank body names: numbered
+            ("Plate.stp", ["Body", "Body"]),               # repeated body names: numbered
+        ]))
+        self.assertEqual([s.name for s in solids],
+                         ["Barrier 1", "Part67 / Boss-Extrude1[1]", "Part67 / Boss-Extrude1[2]",
+                          "Bracket / 1", "Bracket / 2", "Plate / 1", "Plate / 2"])
+        for s in solids:
+            self.assertTrue(s.is_watertight, s.name)
+            self.assertAlmostEqual(s.volume(), 1.0, places=9)
+
+    def test_onshape_product_names_are_unchanged(self):
+        # Onshape names the occurrence like its product, no extension; a repeated name gets " (2)"
+        solids = self.load(parts_step([("Barrier 1", ["Barrier 1"]), ("M3 maze divider", ["M3 maze divider"]),
+                                       ("Barrier 1", ["Barrier 1"])], root="FINAL Course v3", nauo_name=None))
+        self.assertEqual([s.name for s in solids], ["Barrier 1", "M3 maze divider", "Barrier 1 (2)"])
+
+    def test_edge_loops_through_a_pole(self):
+        r = 0.5
+        solids = {s.name: s for s in self.load(pole_loops_step(r), chord_tol=0.001, max_edge=0.05)}
+        expected = {"split hemisphere": 2 * math.pi * r ** 3 / 3, "two-lune sphere": 4 * math.pi * r ** 3 / 3}
+        for name, vol in expected.items():
+            s = solids[name]
+            self.assertTrue(s.is_watertight, f"{name}: {s.watertight_report()}")
+            self.assertEqual(s.notes, (), name)              # no orientation flip needed
+            self.assertAlmostEqual(s.volume() / vol, 1.0, delta=0.005, msg=name)
+        dome = solids["split hemisphere"]
+        np.testing.assert_allclose(dome.bbox_min, (-r, -r, 0.0), atol=0.001)
+        np.testing.assert_allclose(dome.bbox_max, (r, r, r), atol=1e-9)
+        curved = dome.triangles[dome.normals[:, 2] > -0.999999]
+        np.testing.assert_allclose(np.linalg.norm(curved.reshape(-1, 3), axis=1), r, atol=1e-9)
+        apex = np.all(np.isclose(curved, (0.0, 0.0, r), atol=1e-12), axis=2).any(axis=1)
+        self.assertGreaterEqual(int(apex.sum()), 8)      # a fan of triangles at the pole
 
     def test_unsupported_entity_is_named(self):
         w = StepWriter()
@@ -782,8 +965,11 @@ class MeshIndexCourseTests(unittest.TestCase):
             dist, sid, _ = self.index.raycast(O, D, 12.0)
             times.append(time.perf_counter() - t0)
         self.assertLess(float(np.median(times)), 0.050)
-        self.assertTrue(np.isfinite(dist).all())  # the arena is enclosed by nets and floor
-        self.assertTrue((sid >= 0).all())
+        # the arena is enclosed by the nets and the floor but has no roof (2026-11-07 export)
+        level_or_down = D[:, 2] <= 0
+        self.assertTrue(np.isfinite(dist[level_or_down]).all())
+        self.assertTrue((sid[level_or_down] >= 0).all())
+        self.assertTrue((D[~np.isfinite(dist), 2] > 0).all())
 
     def test_closest_near_wall(self):
         name = "Barrier 2"
@@ -809,13 +995,15 @@ class MeshIndexCourseTests(unittest.TestCase):
         self.assertAlmostEqual(z, TUBE_Z - 0.90805, delta=TOL)
         self.assertEqual(idx.solid_names[s], TUBE)
 
-    def test_exclude_roof(self):
-        no_roof = MeshIndex(self.solids, exclude=["Net roof"])
-        self.assertNotIn("Net roof", no_roof.solid_names)
-        self.assertEqual(len(no_roof.solid_names), 32)
+    def test_exclude_nets_and_open_roof(self):
+        no_nets = MeshIndex(self.solids, exclude=["Net *"])
+        self.assertEqual(len(no_nets.solid_names), 27)
+        self.assertFalse(any(n.startswith("Net") for n in no_nets.solid_names))
+        north = np.array([[0.0, -1.0, 2.5]]), np.array([[0.0, 1.0, 0.0]])   # above every wall
+        self.assertEqual(self.index.solid_names[self.index.raycast(*north, 8.0)[1][0]], "Net side north")
+        self.assertEqual(no_nets.raycast(*north, 8.0)[0][0], np.inf)
         up = np.array([[0.0, -1.0, 2.0]]), np.array([[0.0, 0.0, 1.0]])
-        self.assertEqual(self.index.solid_names[self.index.raycast(*up, 5.0)[1][0]], "Net roof")
-        self.assertEqual(no_roof.raycast(*up, 5.0)[0][0], np.inf)
+        self.assertEqual(self.index.raycast(*up, 5.0)[0][0], np.inf)        # no roof
 
 
 if __name__ == "__main__":
