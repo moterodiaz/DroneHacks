@@ -170,14 +170,25 @@ ros2 run dronehacks_course_follower dry_run --no-window --steps 40
 
 ## Known risks
 
+- **A wrong accelerometer bias from boot pushes the drone at its first turn.** In SITL
+  (2026-11-07), PX4's estimator learned a horizontal accelerometer bias of up to 0.4 m/s² in the
+  first seconds after boot with the drone level and still. Take-off then slid 0.3-0.47 m, and the
+  route's first turn, the first maze corner, let the estimator correct it, pushing the drone about
+  0.2 m into the wall end. Every first-corner touch below came from this, not from the follower:
+  with `ekf2` restarted before arming, plain poses cleared the corner in 4 of 4 (nearest
+  38.6-41.1 cm) and slid 5 cm or less on take-off. Turning over the start first moved the push
+  onto the launch mark instead, so it is not in the package. Whether the real drone does this is
+  not known. **Before arming, check the horizontal accelerometer bias** (`estimator_sensor_bias` in
+  QGroundControl's MAVLink inspector); above about 0.1 m/s², power-cycle the drone still and level
+  on the mark.
+
 - **Led poses through a 10 Hz interface, so plain poses by default.** The interface resends the
   latest pose at `setpoint_rate_hz`, 10 Hz by default, so each led pose is held 100 ms. This
   package itself, flown in Michael Bar On's PX4 SITL through the organisers' unmodified 0.3.3
   interface at 10 Hz from the ground to disarm with no launch arguments (2026-11-07, 4 flights
   each): led poses touched a wall at the first maze corner in 2 of 4 (nearest 19-21 cm against the
   28 cm prop reach) with route times 37-41 s; plain poses touched there in 2 of 6 (nearest
-  19-41 cm), route times 58-62 s, half the yaw error. The first maze corner is the course's
-  weak spot in every mode. With the interface at 50 Hz, led poses
+  19-41 cm), route times 58-62 s, half the yaw error. With the interface at 50 Hz, led poses
   flew 27-32 s cleanly in earlier SITL runs: ask the organisers whether 50 Hz is allowed.
 - **A dark tunnel without odometry stops the setpoint.** Odometry older than 0.5 s pauses the
   pace, so the setpoint holds; in SITL with the tunnel blinded and no tracker output, PX4 then lost
