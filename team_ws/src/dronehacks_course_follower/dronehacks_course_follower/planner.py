@@ -70,6 +70,10 @@ SHORTCUT_COST_TOLERANCE = 1.1
 # A corner closer than this to the one before is dropped where the shortcut allows
 MIN_LEG_M = 0.15
 
+# Stop-and-go drops a corner nearer than this to the hold before or after it where the leg past it
+# is clear: twice a hold's arrival radius, so the two holds overlap and the second is a needless yaw
+STOP_HOLD_SPACING_M = 0.3
+
 # The keys every course map must carry
 _REQUIRED_KEYS = ("height_m", "launch", "segments", "bounds", "goals", "order", "boulders")
 
@@ -125,9 +129,39 @@ def plan_flight(course_map: Mapping[str, Any], allow_window: bool, tunnel_lead_m
     grid = course_grid(course_map)
     route = _route_on(grid, course_map, tunnel_lead_m)
     launch = (float(course_map["launch"][0]), float(course_map["launch"][1]))
+
+    # Stop-and-go holds at every corner and never cuts one, so its legs need no boulder margin; its
+    # goals' points, moved off lethal cells as the route moved them, always keep their hold
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", GoalMovedWarning)
+        goal_points = [_point_of(grid, _cell_of(grid, point)) for name in course_map["order"]
+                       for point in _stop(grid, course_map["goals"][name], tunnel_lead_m)]
+
+    stop_route = _fewer_holds(course_grid(course_map, boulder_margin_m=0.0), launch,
+                              straight_legs(grid, launch, route), goal_points)
     return PlannedCourse(route=route, walls=wall_segments(course_map),
                          window_flown=window_flown and WINDOW_GOAL in course_map["order"],
-                         stop_route=straight_legs(grid, launch, route))
+                         stop_route=stop_route)
+
+
+def _fewer_holds(grid: CourseGrid, launch: tuple[float, float], legs: list[tuple[float, float]],
+                 goal_points: list[tuple[float, float]]) -> list[tuple[float, float]]:
+    """`legs` without each corner within `STOP_HOLD_SPACING_M` of the hold before or after it that a
+    clear straight leg on `grid` can skip; a goal's point, such as a window leg's end, and the last
+    point always stay."""
+    kept, start = [], launch
+    for index, point in enumerate(legs):
+        if index == len(legs) - 1 or min(math.dist(point, goal) for goal in goal_points) < CELL_M / 2:
+            kept.append(point)
+            start = point
+            continue
+
+        crowded = min(math.dist(point, start), math.dist(point, legs[index + 1])) < STOP_HOLD_SPACING_M
+        if not (crowded and leg_clear(grid, start, legs[index + 1])):
+            kept.append(point)
+            start = point
+
+    return kept
 
 
 def straight_legs(grid: CourseGrid, launch: tuple[float, float],
@@ -193,12 +227,13 @@ def plan_course(course_map: Mapping[str, Any], tunnel_lead_m: float = 0.0) -> li
     return _route_on(course_grid(course_map), course_map, tunnel_lead_m)
 
 
-def course_grid(course_map: Mapping[str, Any]) -> CourseGrid:
-    """The course map's cost grid, boulders lethal under the rangefinder's footprint."""
+def course_grid(course_map: Mapping[str, Any], boulder_margin_m: float = BOULDER_MARGIN_M) -> CourseGrid:
+    """The course map's cost grid, boulders lethal under the rangefinder's footprint plus
+    `boulder_margin_m`."""
     high_m = float(course_map["height_m"]) + BOULDER_HEIGHT_ALLOWANCE_M
     footprint_m = high_m * math.tan(math.radians(RANGEFINDER_CONE_DEG / 2))
     return build_grid(np.array(course_map["segments"], dtype=float), course_map["boulders"],
-                      tuple(course_map["bounds"]), footprint_m)
+                      tuple(course_map["bounds"]), footprint_m, boulder_margin_m)
 
 
 def _route_on(grid: CourseGrid, course_map: Mapping[str, Any], tunnel_lead_m: float) -> list[tuple[float, float]]:
@@ -411,10 +446,10 @@ def clearance_m(points: np.ndarray, segments: np.ndarray) -> np.ndarray:
 
 
 def build_grid(segments: np.ndarray, boulders: list[list[float]], bounds_m: tuple[float, float, float, float],
-               boulder_clearance_m: float) -> CourseGrid:
+               boulder_clearance_m: float, boulder_margin_m: float = BOULDER_MARGIN_M) -> CourseGrid:
     """The cost grid over `bounds_m` (west, east, south, north): walls from `segments` (x1, y1, x2,
     y2), the bounds themselves as the net, and `boulders` (east, north, radius), each lethal out to
-    `boulder_clearance_m` past its edge."""
+    `boulder_clearance_m` plus `boulder_margin_m` past its edge."""
     lethal_m = REACH_M + MARGIN_M
     west, east, south, north = bounds_m
     xs = np.arange(west + CELL_M / 2, east, CELL_M)
@@ -431,7 +466,7 @@ def build_grid(segments: np.ndarray, boulders: list[list[float]], bounds_m: tupl
 
     # Boulders: lethal under the rangefinder's footprint, with the path-following margin
     for boulder_x, boulder_y, radius_m in boulders:
-        lethal_boulder_m = radius_m + boulder_clearance_m + BOULDER_MARGIN_M
+        lethal_boulder_m = radius_m + boulder_clearance_m + boulder_margin_m
         cost[np.hypot(grid_x - boulder_x, grid_y - boulder_y) < lethal_boulder_m] = np.inf
 
     return CourseGrid(origin_m=(float(xs[0]), float(ys[0])), cost=cost)

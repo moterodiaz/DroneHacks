@@ -9,7 +9,8 @@ import numpy as np
 
 from dronehacks_course_follower import dry_run
 from dronehacks_course_follower.follower import Drone, HeadingMode
-from dronehacks_course_follower.planner import MARGIN_M, REACH_M, clearance_m, course_grid, leg_clear, straight_legs
+from dronehacks_course_follower.planner import (MARGIN_M, REACH_M, STOP_HOLD_SPACING_M, clearance_m, course_grid,
+                                                leg_clear, plan_flight, straight_legs)
 from dronehacks_course_follower.stop_and_go import Stage, StopAndGo, StopPlan
 
 # The node's tick
@@ -118,9 +119,19 @@ def test_a_straight_leg_through_a_wall_gets_the_a_star_corners_between_its_ends(
     assert straight_legs(grid, (-1.5, 2.0), [(1.5, 2.0)]) == [(1.5, 2.0)]
 
 
+def test_no_two_stop_and_go_holds_on_the_packaged_map_crowd_each_other(course_map: dict[str, Any]) -> None:
+    # Two holds nearer than the spacing overlap: the second is only a needless yaw and settle,
+    # as the hops beside skybeta-11's window leg were, through the window or by Gate B
+    for allow_window in (True, False):
+        planned = plan_flight(course_map, allow_window=allow_window, tunnel_lead_m=0.75)
+        points = [tuple(course_map["launch"][:2]), *planned.stop_route]
+        assert min(math.dist(start, end) for start, end in zip(points, points[1:], strict=False)) \
+            >= STOP_HOLD_SPACING_M
+
+
 def test_every_stop_and_go_leg_on_the_packaged_map_is_clear(planned: Any, course_map: dict[str, Any]) -> None:
     points = [tuple(course_map["launch"][:2]), *planned.stop_route]
-    grid = course_grid(course_map)
+    grid = course_grid(course_map, boulder_margin_m=0.0)
     assert all(leg_clear(grid, start, end) for start, end in zip(points, points[1:], strict=False))
     assert min(clearance_m(np.linspace(start, end, 20), planned.walls).min()
                for start, end in zip(points, points[1:], strict=False)) > REACH_M + MARGIN_M
