@@ -172,7 +172,7 @@ tell where the mark is, so a misplaced drone flies the whole route shifted by th
 | `allow_window` | true | false always takes Gate B |
 | `land` | true | false holds over the pad for the pilot |
 | `tunnel_lead_m` | 0.75 | > 0 flies the tunnel as one straight leg from that far outside its mouths; it touched more in SITL, but skybeta-11 hit the wall west of the south mouth turning nearer it on 2026-11-08, so the real course wins |
-| `heading_mode` | fixed | `fixed` commands the heading at Offboard from the climb to the landing, never yawing; `ahead` faces the point 0.8 m ahead on the route (below) |
+| `heading_mode` | ahead | `ahead` faces the point 0.8 m ahead on the route; `fixed` commands the heading at Offboard from the climb to the landing, never yawing, which loses the camera's view by the north wall (below) |
 | `turn_rate_dps` | 45.0 | cap on the commanded heading's turn rate (`ahead`); PX4's `MPC_YAWRAUTO_MAX` default |
 | `yaw_comp` | false | true offsets the pose against the airframe's push PX4 relearns after each yaw (below); not yet flown |
 | `yaw_comp_tau_s` | 4.5 | PX4's velocity integrator lag as modelled, `MPC_XY_VEL_P_ACC` / `MPC_XY_VEL_I_ACC` at stock values |
@@ -218,11 +218,14 @@ ros2 run dronehacks_course_follower dry_run --return-home      # reports the lan
 
 In the square test (`flights/20261108-013018-light-square`) the drone drifted 10-20 cm off each
 corner after an in-place yaw and took about 10 s to crawl back; a hold without a yaw stayed within
-about 5 cm. So the default, `heading_mode:=fixed`, flies the route without yawing at all, the
-camera facing the launch heading throughout: the push PX4's integrator has learnt stays pointing
-the right way, and no hold waits on a turn. Facing north, the camera looks back out of the tunnel's
-lit north mouth while the drone flies south through it. `heading_mode:=ahead` turns to face along
-the route, slower with `turn_rate_dps:=20.0`.
+about 5 cm. `heading_mode:=fixed` flies the route without yawing at all, the camera facing the
+launch heading throughout, but on this course that points the camera at a wall close ahead. In
+SITL on the corridor route (2026-11-08, the taped world, stop-and-go and smooth 0.5), facing north
+by the diagonal-wall gap the camera stared at the north wall from about 0.4 m: cuVSLAM starved
+("4-7 landmarks < 10"), stopped sending poses, and PX4 lost its position and left Offboard in both
+flights. Cast along the route against the map's walls, a wall lies within 1 m straight ahead on
+16-40 % of the route for every fixed heading, against 6.5 % facing along it. So the default stays
+`heading_mode:=ahead`; stop-and-go's holds wait out a turn's drift (`stop_arrive_m`, `stop_settle_s`).
 
 ### The tracker jumping: straight down
 
