@@ -1,6 +1,8 @@
 """Fly the mission against a crude drone model, including PX4's auto-disarm after landing."""
 import math
 
+import pytest
+
 from dronehacks_square_test.mission import DONE, STOPPED, Config, Mission, _wrap
 
 DT = 0.05
@@ -9,11 +11,13 @@ COM_DISARM_LAND = 2.0
 START_YAW = 0.4                  # rad: not zero, so the test catches a missing offset
 
 
-def fly(mission, drop_pose=None, takeover_at=None, max_t=150.0, heading=True, off=None, height_bias=0.0):
+def fly(mission, drop_pose=None, takeover_at=None, max_t=150.0, heading=True, off=None, height_bias=0.0,
+        reasons=None):
     """Moves toward a pose setpoint at <= 0.6 m/s (z floored 0.3 m, as the kit does), follows
     twists, sits on the ground at z 0. Disarms after COM_DISARM_LAND landed, which ends Offboard.
     `height_bias` is how far below a commanded height the drone settles in the tracker's z: PX4
-    holds height by its rangefinder, which reads a few centimetres apart from cuVSLAM."""
+    holds height by its rangefinder, which reads a few centimetres apart from cuVSLAM. `reasons`,
+    a list, collects the mission's status reason at every tick, one per command."""
     x, y, z = START
     yaw = START_YAW
     armed = True
@@ -35,6 +39,8 @@ def fly(mission, drop_pose=None, takeover_at=None, max_t=150.0, heading=True, of
         cmd = mission.step(t, None if stale else (x, y, z), None if stale else t, offboard, landed, armed,
                            yaw if heading and not stale else None, px4)
         cmds.append((t, cmd))
+        if reasons is not None:
+            reasons.append(mission.reason)
         if not offboard:
             pass                              # PX4 ignores setpoints outside Offboard
         elif cmd.kind == 'pose':
@@ -189,3 +195,58 @@ def test_offset_that_changes_after_takeoff_is_followed():
     x0, y0, _ = START
     for dx, dy in [(0, 0), (0.5, 0), (0.5, 0.5), (0, 0.5)]:
         assert held(track, (x0 + dx, y0 + dy, 0.73), tol=0.05) >= 2.9, (dx, dy)
+
+
+def test_turn_is_the_default_and_its_status_names_the_lap():
+    assert Config().heading_mode == 'turn'
+    m = Mission(Config())
+    reasons = []
+    fly(m, reasons=reasons)
+    assert m.state == DONE
+    assert any(r.endswith(', lap turn') for r in reasons)
+    assert not any('lap fixed' in r for r in reasons)
+
+
+def test_fixed_flies_the_box_and_the_circle_never_yawing():
+    m = Mission(Config(heading_mode='fixed'))
+    reasons = []
+    track, cmds = fly(m, reasons=reasons)
+    assert m.state == DONE and m.reason == 'disarmed on the ground', m.reason
+    x0, y0, _ = START
+    for dx, dy in [(0, 0), (0.5, 0), (0.5, 0.5), (0, 0.5)]:
+        assert held(track, (x0 + dx, y0 + dy, 0.73)) >= 2.9, (dx, dy)
+    r = Config().circle_d_m / 2
+    assert min(math.dist(p[1:4], (x0 + 2 * r, y0 + r, 0.73)) for p in track) < 0.05     # the circle's far side
+    # the take-off heading commanded throughout, so the drone never turns
+    yaws = [c.yaw for _, c in cmds if c.kind == 'pose' and c.yaw is not None]
+    assert yaws and all(abs(_wrap(a - START_YAW)) < 1e-9 for a in yaws)
+    assert all(abs(_wrap(p[5] - START_YAW)) < 1e-9 for p in track)
+    assert any(r.endswith(', lap fixed') for r in reasons) and not any('lap turn' in r for r in reasons)
+
+
+def test_both_flies_a_lap_fixed_then_a_lap_turn_then_the_rest():
+    m = Mission(Config(heading_mode='both'))
+    reasons = []
+    track, cmds = fly(m, reasons=reasons)
+    assert m.state == DONE and m.reason == 'disarmed on the ground', m.reason
+    fixed = [i for i, r in enumerate(reasons) if r.endswith(', lap fixed')]
+    turn = [i for i, r in enumerate(reasons) if r.endswith(', lap turn')]
+    assert fixed and turn and max(fixed) < min(turn)              # one lap each, fixed first
+    x0, y0, _ = START
+    s = 0.5
+    first, second = track[:min(turn)], track[min(turn):max(turn) + 1]
+    for dx, dy in [(0, 0), (s, 0), (s, s), (0, s)]:
+        assert held(first, (x0 + dx, y0 + dy, 0.73)) >= 2.9, ('fixed', dx, dy)
+    for dx, dy in [(s, 0), (s, s), (0, s), (0, 0)]:
+        assert held(second, (x0 + dx, y0 + dy, 0.73)) >= 2.9, ('turn', dx, dy)
+    # the lap fixed never yaws; the lap turn turns at the corners, back to the take-off heading
+    assert all(abs(_wrap(cmds[i][1].yaw - START_YAW)) < 1e-9 for i in fixed if cmds[i][1].kind == 'pose')
+    assert max(abs(_wrap(p[5] - START_YAW)) for p in second) > math.radians(85)
+    touchdowns = sum(1 for a, b in zip(track, track[1:]) if a[3] > 1e-6 and b[3] <= 1e-6)
+    assert touchdowns == 2                                        # then the touch-and-go and circle as before
+    assert abs(_wrap(track[-1][5] - START_YAW)) < math.radians(5)
+
+
+def test_an_unknown_heading_mode_is_refused():
+    with pytest.raises(ValueError):
+        Mission(Config(heading_mode='ahead'))

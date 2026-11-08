@@ -22,6 +22,27 @@ is within 10 cm horizontally, 15 cm vertically and 5 deg. Pilot to Altitude: sto
 stale: holds still, then straight down after 3 s. A step over 20 s: lands where it is. Status on
 `/square_test/status`.
 
+## Heading mode (does yawing cause the corner drift?)
+
+In `flights/20261108-013018-light-square` the drone drifted 10-20 cm off each corner after its
+in-place yaw and took about 10 s to crawl back; a hold without a yaw stayed within about 5 cm.
+`heading_mode` tests that without touching PX4:
+
+| `heading_mode` | Flies |
+|---|---|
+| `turn` (default) | the table above: +90 deg at each corner (a "lap turn") |
+| `fixed` | the same box and circle never yawing: the take-off heading held throughout (a "lap fixed") |
+| `both` | a lap fixed, then a lap turn from over the start, then steps 6-9 and the circle: the A/B on one battery and one bias |
+
+```bash
+ros2 launch dronehacks_square_test square_test.launch.py heading_mode:=both
+```
+
+The stack launches team code with no arguments, so to fly it from the stack set the default in the
+drone's copy before restarting the stack:
+`sed -i "s/('heading_mode', 'turn')/('heading_mode', 'both')/" ~/team_ws/src/dronehacks_square_test/launch/square_test.launch.py`.
+The status names the lap (`FLY: step 4/28: hold, lap fixed`), so the bag shows which is which.
+
 ## Power up on the spot (why the first flights never moved sideways)
 
 The kit's interface hands PX4 our odom setpoint unchanged (ENU to NED), so PX4's local frame and
@@ -77,6 +98,6 @@ python3 -m pytest team_ws/src/dronehacks_square_test/test -q
 
 A crude drone model (pose tracking at 0.6 m/s, the kit's 0.3 m floor, PX4's auto-disarm after
 landing, yaw at 60 deg/s): the full sequence, the turns and their rate, a ground wait longer
-than `COM_DISARM_LAND`, pilot takeover, a stale pose, flying without a heading.
+than `COM_DISARM_LAND`, pilot takeover, a stale pose, flying without a heading, each heading mode.
 
 Not checked: any real flight. Built and its tests run in skybeta-11's stack on 2026-11-07.

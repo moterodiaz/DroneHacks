@@ -37,9 +37,10 @@ class SquareTest(Node):
         defaults = Config()
         cfg = {}
         for name, value in vars(defaults).items():
-            # dynamic_typing: a launch override like side_m:=1 arrives as an int
-            self.declare_parameter(name, float(value), ParameterDescriptor(dynamic_typing=True))
-            cfg[name] = float(self.get_parameter(name).value)
+            # dynamic_typing: a launch override like side_m:=1 arrives as an int; heading_mode is a string
+            kind = str if isinstance(value, str) else float
+            self.declare_parameter(name, kind(value), ParameterDescriptor(dynamic_typing=True))
+            cfg[name] = kind(self.get_parameter(name).value)
         self.mission = Mission(Config(**cfg))
         self.declare_parameter('record', True, ParameterDescriptor(dynamic_typing=True))
         self.record = str(self.get_parameter('record').value).lower() in ('true', '1')
@@ -63,9 +64,9 @@ class SquareTest(Node):
         self.create_timer(0.05, self.tick)  # 20 Hz
         c = self.mission.cfg
         self.get_logger().info(
-            'square_test ready: up {:.2f} m, {:.2f} m box turning {:.0f} deg/s at each corner, {:.0f} s holds, '
+            'square_test ready: up {:.2f} m, {:.2f} m box, heading_mode {} (turns at {:.0f} deg/s), {:.0f} s holds, '
             'land, touch-and-go, land and disarm. Arm, then switch to Position.'.format(
-                c.height_m, c.side_m, c.yaw_rate_dps, c.hold_s))
+                c.height_m, c.side_m, c.heading_mode, c.yaw_rate_dps, c.hold_s))
 
     def start_recording(self):
         started = time.gmtime()

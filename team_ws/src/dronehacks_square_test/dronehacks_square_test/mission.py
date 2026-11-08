@@ -10,7 +10,11 @@ The sequence (``plan``), every hold 3 s once within ``arrive_m`` of the target:
     forward side_m, left side_m, back side_m, right side_m (over the start again), holding at each;
       during each hold it first yaws slowly (``yaw_rate_dps``) to face the next leg: +90 deg
       (a left turn) at each corner, and +90 more over the start, so it faces its take-off heading
-      again before landing. Moves never yaw; a hold's 3 s start once position and heading arrive
+      again before landing. Moves never yaw; a hold's 3 s start once position and heading arrive.
+      ``heading_mode``: 'turn' flies that box (a "lap turn"); 'fixed' flies it never yawing, the
+      take-off heading held through the box and the circle (a "lap fixed"); 'both' flies a lap
+      fixed, then a lap turn from over the start, then the rest: an A/B of whether yawing drifts
+      the drone at the corners, on one battery and one bias. The status names the lap
     land, as the course follower does: velocity straight down at 0.5 m/s, pulling back over
       the start, then pressing down gently once PX4 reports landed
     wait on the ground ``ground_s``, still pressing down (motors at idle, not off: see below)
@@ -36,6 +40,9 @@ from dataclasses import dataclass
 
 WAIT, FLY, DONE, STOPPED = 'WAIT', 'FLY', 'DONE', 'STOPPED'
 
+# The box laps each heading mode flies, in order: 'turn' yaws +90 deg at each corner, 'fixed' never yaws
+HEADING_MODES = {'turn': ('turn',), 'fixed': ('fixed',), 'both': ('fixed', 'turn')}
+
 
 @dataclass
 class Config:
@@ -60,6 +67,7 @@ class Config:
     max_offset_m: float = 0.3       # PX4 vs camera position on the ground; more than this: refuse to fly
     offset_tau_s: float = 1.0       # smoothing of the PX4-vs-camera offset in flight
     circle_d_m: float = 1.0
+    heading_mode: str = 'turn'      # 'turn', 'fixed' or 'both': see HEADING_MODES
 
 
 @dataclass
@@ -76,17 +84,24 @@ NONE = Command('none')
 
 def plan(c):
     """Steps as (kind, (forward, left, up) offsets from the start, seconds, heading in degrees
-    counter-clockwise from the take-off heading, unwrapped)."""
+    counter-clockwise from the take-off heading, unwrapped, box lap name or None)."""
+    if c.heading_mode not in HEADING_MODES:
+        raise ValueError('heading_mode must be one of {}, not {!r}'.format(sorted(HEADING_MODES), c.heading_mode))
     s, h, r = c.side_m, c.height_m, c.circle_d_m / 2.0
     box = [(0, 0, h), (s, 0, h), (s, s, h), (0, s, h), (0, 0, h)]
     steps = []
-    for k, p in enumerate(box):
-        steps += [('move', p, 0, None), ('hold', p, c.hold_s, 90.0 * k)]
-    steps += [('land', None, 0, None), ('ground', None, c.ground_s, None),
-              ('move', (0, 0, h), 0, None), ('hold', (0, 0, h), c.hold_s, 360.0),
-              ('move', (r, 0, h), 0, None), ('circle', (r, 0, h), 0, None),
-              ('move', (0, 0, h), 0, None), ('hold', (0, 0, h), c.hold_s, 360.0),
-              ('land', None, 0, None), ('disarm', None, 0, None)]
+    for lap in HEADING_MODES[c.heading_mode]:
+        # a second lap starts over the start, where the first one ended
+        first = 1 if steps else 0
+        for k, p in enumerate(box[first:], first):
+            steps += [('move', p, 0, None, lap), ('hold', p, c.hold_s, 90.0 * k if lap == 'turn' else 0.0, lap)]
+    # after a lap turn it faces its take-off heading again a full turn on, unwrapped
+    end = steps[-1][3]
+    steps += [('land', None, 0, None, None), ('ground', None, c.ground_s, None, None),
+              ('move', (0, 0, h), 0, None, None), ('hold', (0, 0, h), c.hold_s, end, None),
+              ('move', (r, 0, h), 0, None, None), ('circle', (r, 0, h), 0, None, None),
+              ('move', (0, 0, h), 0, None, None), ('hold', (0, 0, h), c.hold_s, end, None),
+              ('land', None, 0, None, None), ('disarm', None, 0, None, None)]
     return steps
 
 
@@ -164,8 +179,10 @@ class Mission:
             a = min(1.0, dt / c.offset_tau_s)
             self.offset = tuple(o + a * (p - q - o) for o, p, q in zip(self.offset, px4, pose))
 
-        kind, offset, secs, heading = self.steps[self.i]
+        kind, offset, secs, heading, lap = self.steps[self.i]
         self.reason = 'step {}/{}: {}'.format(self.i + 1, len(self.steps), kind)
+        if lap is not None:
+            self.reason += ', lap ' + lap
         if kind not in ('land', 'disarm') and t - self.since > c.step_timeout_s:
             self._abort('step {} ({}) took over {:.0f} s: landing here'.format(self.i + 1, kind, c.step_timeout_s))
             self.start = pose

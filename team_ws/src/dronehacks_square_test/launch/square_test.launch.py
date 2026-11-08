@@ -3,6 +3,7 @@
 For COMPETITOR_LAUNCH=square_test.launch.py with COMPETITOR_PKG=dronehacks_square_test.
 Tune from the command line, e.g. ``ros2 launch dronehacks_square_test square_test.launch.py side_m:=0.5``.
 ``record:=false`` turns off the node's recording (it records from arming; see square_test_node).
+``heading_mode:=fixed`` never yaws; ``heading_mode:=both`` flies the box fixed, then turning (see mission).
 """
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
@@ -15,7 +16,7 @@ INTERFACE = [  # the kit example's own defaults
     ('odometry_topic', '/visual_slam/tracking/odometry'),
 ]
 MISSION = [('side_m', '1.0'), ('height_m', '0.73'), ('speed_mps', '0.3'), ('hold_s', '2.0'), ('ground_s', '1.5'),
-           ('yaw_rate_dps', '20.0'), ('record', 'true')]
+           ('yaw_rate_dps', '20.0'), ('heading_mode', 'turn'), ('record', 'true')]
 
 
 def generate_launch_description():
