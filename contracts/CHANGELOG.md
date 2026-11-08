@@ -2,6 +2,25 @@
 
 Newest entries first. One entry per contract-affecting change, linking the PR.
 
+## 2026-11-08 — px4.md: scoped exception for autonomous landing on the pad (PR #50)
+
+Branch `navigation/traj-taped-arena` (PR #50, @jsun4231). `contracts/px4.md` gains a section,
+"Scoped exception: autonomous landing on the pad":
+
+- `dronehacks_traj`'s two window flight lines, `window_max` and `window_0p5mps`, may land by
+  themselves (`land: true`). They use a twist descent through the kit's interface until PX4's
+  land detector and `COM_DISARM_LAND` disarm, the method `dronehacks_course_follower` uses on
+  skybeta-11.
+- Evidence: skybeta-11 flight `20261108-013018` disarmed on the ground after such a descent. The
+  organisers announced on 2026-11-07 that drones have since landed autonomously (reported by the
+  team).
+- The landing-API paragraph now points to the exception. Everything else stays blocked: no
+  land, disarm or rearm API, no autonomous return, and no other package or launch.
+- The organisers' confirmation is to be recorded in the section, with who gave it and when,
+  before the first flight.
+
+No parameter is written. Affected owner: contracts (@moterodiaz), notified in PR #50.
+
 ## 2026-11-08 — px4.md: `COM_FLTMODE1` row and the DH Bailout firmware scoped exception (PR #46)
 
 Branch `core/bailout-firmware` (PR #46, @jsun4231). Two additions to

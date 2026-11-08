@@ -52,9 +52,9 @@ versions:
         default: shipped
         choices:
           shipped: {label: "shipped competitor launch (traj_nav_competitor.launch.py)"}
-          window_2mps: {label: "window at 2 m/s on the taped course (traj_nav_competitor_window_2mps.launch.py: map course_arena_2026-11-08, window, boulders ignored; arena taped-2026-11-08)",
-                        launch: traj_nav_competitor_window_2mps.launch.py, arena: taped-2026-11-08}
-          window_0p5mps: {label: "window at 0.5 m/s on the taped course, slow test (traj_nav_competitor_window_0p5mps.launch.py: the 2 m/s line, speeds 0.5; arena taped-2026-11-08)",
+          window_max: {label: "window, no speed cap, lands, on the taped course (traj_nav_competitor_window_max.launch.py: map course_arena_2026-11-08, window, boulders ignored; arena taped-2026-11-08)",
+                       launch: traj_nav_competitor_window_max.launch.py, arena: taped-2026-11-08}
+          window_0p5mps: {label: "window at 0.5 m/s on the taped course, slow test (traj_nav_competitor_window_0p5mps.launch.py: the max line, speeds 0.5, lands; arena taped-2026-11-08)",
                           launch: traj_nav_competitor_window_0p5mps.launch.py, arena: taped-2026-11-08}
       route:
         label: CP4 route

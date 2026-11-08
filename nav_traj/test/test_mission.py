@@ -330,17 +330,18 @@ class WholeFlightTest(unittest.TestCase):
         inside = (np.abs(rel @ ax) <= half_length) & (np.abs(rel @ np.array([-ax[1], ax[0]])) < 1.0)
         return log.pos[inside, 2] + CONFIG.rest_height_m
 
-    def test_the_window_2mps_line_flies_the_taped_map_through_the_window(self):
+    def test_the_window_max_line_flies_the_taped_map_through_the_window_and_lands(self):
         from dronehacks_planner.limits import VehicleLimits
-        prepared = self.prep_line("window_2mps")
+        prepared = self.prep_line("window_max")
         self.assertEqual(prepared.plan.route.goals, ["tunnel", "window", "pad"])
-        self.assertEqual(prepared.v_max_mps, 2.0)       # verified at 2 m/s, not planned slower
+        self.assertEqual(prepared.v_max_mps, 12.0)      # no cap of our own: verified as asked
+        self.assertTrue(prepared.mission.config.land)
         self.assertIsNone(prepared.speed_note)
         self.assertTrue(prepared.mission.config.early_descent)
         self.assertGreater(prepared.mission.config.rolling_takeoff_m, 0.0)
-        # PX4 at MPC_XY_VEL_MAX 2.0 and the interface at max_speed_mps 2.0 (the line needs both)
-        log = fly(prepared.mission, dataclasses.replace(VehicleLimits(), v_max_mps=2.0),
-                  VehicleSimConfig(twist_speed_cap_mps=2.0))
+        # PX4 at skybeta-11's MPC_XY_VEL_MAX 12 and the interface at the line's max_speed_mps 12
+        log = fly(prepared.mission, dataclasses.replace(VehicleLimits(), v_max_mps=12.0),
+                  VehicleSimConfig(twist_speed_cap_mps=12.0))
         checks = flight_checks(prepared, log.pos)
         self.assertIn("disarm", log.events)
         self.assertEqual(checks["wall_touches"], 0)
@@ -360,7 +361,7 @@ class WholeFlightTest(unittest.TestCase):
         self.assertEqual(prepared.plan.route.goals, ["tunnel", "window", "pad"])
         self.assertEqual(prepared.v_max_mps, 0.5)
         self.assertIsNone(prepared.speed_note)
-        fast = self.prep_line("window_2mps")
+        fast = self.prep_line("window_max")
         np.testing.assert_allclose([w.position for w in prepared.plan.route.waypoints],
                                    [w.position for w in fast.plan.route.waypoints])   # the same route
         # PX4 at the organisers' MPC_XY_VEL_MAX 1.0 (above the line) and the interface at 0.5
@@ -377,7 +378,7 @@ class WholeFlightTest(unittest.TestCase):
     def test_the_lines_rolling_take_off_and_early_descent_land_sooner_on_the_same_route(self):
         from dronehacks_planner.limits import VehicleLimits
         from dronehacks_planner.route import PlannerConfig
-        for name, px4, saved in (("window_0p5mps", 1.0, 4.0), ("window_2mps", 2.0, 4.0)):
+        for name, px4, saved in (("window_0p5mps", 12.0, 4.0), ("window_max", 12.0, 4.0)):
             with self.subTest(line=name):
                 fast = self.prep_line(name)
                 cap = fast.mission.config.twist_speed_max_mps

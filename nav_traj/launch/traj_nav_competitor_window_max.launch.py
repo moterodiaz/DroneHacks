@@ -1,10 +1,10 @@
-"""``traj_nav_competitor.launch.py`` flying the "window at 2 m/s" flight line.
+"""``traj_nav_competitor.launch.py`` flying the "window, no speed cap" flight line.
 
 For ``COMPETITOR_LAUNCH`` in ``/etc/skybeta/drone.env`` (the competitor window launches with no
 arguments). Everything is as in ``traj_nav_competitor.launch.py`` -- the same map precedence, raw
 cuVSLAM, the installed ``config/traj_nav.example.yaml`` with its measured values -- plus
-``config/flight_line_window_2mps.yaml`` applied over the mission's parameters: the window route,
-track speed 2 m/s, the plan's speed limit 2 m/s, and the twist cap 2 m/s. The kit's flight
+``config/flight_line_window_max.yaml`` applied over the mission's parameters: the window route,
+and the track speed, the plan's speed limit and the twist cap all at PX4's own 12 m/s. The kit's flight
 interface gets its documented ``max_speed_mps`` launch argument from the same file, so its twist
 clamp matches; the interface is not modified. The line flies the course as the team taped it
 on 2026-11-08 (``maps/course_arena_2026-11-08.yaml``, LINE_MAP) at the window's taped middle,
@@ -25,7 +25,7 @@ from launch.launch_description_sources import PythonLaunchDescriptionSource
 TEAM_MAP = "/root/team_ws/course_map.yaml"
 #: The course as the team taped it on 2026-11-08 (maps/README.md), not the default launch's STEP map.
 LINE_MAP = "course_arena_2026-11-08.yaml"
-LINE = "flight_line_window_2mps.yaml"
+LINE = "flight_line_window_max.yaml"
 
 
 def choose_map(share: str) -> str:

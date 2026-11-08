@@ -10,7 +10,7 @@ clamp matches; the interface is not modified. The line flies the course as the t
 on 2026-11-08 (``maps/course_arena_2026-11-08.yaml``, LINE_MAP) at the window's taped middle,
 over the boulders (``avoid_boulders`` false), unless ``$DRONEHACKS_MAP`` or the team's map is given.
 
-This is ``traj_nav_competitor_window_2mps.launch.py`` with every speed at 0.5 m/s instead of 2.0:
+This is ``traj_nav_competitor_window_max.launch.py`` with every speed at 0.5 m/s instead of 12.0:
 a slow test of the same route, leaving the pilot time to take over before a touch. PX4's
 MPC_XY_VEL_MAX (contracts/px4.md: the organisers' 1.0 m/s, not ours to write) is above 0.5, so it
 doesn't bind. See the YAML file's header for the dark tunnel at this speed.

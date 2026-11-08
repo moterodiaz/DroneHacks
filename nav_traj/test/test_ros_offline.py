@@ -248,25 +248,25 @@ class LaunchTest(unittest.TestCase):
         self.assertTrue(inc.source.path.endswith("traj_nav.launch.py"))
         self.assertNotIn("mission_overrides", inc.launch_arguments)   # the default line is unchanged
 
-    def test_window_2mps_line_overrides_the_mission_and_the_interface_cap(self):
+    def test_window_max_line_overrides_the_mission_and_the_interface_cap(self):
         handle = fake_ros.install(fake_ros.Handle())
         handle.share["dronehacks_traj"] = str(_paths.PACKAGE_ROOT)
         with mock.patch.dict(os.environ, {}, clear=False):
             os.environ.pop("DRONEHACKS_MAP", None)
             os.environ.pop("DRONEHACKS_GUARD", None)
-            inc = load_launch("traj_nav_competitor_window_2mps.launch.py").generate_launch_description().entities[0]
-        line = os.path.join(str(_paths.PACKAGE_ROOT), "config", "flight_line_window_2mps.yaml")
+            inc = load_launch("traj_nav_competitor_window_max.launch.py").generate_launch_description().entities[0]
+        line = os.path.join(str(_paths.PACKAGE_ROOT), "config", "flight_line_window_max.yaml")
         self.assertEqual(inc.launch_arguments["mission_overrides"], line)
-        self.assertEqual(inc.launch_arguments["max_speed_mps"], "2.0")
+        self.assertEqual(inc.launch_arguments["max_speed_mps"], "12.0")
         self.assertEqual(inc.launch_arguments["guard_package"], "none")
         self.assertTrue(inc.source.path.endswith("traj_nav.launch.py"))
         with open(line, encoding="utf-8") as fh:
             doc = yaml.safe_load(fh)
         mission = doc["mission"]["ros__parameters"]
         self.assertEqual(mission, {"prefer": ["window"], "avoid_boulders": False, "rolling_takeoff_m": 0.3,
-                                   "early_descent": True, "hold_before_land_s": 0.0, "track_speed_mps": 2.0,
-                                   "v_max_mps": 2.0, "twist_speed_max_mps": 2.0})
-        flags = ("prefer", "avoid_boulders", "early_descent")
+                                   "early_descent": True, "land": True, "hold_before_land_s": 0.0,
+                                   "track_speed_mps": 12.0, "v_max_mps": 12.0, "twist_speed_max_mps": 12.0})
+        flags = ("prefer", "avoid_boulders", "early_descent", "land")
         self.assertTrue(all(isinstance(v, float) for k, v in mission.items() if k not in flags))
         # the line flies the taped map (maps/README.md), not the default launch's STEP map
         if not os.path.isfile("/root/team_ws/course_map.yaml"):
@@ -274,14 +274,14 @@ class LaunchTest(unittest.TestCase):
         # the mission's twist cap and the interface's clamp agree
         self.assertEqual(mission["twist_speed_max_mps"], doc["flight_interface"]["ros__parameters"]["max_speed_mps"])
         # traj_nav.launch.py applies the line between the installed config and the map/topic
-        _, fi, actions = self.run_main(mission_overrides=line, max_speed_mps="2.0")
+        _, fi, actions = self.run_main(mission_overrides=line, max_speed_mps="12.0")
         node = next(a for a in actions if isinstance(a, fake_ros.LaunchNode))
         self.assertEqual(node.kwargs["parameters"][1], line)
         self.assertEqual(node.kwargs["parameters"][2]["odometry_topic"], "/visual_slam/tracking/odometry")
         self.assertEqual(fi.kwargs["parameters"][0]["max_speed_mps"].perform(
-            type("Ctx", (), {"launch_configurations": {"max_speed_mps": "2.0"}})()), "2.0")
+            type("Ctx", (), {"launch_configurations": {"max_speed_mps": "12.0"}})()), "12.0")
 
-    def test_window_0p5mps_slow_line_is_the_2mps_line_with_every_speed_at_0p5(self):
+    def test_window_0p5mps_slow_line_is_the_max_line_with_every_speed_at_0p5(self):
         handle = fake_ros.install(fake_ros.Handle())
         handle.share["dronehacks_traj"] = str(_paths.PACKAGE_ROOT)
         with mock.patch.dict(os.environ, {}, clear=False):
@@ -298,12 +298,12 @@ class LaunchTest(unittest.TestCase):
         self.assertTrue(inc.source.path.endswith("traj_nav.launch.py"))
         with open(line, encoding="utf-8") as fh:
             slow = yaml.safe_load(fh)
-        with open(os.path.join(config, "flight_line_window_2mps.yaml"), encoding="utf-8") as fh:
+        with open(os.path.join(config, "flight_line_window_max.yaml"), encoding="utf-8") as fh:
             fast = yaml.safe_load(fh)
         speeds = ("track_speed_mps", "v_max_mps", "twist_speed_max_mps")
         self.assertEqual({k: slow["mission"]["ros__parameters"][k] for k in speeds}, dict.fromkeys(speeds, 0.5))
         self.assertEqual(slow["flight_interface"]["ros__parameters"], {"max_speed_mps": 0.5})
-        # the only difference from the 2 m/s line is the speeds
+        # the only difference from the max line is the speeds
         for doc in (slow, fast):
             for k in speeds:
                 doc["mission"]["ros__parameters"][k] = None

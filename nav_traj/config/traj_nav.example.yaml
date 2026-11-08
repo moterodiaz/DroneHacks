@@ -53,4 +53,4 @@ mission:
     pose_timeout_s: 0.5
     max_prediction_s: 0.2
     abort_cross_track_m: 0.35        # off the path by more than this: hold and wait for the pilot
-    land: false                      # hold over the pad for the pilot (px4.md); true needs a landing contract
+    land: false                      # hold over the pad for the pilot; only the window lines land (px4.md exception)

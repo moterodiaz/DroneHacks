@@ -101,7 +101,33 @@ pilot arms on the ground in Altitude and switches to Position, subject
 to the kit's readiness checks. Pilot takeover prevents automatic re-entry
 until disarm/rearm. The default altitude floor is 0.3 m; pose/twist input
 is not a supported land/disarm/rearm API. Landing and autonomous return
-after disarm remain blocked pending an organizer-supported procedure.
+after disarm remain blocked pending an organizer-supported procedure, except
+for the scoped landing exception below.
 Do not bypass the clamp, publish raw PX4 commands, or patch the interface.
 Source: `drone-snapshot/home/dronehacks/skybeta/README.md` §Flight sequence
 and the supplied `flight_interface.py`.
+
+## Scoped exception: autonomous landing on the pad
+
+The team (@jsun4231, 2026-11-08) lets `dronehacks_traj`'s window flight lines land on the pad by
+themselves: `config/flight_line_window_max.yaml` and `config/flight_line_window_0p5mps.yaml` set
+`land: true`. Nothing else may land autonomously. The default traj launches keep `land: false`,
+which holds over the pad for the pilot.
+
+- How it lands: a downward twist through the kit's interface, `/skybeta/setpoint/twist`, with a
+  small horizontal pull back over the pad. It continues until PX4's land detector reports landed
+  and `COM_DISARM_LAND` disarms. It never arms, disarms or changes mode, and it writes no
+  parameter. This is the method `dronehacks_course_follower` uses on skybeta-11
+  (`core/flight-iteration`).
+- Evidence:
+  - Flight `20261108-013018` on skybeta-11 disarmed on the ground after such a descent
+    (`docs/flight-findings.md` on `core/flight-iteration`, measured).
+  - The organisers announced on 2026-11-07 that drones have since taken off, flown and landed
+    autonomously. This is reported by the team, in `dronehacks_course_follower/README.md` on
+    `core/flight-iteration`.
+- Still blocked: no land, disarm or rearm API, no autonomous return after disarm, and no other
+  package or launch.
+- **Record the organisers' confirmation here, with who gave it and when, before the first flight**:
+  until then this exception rests on their announcement as the team reported it.
+
+Source: `team` (@jsun4231, 2026-11-08); organisers' support reported by the team.

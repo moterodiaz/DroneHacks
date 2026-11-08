@@ -134,7 +134,7 @@ class ApplyEditsTests(unittest.TestCase):
 
 class ArenaChoiceTests(unittest.TestCase):
     def test_the_flight_lines_planned_on_the_taped_course_fly_in_it(self):
-        for line in ('window_2mps', 'window_0p5mps'):
+        for line in ('window_max', 'window_0p5mps'):
             arena, why = resolve_arena(CATALOG['traj'], {'line': line})
             self.assertEqual(arena, 'taped-2026-11-08', line)
             self.assertIn(line, why)
@@ -147,10 +147,10 @@ class ArenaChoiceTests(unittest.TestCase):
                 self.assertEqual(resolve_arena(CATALOG[vid], {})[0], 'step', vid)
 
     def test_an_explicit_arena_wins(self):
-        self.assertEqual(resolve_arena(CATALOG['traj'], {'line': 'window_2mps'}, 'step'),
+        self.assertEqual(resolve_arena(CATALOG['traj'], {'line': 'window_max'}, 'step'),
                          ('step', 'chosen in the scenario'))
         self.assertEqual(resolve_arena(CATALOG['traj'], {}, 'taped-2026-11-08')[0], 'taped-2026-11-08')
-        self.assertEqual(resolve_arena(CATALOG['traj'], {'line': 'window_2mps'}, 'auto')[0], 'taped-2026-11-08')
+        self.assertEqual(resolve_arena(CATALOG['traj'], {'line': 'window_max'}, 'auto')[0], 'taped-2026-11-08')
         with self.assertRaises(ArenaError):
             resolve_arena(CATALOG['traj'], {}, 'moon')
 

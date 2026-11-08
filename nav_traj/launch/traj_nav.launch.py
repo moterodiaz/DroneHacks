@@ -112,7 +112,7 @@ def generate_launch_description():
                               description="parameters for the mission node"),
         DeclareLaunchArgument("mission_overrides", default_value="",
                               description="optional second parameter file for the mission node, applied over "
-                                          "params_file (a flight line, e.g. config/flight_line_window_2mps.yaml)"),
+                                          "params_file (a flight line, e.g. config/flight_line_window_max.yaml)"),
     ]
     flight_interface = Node(
         package="skybeta_flight_interface",

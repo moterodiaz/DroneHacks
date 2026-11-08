@@ -72,14 +72,16 @@ In `/etc/skybeta/drone.env` (sudo):
 COMPETITOR_PKG=dronehacks_traj
 COMPETITOR_LAUNCH=traj_nav_competitor.launch.py        # raw cuVSLAM, the default (no Guard)
 # COMPETITOR_LAUNCH=traj_nav_competitor_raw.launch.py  # also raw cuVSLAM
-# COMPETITOR_LAUNCH=traj_nav_competitor_window_2mps.launch.py  # the window at 2 m/s (below)
+# COMPETITOR_LAUNCH=traj_nav_competitor_window_max.launch.py  # the window, no speed cap (below)
 # COMPETITOR_LAUNCH=traj_nav_competitor_window_0p5mps.launch.py  # the same, slowed to 0.5 m/s
 ```
 
-**The window-at-2-m/s flight line** (`traj_nav_competitor_window_2mps.launch.py`) is the
-default launch plus `config/flight_line_window_2mps.yaml` over the mission's parameters: CP4
-through the window, track speed, the plan's speed limit and the twist cap all 2.0 m/s, and the
-kit interface's documented `max_speed_mps` launch argument 2.0 (default 1.5).
+**The window flight line with no speed cap** (`traj_nav_competitor_window_max.launch.py`, called
+`window_2mps` until 2026-11-08: update `COMPETITOR_LAUNCH`) is the default launch plus
+`config/flight_line_window_max.yaml` over the mission's parameters: CP4 through the window, and the
+track speed, the plan's speed limit and the twist cap all at PX4's own 12 m/s, with the kit
+interface's documented `max_speed_mps` launch argument at 12 (default 1.5). It lands on the pad
+(`land: true`, `contracts/px4.md` "Scoped exception: autonomous landing on the pad").
 **It flies the taped map**, `maps/course_arena_2026-11-08.yaml` (the course as the team measured it
 on 2026-11-08, `maps/README.md`), unless `~/team_ws/course_map.yaml` or `$DRONEHACKS_MAP` is
 there. It flies at the window's taped middle, 1.23 m, and straight over the boulders
@@ -87,15 +89,17 @@ there. It flies at the window's taped middle, 1.23 m, and straight over the boul
 * **Remove any older `~/team_ws/course_map.yaml`**: it would win over the taped map.
 * **It takes off rolling and descends early.** FOLLOW starts 0.3 m up and finishes the climb on
   the first leg. It holds in place only where the path ahead needs the flight height. From the
-  moment the whole drone clears the window, it descends towards 0.45 m. With `land: false` (the
-  installed default; `contracts/px4.md` keeps autonomous landing blocked) it holds over the pad at
-  that height for the pilot.
+  moment the whole drone clears the window, it descends towards 0.45 m, then lands with no pause:
+  a twist descent until PX4's land detector disarms. Record the organisers' confirmation of the
+  landing in `contracts/px4.md` before the first flight (the exception rests on their support as the
+  team reported it).
 * **PX4 doesn't cap the speed on skybeta-11.** `MPC_XY_VEL_MAX` is 12 there (`contracts/px4.md`,
   the organisers' value, not ours to write). The plan's `v_max_mps` and the interface's clamp do.
 * **The window is not cleared** by `contracts/course.md` (no reviewed clearance budget). The
   planner's window pass keeps 0.137 m over its inscribed radius on the taped map.
-* On the taped map the plan is 13.08 m in 16.4 s at 2.0 m/s. The unvalidated cornering
-  limit (`a_lat_mps2` 1.0) binds before 2.0 at most corners. SITL results: `sitl/README.md`.
+* On the taped map the plan is 13.08 m in 16.4 s, the same as at 2 or 3 m/s: the planner's
+  dynamic limits (stopping room before the wall ahead, jerk, cornering) hold it near 1.5 m/s on
+  this course. SITL results: `sitl/README.md`.
 
 **The slow test line** (`traj_nav_competitor_window_0p5mps.launch.py`) is the same line with
 `config/flight_line_window_0p5mps.yaml`, on the same taped map. That file differs only in its speeds: all four are

@@ -1,15 +1,15 @@
-# Flight line "window at 0.5 m/s": a slow test of flight_line_window_2mps.yaml, chosen by the team
-# (@jsun4231). The route is the same and only the speeds change (2.0 -> 0.5 m/s), so the pilot has
+# Flight line "window at 0.5 m/s": a slow test of flight_line_window_max.yaml, chosen by the team
+# (@jsun4231). The route is the same and only the speeds change (12.0 -> 0.5 m/s), so the pilot has
 # time to take over before a touch. Since 2026-11-08 it flies the course as the team taped it:
 # launch/traj_nav_competitor_window_0p5mps.launch.py loads maps/course_arena_2026-11-08.yaml
 # (Michael Bar On's map from core/flight-iteration, see maps/README.md), unless a team map or
 # $DRONEHACKS_MAP is given. It flies at the window's taped middle, 1.23 m above the floor, and plans
-# straight over the boulders.
+# straight over the boulders, and lands on the pad.
 # The launch file applies this file OVER the installed config/traj_nav.example.yaml, so the measured
 # values there (rest height, course->odom transform) still apply. Numbers are floats: ROS 2 refuses
 # an int for a float parameter.
 #
-# It takes off rolling and descends early, as the 2 m/s line does (see its header).
+# It takes off rolling, descends early and lands, as the max line does (see its header).
 #
 # Before flying it:
 # * PX4 doesn't cap the speed on skybeta-11 (MPC_XY_VEL_MAX 12, contracts/px4.md); the plan's 0.5
@@ -29,7 +29,8 @@ mission:
     avoid_boulders: false       # plan straight over the boulders
     rolling_takeoff_m: 0.3      # start the route 0.3 m up and finish the climb on the first leg
     early_descent: true         # descend from the moment the whole drone clears the window
-    hold_before_land_s: 0.0     # no pause over the pad (it matters only with land: true)
+    land: true                  # land on the pad and let PX4 disarm (contracts/px4.md exception)
+    hold_before_land_s: 0.0     # no pause over the pad
     track_speed_mps: 0.5        # fly the whole course at this speed (the plan is capped at it)
     v_max_mps: 0.5              # the plan's speed limit (PX4's MPC_XY_VEL_MAX is above it)
     twist_speed_max_mps: 0.5    # must match flight_interface's max_speed_mps below

@@ -141,8 +141,8 @@ class MissionConfig:
     #: Off the path by more than this: hold and wait for the pilot. The 0.93 m passage leaves +-0.18 m.
     abort_cross_track_m: float = 0.35
     #: Land on the pad after the hold. False by default: the drone holds over the pad
-    #: for the pilot, because contracts/px4.md blocks the twist descent until a landing
-    #: API is contracted. Set true only per that contract.
+    #: for the pilot. contracts/px4.md allows the twist descent only under its scoped
+    #: exception "autonomous landing on the pad" (the window flight lines); nowhere else.
     land: bool = False
     #: FOLLOW: no odometry arriving for this long counts as a dropout (when arrivals are known).
     pose_gap_s: float = 0.15
