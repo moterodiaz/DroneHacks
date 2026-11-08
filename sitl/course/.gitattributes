@@ -1,0 +1,3 @@
+# Keep the edits file byte-exact: it must stay a byte copy of nav_traj/maps/source/ (tests/test_arena.py),
+# and the course cache is keyed by its SHA-256.
+arena_*_edits.json -text

@@ -78,6 +78,10 @@ class Scenario:
     bridge_start_s: float = 2.0
     competitor_start_s: float = 4.0
     wind_mps: tuple = (0.0, 0.0)
+    # the course flown in (world.arena.ARENAS): 'step' (the STEP as exported), 'taped-2026-11-08'
+    # (the course as the team taped it), or None = auto: the arena a chosen option is planned on
+    # (versions.yaml choice key ``arena``), else 'step'
+    arena: str = None
 
     def to_dict(self):
         return asdict(self)
@@ -147,6 +151,11 @@ class Simulation:
             self.version, scenario.options, scenario.follower,
             {'track_speed_mps': scenario.track_speed_mps, 'descent_mps': scenario.descent_mps})
         self.run_notes += notes
+        self.arena, why = cat.resolve_arena(self.version, scenario.options, scenario.arena)
+        from .world.arena import arena_label
+        self.run_notes.append(f'Arena: {arena_label(self.arena)} ({why})')
+        #: what the version planned, captured by an observer (autonomy/observers.py); None if none
+        self.plan = None
         self._build()
 
     # ------------------------------------------------------------------------------------------
@@ -184,7 +193,9 @@ class Simulation:
         os.environ.update(CONTAINER_ENV)
         os.environ.update({k: str(v) for k, v in (sc.env or {}).items()})
         # world, PX4 parameters, airframe
-        self.course = Course(os.path.join(self.repo_root, 'dronehacks-course-v3.step'), self.cache_dir)
+        from .world.arena import edits_path
+        self.course = Course(os.path.join(self.repo_root, 'dronehacks-course-v3.step'), self.cache_dir,
+                             edits_path(self.arena))
         overrides = scenario_param_overrides(sc)
         if sc.speed_cap_mps is not None:
             self.run_notes.append(f"speed cap MPC_XY_VEL_MAX = {overrides['MPC_XY_VEL_MAX']:g} m/s (scenario)")
@@ -261,6 +272,12 @@ class Simulation:
             fn = hooks_mod.HOOKS[name]
             exe = {'traj_follower_config': 'mission', 'traj_waypoint_follower': 'mission'}[name]
             self.session.pre_main[(self.launch['package'], exe)] = [lambda fn=fn, args=args: fn(**args)]
+        # observers (simulator-only, change nothing): record what a version planned, for the map
+        from .autonomy import observers
+        observers.set_sink(self._on_plan)
+        for (pkg, exe), obs in observers.OBSERVERS.items():
+            if pkg in self.team_packages:
+                self.session.pre_main.setdefault((pkg, exe), []).append(obs)
         rt.at(int(sc.bridge_start_s * 1e9), self._start_bridge)
         rt.at(int(sc.competitor_start_s * 1e9), self._start_competitor)
         self._n = 0
@@ -276,6 +293,31 @@ class Simulation:
         self.status_text = 'booting'
         self._log({'t': 0.0, 'process': None, 'logger': 'dronesim', 'level': 'INFO', 'source': 'sim',
                    'msg': f"version {self.version['id']}: {self.provenance}; " + '; '.join(self.run_notes)})
+
+    def _on_plan(self, record):
+        """An observer's record of the plan the version made (autonomy/observers.py)."""
+        record = dict(record)
+        record['t'] = round(self.rt.now_s, 3) if getattr(self, 'rt', None) else None
+        self.plan = record
+        self.plan_rev = getattr(self, 'plan_rev', 0) + 1
+        if 'error' in record:
+            text = f"plan observer: {record['error']}"
+        else:
+            text = (f"plan observed: {' > '.join(record['goals'])}, {record['length_m']:.2f} m, "
+                    f"{record['duration_s']:.2f} s at v_max {record['v_max_mps']:g} m/s, "
+                    f"height {record['slice_height_m']:g} m (drawn on the map; plan.json when saved)")
+        self._log({'t': self.rt.now_s, 'process': None, 'logger': 'dronesim', 'level': 'INFO', 'source': 'sim',
+                   'msg': text})
+
+    def plan_for_display(self):
+        """The observed plan, thinned for the GUI map (None before one is made)."""
+        if not self.plan or 'xy' not in self.plan:
+            return None
+        from .autonomy.observers import display_points
+        p = self.plan
+        return {'rev': getattr(self, 'plan_rev', 0), 'xy': display_points(p), 'goals': p.get('goals'),
+                'length_m': p.get('length_m'), 'duration_s': p.get('duration_s'), 'v_max_mps': p.get('v_max_mps'),
+                'waypoints': [w['xy'] for w in p.get('waypoints') or []]}
 
     def _measured_values(self, sx, sy, yaw_ned, rng):
         sc = self.sc
@@ -576,6 +618,10 @@ class Simulation:
             'processes': [{'name': p.name, 'alive': p.alive, 'exit_code': p.exit_code} for p in self.rt.processes],
             'px4_messages': [(round(a, 2), b, c) for a, b, c in self.px4.commander.messages],
             'violations': [{'t': round(t, 2), 'text': x} for t, x in self.referee.violations],
+            'arena': {'name': self.arena, **{k: v for k, v in self.course.describe().items()
+                                             if k in ('arena', 'edits', 'edits_sha256')}},
+            'plan': ({k: v for k, v in self.plan.items() if k not in ('xy', 't', 'speed_mps')}
+                     if self.plan else None),
         }
 
     def save(self, out_dir):
@@ -589,6 +635,10 @@ class Simulation:
             fh.write('t,x,y,z,yaw,speed,nav_state,armed,ekf_x,ekf_y,ekf_up,vo\n')
             for row in self.trajectory:
                 fh.write(','.join(str(v) for v in row[:-1]) + ',' + (' '.join(map(str, row[-1])) if row[-1] else '') + '\n')
+        if self.plan:
+            # the version's own plan in the course frame, as the observer recorded it
+            with open(os.path.join(out_dir, 'plan.json'), 'w', encoding='utf-8') as fh:
+                json.dump(self.plan, fh, indent=1, default=str)
         return out_dir
 
     def close(self):

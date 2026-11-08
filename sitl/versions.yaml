@@ -18,7 +18,8 @@
 #
 # Tunables: the GUI's / CLI's "track speed" and "landing descent" set the node parameter named here
 # (versions without one ignore them). An option choice may also set `launch_suffix` (inserted before
-# .launch.py, e.g. _over_rocks) and `requires` ({other option: choice}).
+# .launch.py, e.g. _over_rocks), `requires` ({other option: choice}) and `arena` (the course it is
+# planned on, dronesim/world/arena.py ARENAS: a run with the scenario's arena on auto flies there).
 #
 # Substitutions: $rest_height_m  $v_max  $traj_yaw $traj_x $traj_y (contracts/frames.md
 # p_odom = o + R p_course, yaw CCW from east)  $odom_yaw_deg (bearing of odom +x, clockwise from
@@ -50,10 +51,10 @@ versions:
         default: shipped
         choices:
           shipped: {label: "shipped competitor launch (traj_nav_competitor.launch.py)"}
-          window_2mps: {label: "window at 2 m/s (traj_nav_competitor_window_2mps.launch.py: overrides route + speeds)",
-                        launch: traj_nav_competitor_window_2mps.launch.py}
-          window_0p5mps: {label: "window at 0.5 m/s, slow test (traj_nav_competitor_window_0p5mps.launch.py: the 2 m/s line, speeds 0.5)",
-                          launch: traj_nav_competitor_window_0p5mps.launch.py}
+          window_2mps: {label: "window at 2 m/s on the taped course (traj_nav_competitor_window_2mps.launch.py: map course_arena_2026-11-08, window, boulders ignored; arena taped-2026-11-08)",
+                        launch: traj_nav_competitor_window_2mps.launch.py, arena: taped-2026-11-08}
+          window_0p5mps: {label: "window at 0.5 m/s on the taped course, slow test (traj_nav_competitor_window_0p5mps.launch.py: the 2 m/s line, speeds 0.5; arena taped-2026-11-08)",
+                          launch: traj_nav_competitor_window_0p5mps.launch.py, arena: taped-2026-11-08}
       route:
         label: CP4 route
         default: auto

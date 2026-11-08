@@ -65,6 +65,73 @@ is a wall if it stands on the floor and reaches the wall top, so touching it cos
 writes the boulder domes as two B-spline halves whose edges meet at the apex (Onshape used a
 VERTEX_LOOP there); the tessellator now handles edge loops through a surface pole.
 
+### Arenas: the course as taped (2026-11-08)
+
+A run flies in an **arena**: the STEP model, plus a `course-edits/1` file of what the team found
+different on the real course (`dronesim/world/arena.py`). The arenas are:
+
+* `step`: the STEP as exported, with no edits. This is the default, and every earlier result is on it.
+* `taped-2026-11-08`: `course/arena_2026-11-08_edits.json`, a byte copy of
+  `nav_traj/maps/source/arena_2026-11-08_edits.json`, where the traj map is generated from.
+  `tests/test_arena.py` checks the two copies match. The values come from Michael Bar On's course
+  map (`core/flight-iteration` @ b5d640e) and are taken as the real arena. The edits:
+  * **North wall:** a wall 24 in inside the north net.
+  * **Diagonal wall:** the taped one, (-1.798, 0.508) to (-0.813, 1.648); the SolidWorks diagonal
+    and the north-west block are removed.
+  * **Window:** taped at 0.914-1.549 m above the floor, not 0.305-1.219 m.
+  * **Pad:** moved about 1 m south, to (-2.134, -1.829).
+  * **Rocks:** Boulder 2 removed; Boulders 1, 3 and 5 moved.
+
+  The edits file's `why` fields say which values were taped, estimated or assumed.
+
+How each edit is applied:
+
+* **remove** drops a solid.
+* **move** translates solids by `to - from`. It first checks that each solid's centre is within
+  1 cm of `from`.
+* **replace** and **add** build a wall from its centreline, thickness, height and openings. A
+  window wall is meshed the way the STEP meshes C2a: closed, and the only vertices between its
+  foot and top are the opening's corners. A replaced solid keeps its name, so the referee's
+  window gate still finds it.
+* The file's `rules.checkpoints` replaces a checkpoint's gate for scoring.
+
+**CP2 in the taped arena is an assumption.** The published Gate A runs north from
+(0.3048, 2.1209). Only 0.32 m of it lies south of the taped north wall, and no drone fits through
+that, so this arena scores CP2 across the whole corridor on the same line: from Barrier 3's
+north face (y 0.508) to the north wall (y 2.4384). The organisers haven't said how Gate A is
+scored with the north wall moved in; ask them.
+
+How a run picks its arena (`Scenario.arena`, CLI `--arena`, GUI **Arena**):
+
+* An explicit value always wins.
+* On `auto`, the default, a chosen option whose `versions.yaml` choice has an `arena` key picks
+  it. traj's flight lines `window_2mps` and `window_0p5mps` are planned on the taped map, so
+  they fly in `taped-2026-11-08`.
+* Otherwise the run flies in `step`.
+
+A new arena builds its own heightmap and distance-field cache once, keyed by the STEP's and the
+edits file's SHA-256: about 40 s, like the STEP's. `result.json` records the arena.
+
+**The window lines in the taped arena** (2026-11-08, traj @ dafb071). Every run: dark tunnel,
+`land=land`, the plan read from `plan.json`. The route was tunnel > window > pad, 13.31 m, flown
+at 1.23 m.
+
+| Line | PX4 `MPC_XY_VEL_MAX` | Plan | Seeds 1 / 2 / 3: clock to the pad disarm | Score |
+|---|---|---|---|---|
+| `window_0p5mps` | 1.0 (profile) | 36.9 s at 0.5 m/s | 55.5 / 52.9 / 52.0 s | 31 + window bonus, 0 touches |
+| `window_2mps` | 2.0 (`--speed-cap 2.0`) | 25.7 s at 1.8 m/s | 45.8 / 43.6 / 42.3 s | 31 + window bonus, 0 touches |
+| `window_2mps` | 1.0 (profile) | 25.7 s at 1.8 m/s | 45.1 s (seed 1) | 31 + window bonus, 0 touches |
+
+* The 2 m/s line plans at 1.8 m/s: at 2.0 the window route breaks the along-path jerk limit, so
+  traj retries 10 % slower and logs why. It peaks near 1.4 m/s, where `a_lat_mps2` binds.
+* FOLLOW takes about as long as planned (26 s and 37 s). The rest of the clock is the take-off
+  and the landing at the higher flight height:
+  * the climb to 1.23 m takes about 10 s, its last 15 cm slow, before FOLLOW starts (TAKEOFF ends
+    within `takeoff_tolerance_m` 0.10);
+  * the landing is a 2 s hold, then 1.2 m down at 0.3 m/s, then the disarm.
+* The drone disarmed about 0.1 m from the taped pad's centre. CP2 counts on the arena's
+  corridor-wide line: the centre crosses it at about y 1.6.
+
 ### One test session, as the simulation runs it
 
 ```
@@ -94,6 +161,9 @@ on), so `DRONEHACKS_*` variables do not arrive, just as on the drone.
   * **Version options**: route, landing, return flight, what to do on a tracking dropout (fly
     through by dead reckoning, the shipped behaviour, or hold still, the old one), and **Rocks**
     (plan around the boulders, or fly over them; the carrot builds have it for the window route).
+  * **Arena**: auto (the flight line's own arena, else the STEP), the taped 2026-11-08 course,
+    or the STEP as exported. The note under it says which arena the run will fly in, and the map
+    reloads when that changes.
   * **PX4 parameter profile.**
   * **Scenario**:
     * the **speed cap**, PX4's `MPC_XY_VEL_MAX`. It starts at the selected profile's value (1.0 m/s
@@ -120,9 +190,17 @@ on), so `DRONEHACKS_*` variables do not arrive, just as on the drone.
     * pilot timing.
   * **Speed** (in the pinned footer): 0.5x, real time, 2x, 4x or as fast as the machine allows.
 * **Centre: map.**
-  * The STEP geometry and the checkpoint gates.
+  * The arena's geometry (the STEP, plus its edits) and the checkpoint gates.
   * The true drone (props green when armed), where EKF2 thinks it is, where cuVSLAM says it is,
-    the active setpoint, lidar returns and the flown trail.
+    the active setpoint, lidar returns and the flown trail (blue).
+  * **The planned path** (orange dashes, waypoints as rings, labelled with its route, length and
+    time). This is simulator-only instrumentation: an observer
+    (`dronesim/autonomy/observers.py`) wraps `dronehacks_traj.mission_node.prepare` inside the
+    simulated process, passes its arguments and result through unchanged, and records the
+    plan's course-frame trajectory (`plan.trajectory.xy`). It is on for every version that
+    builds `dronehacks_traj`. A saved run (GUI Save or CLI `--out`) writes the full plan to
+    `plan.json`, with its points, times, speeds, route waypoints, goals and the map it read;
+    `result.json` carries the same summary without the points.
   * Below the map: height (true, EKF2, cuVSLAM, setpoint) and speed / estimate-error charts.
 * **Right: status.**
   * PX4 nav state, user-intended mode, failsafe, takeoff state, EKF2 validity and dead
@@ -474,7 +552,7 @@ walls.
 
 ```
 cd sitl
-py -B -m unittest tests.test_rosfake tests.test_models tests.test_step_mesh tests.test_course_layout tests.test_cache tests.test_catalog tests.test_review_fixes   # ~1 min
+py -B -m unittest tests.test_rosfake tests.test_models tests.test_step_mesh tests.test_course_layout tests.test_cache tests.test_catalog tests.test_review_fixes tests.test_arena   # ~1 min
 py -B -m unittest tests.test_flight -v                                            # ~5 min: real flights
 ```
 
@@ -490,6 +568,14 @@ py -B -m unittest tests.test_flight -v                                          
   * edge loops through a surface pole: the course boulders, a split hemisphere and a sphere of
     two lunes;
   * raycast and closest-point correctness and timing, with the open roof.
+* `test_arena`: arenas and the plan observer.
+  * The edits file matches nav_traj's copy.
+  * Wall meshes are closed, with the right volume and only the opening's vertices inside.
+  * remove, move, replace and add work in order, and bad names or a wrong `from` are refused.
+  * The taped course has its walls, rocks, pad and window, and its referee gates (CP2, the
+    window's z, the pad).
+  * Arena choice: auto, an explicit value, and two options that conflict.
+  * The plan observer, both on a stand-in module and on the real planner.
 * `test_course_layout`: the geometry wall fallback (synthetic and the two new walls), the net
   box as the height limit without a roof, and the rules file (no CP1, CP2 a segment, every name
   resolving).
@@ -556,16 +642,16 @@ call `dronesim.rosfake.activate()` and build the kit packages with
 ```
 sitl/
   versions.yaml          autonomy versions, options, followers
-  course/                the team's ground-truth checkpoint rules (vendored)
+  course/                the team's ground-truth checkpoint rules (vendored), arena edits
   dronesim/
     sim.py               the engine: timeline, physics/PX4 loop, faults, telemetry, results
     rosfake/             ROS 2 Humble on simulated time (runtime, rclpy, launch, msg generation, packages)
     px4/                 params, control (ported), estimator, commander, land detector, modes, uxrce bridge
     vehicle/             6-DOF physics, contacts
     sensors/             cuVSLAM, MS200K serial device, OAK IMU / camera TF
-    world/               STEP parser + B-rep tessellation, mesh queries, the course
+    world/               STEP parser + B-rep tessellation, mesh queries, the course, arenas (course edits)
     scoring/referee.py   rulebook section 4 on ground truth
-    autonomy/            catalog (git archive -> workspace), follower injection hooks
+    autonomy/            catalog (git archive -> workspace), follower injection hooks, plan observers
     gui/                 Tk app, map, worker process
   tests/
 ```

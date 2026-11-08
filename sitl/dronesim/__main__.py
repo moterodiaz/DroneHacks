@@ -3,7 +3,7 @@
     list                                   autonomy versions, followers, options, PX4 profiles
     run --version traj [--follower F] [--option route=window] [--duration 120]
         [--speed 1.0|max] [--speed-cap 1.0] [--track-speed 0.5] [--descent-speed 0.3]
-        [--out runs/x] [--set key=value ...] [--fault t:action[:arg]]
+        [--arena auto|step|taped-2026-11-08] [--out runs/x] [--set key=value ...] [--fault t:action[:arg]]
     gui                                    the graphical test environment
 """
 from __future__ import annotations
@@ -40,13 +40,18 @@ def cmd_list(args):
     print('\nPX4 parameter profiles:')
     for name, (desc, _files, _o) in PROFILES.items():
         print(f'  {name:24s} {desc}')
+    from .world.arena import ARENAS
+    print('\nArenas (--arena; auto = a chosen option\'s arena, else step):')
+    for name, (desc, edits) in ARENAS.items():
+        print(f'  {name:24s} {desc}' + (f' [course/{edits}]' if edits else ''))
 
 
 def cmd_run(args):
     from .sim import Scenario, Simulation, format_log
     sc = Scenario(version=args.version, follower=args.follower, duration_s=args.duration, seed=args.seed,
                   param_profile=args.profile, speed_cap_mps=args.speed_cap,
-                  track_speed_mps=args.track_speed, descent_mps=args.descent_speed)
+                  track_speed_mps=args.track_speed, descent_mps=args.descent_speed,
+                  arena=None if args.arena in (None, '', 'auto') else args.arena)
     for opt in args.option or []:
         k, _, v = opt.partition('=')
         sc.options[k] = v
@@ -86,6 +91,7 @@ def cmd_run(args):
             sim.save(args.out)
         ref = result['referee']
         sys.__stdout__.write('\n' + json.dumps({'version': result['version'], 'sim_time_s': result['sim_time_s'],
+                                                'arena': result.get('arena'), 'plan': result.get('plan'),
                                                 'referee': ref, 'events': result['events'][-25:]}, indent=1) + '\n')
     finally:
         sim.close()
@@ -111,6 +117,9 @@ def main(argv=None):
                    help="how fast the autonomy flies the route, m/s (default: the version's own)")
     r.add_argument('--descent-speed', type=float, dest='descent_speed',
                    help="the autonomy's landing descent, m/s (default: the version's own)")
+    r.add_argument('--arena', default='auto',
+                   help="the course flown in: auto (a chosen option's arena, else step), step (the STEP as "
+                        "exported) or taped-2026-11-08 (the course as the team taped it)")
     r.add_argument('--duration', type=float, default=150.0)
     r.add_argument('--seed', type=int, default=1)
     r.add_argument('--speed', default='max')

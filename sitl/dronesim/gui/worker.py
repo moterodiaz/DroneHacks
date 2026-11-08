@@ -7,6 +7,7 @@ GUI -> worker   ('pause',) ('resume',) ('speed', x|None) ('command', dict)
                 ('echo', topic) ('save', dir) ('stop',)
 worker -> GUI   ('ready', info) ('tel', snapshot, [log records]) ('topics', list)
                 ('echo', topic, text) ('done', result) ('saved', dir) ('error', text)
+                ('plan', plan for the map or None): once each time the version's plan changes
 """
 from __future__ import annotations
 
@@ -52,6 +53,7 @@ def worker_main(conn, scenario_dict, speed):
     wall_last = REAL_PERF()
     tel_last = 0.0
     topics_last = 0.0
+    plan_sent = 0
     try:
         while True:
             while conn.poll():
@@ -109,6 +111,10 @@ def worker_main(conn, scenario_dict, speed):
                 batch = logs[:]
                 logs.clear()
                 conn.send(('tel', snap, batch))
+                rev = getattr(sim, 'plan_rev', 0)
+                if rev != plan_sent:
+                    plan_sent = rev
+                    conn.send(('plan', sim.plan_for_display()))
             if now - topics_last > 1.0:
                 topics_last = now
                 conn.send(('topics', sim.topics()))
